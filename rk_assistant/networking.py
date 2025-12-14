@@ -61,6 +61,9 @@ def setup_bluetooth() -> bool:
     except Exception as e:
         print(f"[bluetooth] Setup error: {e}", flush=True)
         return False
+
+
+def is_online(host: str = "1.1.1.1", port: int = 53, timeout: float = 1.5) -> bool:
     """Cheap online check using UDP socket."""
     try:
         socket.setdefaulttimeout(timeout)
