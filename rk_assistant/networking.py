@@ -138,7 +138,7 @@ def post_audio_to_backend(audio_path: Path, slug: str) -> Dict[str, Any]:
 
 def post_text_to_backend(text: str, slug: str) -> Dict[str, Any]:
     """Send transcription text to backend. Returns parsed JSON or {} on error."""
-    url = f"{BACKEND_URL}/{slug}"
+    url = f"{BACKEND_BASE_URL}/text/{slug}"
     payload = {"text": text}
     try:
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
