@@ -9,7 +9,7 @@ import dbus.mainloop.glib
 import dbus.service
 import json
 from gi.repository import GLib
-from networking import apply_wifi_credentials, read_slug, post_audio_to_backend
+from .networking import apply_wifi_credentials, read_slug, post_audio_to_backend
 
 BLUEZ_SERVICE_NAME = 'org.bluez'
 LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
