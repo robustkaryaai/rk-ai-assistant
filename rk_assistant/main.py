@@ -313,7 +313,7 @@ def text_input_flow(slug: str) -> None:
     print("[text-mode] ✓ Wake word 'rk' detected!", flush=True)
     
     # Convert text to audio file (TTS)
-    print(f"[text-mode] Converting text to audio: '{text}'", flush=True)
+    print(f"[text-mode] Converting text to audio...", flush=True)
     tts_audio_path = synthesize_to_wav(text, LAST_AUDIO.parent / "tts_command.wav")
     
     if not tts_audio_path:
@@ -321,50 +321,86 @@ def text_input_flow(slug: str) -> None:
         speak("Error converting to audio.")
         return
     
-    print(f"[text-mode] TTS audio created: {tts_audio_path}", flush=True)
-    
     # Send TTS audio to backend
-    print(f"[text-mode] Sending TTS audio to backend for slug: {slug}", flush=True)
+    print(f"[text-mode] Sending audio to backend...", flush=True)
     resp = post_audio_to_backend(tts_audio_path, slug)
     
     # Delete TTS audio
     try:
         tts_audio_path.unlink(missing_ok=True)
-        print("[text-mode] TTS audio deleted", flush=True)
-    except Exception as e:
-        print(f"[text-mode] Could not delete TTS audio: {e}", flush=True)
+    except Exception:
+        pass
     
     # Handle backend response
-    print(f"[text-mode] Backend response: {resp}", flush=True)
-    if resp.get("reply"):
-        print(f"[text-mode] Reply: {resp['reply']}")
+    # Pass empty music_proc_holder since text mode doesn't need to stop music usually
+    # But if music IS playing, we might want to stop it. Ideally we pass the real one.
+    # For now, let's create a dummy one or use a shared one if we can refactor.
+    # To keep it simple, we'll just handle the reply for speech.
+    print(f"[text-mode] Backend response received.", flush=True)
+    
+    music_proc_holder = {"proc": None} # Placeholder for text mode
+    handle_backend_reply(resp, music_proc_holder, decoder_available=False)
 
 
 def main():
-    """Main entry point - runs in text input mode for testing."""
+    """Main entry point - asks for mode selection."""
     slug = ensure_valid_slug()
     if not slug:
         print("Missing or invalid slug.txt (must contain 9-digit code).", file=sys.stderr)
         return
 
     print("\n" + "="*60)
-    print("RK AI ASSISTANT - TEXT INPUT MODE")
-    print(f"Slug: {slug}")
-    print("="*60 + "\n")
+    print("RK AI ASSISTANT STARTUP")
+    print(f"Device Slug: {slug}")
+    print("="*60)
+    print("Select Mode:")
+    print("1. Voice Mode (Wake word 'rk')")
+    print("2. Text Mode (Type commands)")
     
-    # Text input loop
+    choice = input("\nEnter choice (1 or 2): ").strip()
+
+    if choice == "2":
+        print("\n" + "="*30)
+        print("STARTING TEXT MODE")
+        print("="*30 + "\n")
+        while True:
+            try:
+                text_input_flow(slug)
+            except KeyboardInterrupt:
+                print("\n[text-mode] Exiting...")
+                break
+            except Exception as e:
+                print(f"[text-mode] Error: {e}", flush=True)
+        return
+
+    # Default to Voice Mode
+    print("\n" + "="*30)
+    print("STARTING VOICE MODE")
+    print("="*30 + "\n")
+    
+    decoder_available = load_pocketsphinx_decoder()
+    music_proc_holder = {"proc": None}
+
+    # Voice mode: standard wake word loop
     while True:
-        try:
-            text_input_flow(slug)
-        except KeyboardInterrupt:
-            print("\n[text-mode] Exiting...")
-            break
-        except Exception as e:
-            print(f"[text-mode] Error: {e}", flush=True)
+        online = is_online()
+        _state = "online" if online else "offline"
+        print(f"[state] {_state}", flush=True)
 
+        if online:
+            # Online mode: Google STT handles wake word detection inside online_flow
+            online_flow(decoder_available, music_proc_holder, slug)
+        else:
+            # Offline mode: use PocketSphinx for wake word detection
+            woke = wait_for_wake_word(decoder_available, WAKE_WORD)
+            if not woke:
+                time.sleep(1)
+                continue
+            offline_flow(decoder_available, music_proc_holder)
 
-if __name__ == "__main__":
-    main()
+        # Small idle to avoid tight loop
+        time.sleep(0.5)
+
 
 
 
