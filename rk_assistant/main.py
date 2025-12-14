@@ -291,9 +291,6 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
         _log_backend_error(error_msg, e)
         speak("Error processing voice input.")
 
-
-
-
 def text_input_flow(slug: str) -> None:
     """TEMPORARY: Text input mode for testing without audio."""
     print("\n[text-mode] Enter your prompt (or 'quit' to exit):")
@@ -346,7 +343,8 @@ def main():
     print("\n" + "="*30)
     print("Initializing rk ai...")
     print("="*30)
-    # speak("Initializing rk ai") # Optional: speak this too? User said "make it when started it first says..." probably means speak/print.
+    speak("Initializing rk ai")
+
     
     slug = ensure_valid_slug()
     if not slug:
@@ -411,5 +409,10 @@ def main():
         time.sleep(0.5)
 
 
+if __name__ == "__main__":
+    main()
 
 
+
+if __name__ == "__main__":
+    main()
