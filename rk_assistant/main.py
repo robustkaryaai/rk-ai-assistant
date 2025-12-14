@@ -55,6 +55,7 @@ from .networking import (
     generate_slug,
     is_online,
     post_audio_to_backend,
+    post_text_to_backend,
     read_slug,
     write_slug,
     setup_bluetooth,
@@ -260,38 +261,16 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                 pass
             return
         
-        # Convert transcription text back to audio file
-        print(f"[online] Converting text to audio: '{transcription}'", flush=True)
-        tts_audio_path = synthesize_to_wav(transcription, LAST_AUDIO.parent / "tts_command.wav")
-        
-        if not tts_audio_path:
-            print("[online] TTS failed, cannot create audio file", flush=True)
-            speak("Error converting to audio.")
-            try:
-                audio_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            return
-        
-        print(f"[online] TTS audio created: {tts_audio_path}", flush=True)
-        
-        # Delete original recorded audio
+        # Cleanup recording
         try:
             audio_path.unlink(missing_ok=True)
-            print("[online] Original audio deleted", flush=True)
-        except Exception as e:
-            print(f"[online] Could not delete original audio: {e}", flush=True)
-        
-        # Send TTS audio to backend
-        print(f"[online] Sending TTS audio to backend for slug: {slug}", flush=True)
-        resp = post_audio_to_backend(tts_audio_path, slug)
-        
-        # Delete TTS audio
-        try:
-            tts_audio_path.unlink(missing_ok=True)
-            print("[online] TTS audio deleted", flush=True)
-        except Exception as e:
-            print(f"[online] Could not delete TTS audio: {e}", flush=True)
+        except Exception:
+            pass
+
+        # Send TEXT to backend (Save API costs & latency)
+        # We already have the transcription from Google STT
+        print(f"[online] Sending text to backend: '{transcription}'", flush=True)
+        resp = post_text_to_backend(transcription, slug)
         
         # Handle backend response
         print(f"[online] Backend response: {resp}", flush=True)
