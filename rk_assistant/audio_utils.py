@@ -261,13 +261,18 @@ def quick_stt(decoder_available: bool, seconds: float = 3.0) -> str:
 
 
 def speak(text: str, voice: str = "hi") -> None:
-    """Speak via espeak (fast, low RAM)."""
+    """
+    Speak via espeak (fast, low RAM).
+    Includes 10s timeout to prevent hangs if audio device is blocked.
+    """
     if not text:
         return
     # Using 'hi' (Hindi) often produces an Indian-accented English in espeak
     cmd = ["espeak", f"-v{voice}", text]
     try:
-        subprocess.run(cmd, check=False)
+        subprocess.run(cmd, check=False, timeout=10)
+    except subprocess.TimeoutExpired:
+        _safe_print("[tts] espeak timed out (audio device busy?)")
     except FileNotFoundError:
         _safe_print("[tts] espeak not installed.")
 
@@ -279,14 +284,17 @@ def synthesize_to_wav(text: str, out_path: Path) -> Optional[Path]:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         # Use -v hi for Indian accent
-        subprocess.run(["espeak", "-vhi", "-w", str(out_path), text], check=True)
+        subprocess.run(["espeak", "-vhi", "-w", str(out_path), text], check=True, timeout=10)
         return out_path
+    except subprocess.TimeoutExpired:
+        _safe_print("[tts] espeak to wav timed out.")
     except FileNotFoundError:
         _safe_print("[tts] espeak not installed.")
 
     except subprocess.CalledProcessError:
         _safe_print("[tts] espeak failed to synthesize.")
     return None
+
 
 
 def play_audio_url(url: str) -> subprocess.Popen | None:
