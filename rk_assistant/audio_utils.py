@@ -277,6 +277,8 @@ def speak(text: str, voice: str = "hi") -> None:
     """
     if not text:
         return
+    
+    print(f"[speak] {text}", flush=True)
 
     # Try gTTS if available
     if GTTS_AVAILABLE:
