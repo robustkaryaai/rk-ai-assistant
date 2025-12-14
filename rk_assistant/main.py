@@ -50,7 +50,7 @@ from . audio_utils import (
     synthesize_to_wav,
     wait_for_wake_word,
 )
-from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD
+from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD, BACKEND_BASE_URL
 from .networking import (
     generate_slug,
     is_online,
