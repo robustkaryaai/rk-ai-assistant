@@ -57,6 +57,7 @@ from .networking import (
     post_audio_to_backend,
     read_slug,
     write_slug,
+    setup_bluetooth,
 )
 from .offline_commands import handle_offline_command, match_offline_command, offline_ai_reply
 from .weather_news import fetch_news, fetch_weather
@@ -353,6 +354,10 @@ def main():
     print("\n" + "="*30)
     print("Initializing rk ai...")
     print("="*30)
+    
+    # Initialize Bluetooth (Speaker)
+    setup_bluetooth()
+    
     speak("Initializing rk ai")
 
     

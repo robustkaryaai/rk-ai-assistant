@@ -61,6 +61,9 @@ NEWS_COUNTRY_DEFAULT = os.getenv("NEWS_COUNTRY_DEFAULT", "in")
 # Bluetooth RFCOMM channel
 BT_CHANNEL = int(os.getenv("BT_CHANNEL", "3"))
 
+# Bluetooth Speaker MAC (for auto-connect)
+BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "E0:C8:22:85:F8:32")
+
 # Offline command whitelist (50 max). Keep short strings for cheap checks.
 OFFLINE_COMMANDS = [
     "play music", "pause music", "resume music", "stop music",

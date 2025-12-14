@@ -290,16 +290,18 @@ def speak(text: str, voice: str = "hi") -> None:
             # Temporary file for gTTS
             tts_file = Path("temp_gtts.mp3")
             
-            # Generate MP3
-            tts = gTTS(text=text, lang=lang, tld=tld, slow=False)
-            tts.save(str(tts_file))
+            try:
+                # Generate MP3
+                tts = gTTS(text=text, lang=lang, tld=tld, slow=False)
+                tts.save(str(tts_file))
+                
+                # Play using mpg123
+                subprocess.run(["mpg123", "-q", str(tts_file)], check=False, timeout=15)
+            finally:
+                # Cleanup (always run, even if timeout occurs)
+                if tts_file.exists():
+                    tts_file.unlink()
             
-            # Play using mpg123
-            subprocess.run(["mpg123", "-q", str(tts_file)], check=False, timeout=15)
-            
-            # Cleanup
-            if tts_file.exists():
-                tts_file.unlink()
             return  # Success, skip espeak
             
         except Exception as e:

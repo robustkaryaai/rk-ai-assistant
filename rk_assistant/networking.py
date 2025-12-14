@@ -23,10 +23,44 @@ from .config import (
     BACKEND_URL,
     REQUEST_TIMEOUT,
     SLUG_FILE,
+    BLUETOOTH_SPEAKER_MAC,
 )
 
 
-def is_online(host: str = "1.1.1.1", port: int = 53, timeout: float = 1.5) -> bool:
+def setup_bluetooth() -> bool:
+    """
+    Automate Bluetooth connection on startup.
+    1. Bring up hci1 (force up).
+    2. Connect to configured speaker.
+    3. Set as default sink.
+    """
+    try:
+        # 1. Force hci1 up
+        print("[bluetooth] Ensuring hci1 is up...", flush=True)
+        subprocess.run(["sudo", "hciconfig", "hci1", "up"], check=False)
+        time.sleep(1)
+
+        # 2. Connect to speaker
+        mac = BLUETOOTH_SPEAKER_MAC
+        print(f"[bluetooth] Connecting to speaker {mac}...", flush=True)
+        # Use simple timeout with check=False to avoid crashing if already connected
+        subprocess.run(["bluetoothctl", "connect", mac], check=False, timeout=10)
+        time.sleep(2)
+        
+        # 3. Set default sink (construct name from MAC)
+        # MAC E0:C8... -> bluez_output.E0_C8..._32.1
+        # Replace : with _ and append .1 (usually)
+        sink_name = f"bluez_output.{mac.replace(':', '_')}.1"
+        print(f"[bluetooth] Setting default sink to {sink_name}...", flush=True)
+        subprocess.run(["pactl", "set-default-sink", sink_name], check=False)
+        
+        # 4. Set volume to 100%
+        subprocess.run(["pactl", "set-sink-volume", sink_name, "100%"], check=False)
+        
+        return True
+    except Exception as e:
+        print(f"[bluetooth] Setup error: {e}", flush=True)
+        return False
     """Cheap online check using UDP socket."""
     try:
         socket.setdefaulttimeout(timeout)
