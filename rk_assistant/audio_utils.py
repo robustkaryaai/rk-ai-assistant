@@ -260,10 +260,11 @@ def quick_stt(decoder_available: bool, seconds: float = 3.0) -> str:
         return ""
 
 
-def speak(text: str, voice: str = "en") -> None:
+def speak(text: str, voice: str = "hi") -> None:
     """Speak via espeak (fast, low RAM)."""
     if not text:
         return
+    # Using 'hi' (Hindi) often produces an Indian-accented English in espeak
     cmd = ["espeak", f"-v{voice}", text]
     try:
         subprocess.run(cmd, check=False)
@@ -277,10 +278,12 @@ def synthesize_to_wav(text: str, out_path: Path) -> Optional[Path]:
         return None
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        subprocess.run(["espeak", "-w", str(out_path), text], check=True)
+        # Use -v hi for Indian accent
+        subprocess.run(["espeak", "-vhi", "-w", str(out_path), text], check=True)
         return out_path
     except FileNotFoundError:
         _safe_print("[tts] espeak not installed.")
+
     except subprocess.CalledProcessError:
         _safe_print("[tts] espeak failed to synthesize.")
     return None

@@ -83,7 +83,6 @@ def _log_backend_error(error_msg: str, exception: Optional[Exception] = None) ->
     except Exception:
         pass  # Silently fail if logging fails
 
-
 def ensure_valid_slug() -> Optional[str]:
     """Get or create slug, using backend ensure endpoint."""
     slug = read_slug()
@@ -344,15 +343,25 @@ def text_input_flow(slug: str) -> None:
 
 def main():
     """Main entry point - asks for mode selection."""
+    print("\n" + "="*30)
+    print("Initializing rk ai...")
+    print("="*30)
+    # speak("Initializing rk ai") # Optional: speak this too? User said "make it when started it first says..." probably means speak/print.
+    
     slug = ensure_valid_slug()
     if not slug:
         print("Missing or invalid slug.txt (must contain 9-digit code).", file=sys.stderr)
         return
+    
+    ready_msg = "Radhe Radhe RK AI assistant is ready"
+    print(f"\n{ready_msg}")
+    speak(ready_msg)
 
     print("\n" + "="*60)
     print("RK AI ASSISTANT STARTUP")
     print(f"Device Slug: {slug}")
     print("="*60)
+
     print("Select Mode:")
     print("1. Voice Mode (Wake word 'rk')")
     print("2. Text Mode (Type commands)")
