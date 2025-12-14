@@ -41,3 +41,6 @@ backend_error_log.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets
+slug.txt
