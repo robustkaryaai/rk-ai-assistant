@@ -260,13 +260,52 @@ def quick_stt(decoder_available: bool, seconds: float = 3.0) -> str:
         return ""
 
 
+try:
+    from gtts import gTTS  # type: ignore
+    GTTS_AVAILABLE = True
+except ImportError:
+    gTTS = None
+    GTTS_AVAILABLE = False
+
+
 def speak(text: str, voice: str = "hi") -> None:
     """
-    Speak via espeak (fast, low RAM).
-    Includes 10s timeout to prevent hangs if audio device is blocked.
+    Speak text. Tries gTTS (Google Cloud) first for quality,
+    falls back to espeak (offline) if network fails.
+    
+    gTTS config: Indian English (lang='en', tld='co.in') for 'hi' or default.
     """
     if not text:
         return
+
+    # Try gTTS if available
+    if GTTS_AVAILABLE:
+        try:
+            # Determine language/accent based on voice arg
+            # 'hi' maps to English (India). Default is English (US).
+            # If user asks for 'hi', we give Indian English.
+            lang = 'en'
+            tld = 'co.in' if 'hi' in voice or 'in' in voice else 'us'
+            
+            # Temporary file for gTTS
+            tts_file = Path("temp_gtts.mp3")
+            
+            # Generate MP3
+            tts = gTTS(text=text, lang=lang, tld=tld, slow=False)
+            tts.save(str(tts_file))
+            
+            # Play using mpg123
+            subprocess.run(["mpg123", "-q", str(tts_file)], check=False, timeout=15)
+            
+            # Cleanup
+            if tts_file.exists():
+                tts_file.unlink()
+            return  # Success, skip espeak
+            
+        except Exception as e:
+            _safe_print(f"[tts] gTTS failed ({e}), falling back to espeak...")
+    
+    # Fallback to espeak
     # Using 'hi' (Hindi) often produces an Indian-accented English in espeak
     cmd = ["espeak", f"-v{voice}", text]
     try:
@@ -279,6 +318,7 @@ def speak(text: str, voice: str = "hi") -> None:
 
 def synthesize_to_wav(text: str, out_path: Path) -> Optional[Path]:
     """Render TTS to WAV using espeak. Returns file path or None."""
+    # Note: Keeping espeak for WAV generation for now as it's faster for backend upload flow
     if not text:
         return None
     out_path.parent.mkdir(parents=True, exist_ok=True)
