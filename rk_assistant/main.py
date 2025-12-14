@@ -299,24 +299,9 @@ def text_input_flow(slug: str) -> None:
     
     print("[text-mode] ✓ Wake word 'rk' detected!", flush=True)
     
-    # Convert text to audio file (TTS)
-    print(f"[text-mode] Converting text to audio...", flush=True)
-    tts_audio_path = synthesize_to_wav(text, LAST_AUDIO.parent / "tts_command.wav")
-    
-    if not tts_audio_path:
-        print("[text-mode] TTS failed, cannot create audio file", flush=True)
-        speak("Error converting to audio.")
-        return
-    
-    # Send TTS audio to backend
-    print(f"[text-mode] Sending audio to backend...", flush=True)
-    resp = post_audio_to_backend(tts_audio_path, slug)
-    
-    # Delete TTS audio
-    try:
-        tts_audio_path.unlink(missing_ok=True)
-    except Exception:
-        pass
+    # Send TEXT to backend
+    print(f"[text-mode] Sending text to backend...", flush=True)
+    resp = post_text_to_backend(text, slug)
     
     # Handle backend response
     # Pass empty music_proc_holder since text mode doesn't need to stop music usually
