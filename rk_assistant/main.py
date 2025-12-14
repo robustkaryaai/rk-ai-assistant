@@ -85,10 +85,16 @@ def _log_backend_error(error_msg: str, exception: Optional[Exception] = None) ->
 
 def ensure_valid_slug() -> Optional[str]:
     """Get or create slug, using backend ensure endpoint."""
-    slug = read_slug()
+    slug, verified = read_slug()
+    
+    if slug and verified:
+        print(f"[slug] Locally verified slug: {slug}")
+        return slug
+
     if not slug:
         slug = generate_slug()
-        write_slug(slug)
+        # New slugs are not verified yet
+        write_slug(slug, verified=False)
         print(f"[slug] Generated new slug: {slug}")
     
     # Use backend ensure endpoint (auto-creates if needed)
@@ -106,6 +112,10 @@ def ensure_valid_slug() -> Optional[str]:
                 print(f"[slug] ✓ Device created in backend for slug: {slug}")
             else:
                 print(f"[slug] ✓ Device already exists for slug: {slug}")
+            
+            # Update local file to mark as verified
+            write_slug(slug, verified=True)
+            print(f"[slug] Marked slug as verified locally.")
             return slug
         else:
             print(f"[slug] Backend ensure failed: HTTP {resp.status_code}", file=sys.stderr)

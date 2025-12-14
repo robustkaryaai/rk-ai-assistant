@@ -37,18 +37,39 @@ def is_online(host: str = "1.1.1.1", port: int = 53, timeout: float = 1.5) -> bo
         return False
 
 
-def read_slug() -> Optional[str]:
+def read_slug() -> tuple[Optional[str], bool]:
+    """
+    Read slug.txt.
+    Returns (slug_string, is_verified_bool).
+    """
     path = Path(SLUG_FILE)
     if not path.exists():
-        return None
-    slug = path.read_text().strip()
-    if slug and slug.isdigit() and len(slug) == 9:
-        return slug
-    return None
+        return None, False
+    
+    lines = path.read_text().strip().splitlines()
+    if not lines:
+        return None, False
+        
+    slug = lines[0].strip()
+    if not (slug.isdigit() and len(slug) == 9):
+        return None, False
+        
+    verified = False
+    if len(lines) > 1:
+        verified = (lines[1].strip().lower() == "true")
+        
+    return slug, verified
 
 
-def write_slug(slug: str) -> None:
-    Path(SLUG_FILE).write_text(slug)
+def write_slug(slug: str, verified: bool = False) -> None:
+    """
+    Write slug to slug.txt.
+    If verified is True, writes 'true' on second line.
+    """
+    content = f"{slug}"
+    if verified:
+        content += "\ntrue"
+    Path(SLUG_FILE).write_text(content)
 
 
 def generate_slug() -> str:
@@ -153,42 +174,6 @@ def apply_wifi_credentials(ssid: str, password: str) -> bool:
         return False
 
 
-def create_appwrite_user(slug: str) -> bool:
-    """Create user record in Appwrite. Returns True on success."""
-    required = [
-        APPWRITE_ENDPOINT,
-        APPWRITE_PROJECT_ID,
-        APPWRITE_API_KEY,
-        APPWRITE_DB_ID,
-        APPWRITE_USERS_COLLECTION,
-    ]
-    if not all(required):
-        return False
 
-    url = f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DB_ID}/collections/{APPWRITE_USERS_COLLECTION}/documents"
-    headers = {
-        "X-Appwrite-Project": APPWRITE_PROJECT_ID,
-        "X-Appwrite-Key": APPWRITE_API_KEY,
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "documentId": slug,
-        "data": {
-            "slug": slug,
-            "subscription": "false",
-            "name_of_device": f"RK AI {slug}",
-            "storageUsing": "supabase",
-        },
-    }
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
-        return resp.ok
-    except Exception:
-        return False
-
-
-def validate_slug_with_backend(audio_path: Path, slug: str) -> Dict[str, Any]:
-    """Send probe audio to backend to check slug validity."""
-    return post_audio_to_backend(audio_path, slug)
 
 
