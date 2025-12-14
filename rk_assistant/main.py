@@ -61,6 +61,7 @@ from .networking import (
 )
 from .offline_commands import handle_offline_command, match_offline_command, offline_ai_reply
 from .weather_news import fetch_news, fetch_weather
+from .provisioning_service import start_ble_service
 
 
 def _speak_twice(text: str) -> None:
@@ -374,6 +375,14 @@ def main():
     print("RK AI ASSISTANT STARTUP")
     print(f"Device Slug: {slug}")
     print("="*60)
+    
+    # Start BLE Provisioning Service (Daemon Thread)
+    try:
+        ble_thread = threading.Thread(target=start_ble_service, args=(slug,), daemon=True)
+        ble_thread.start()
+        print(f"[ble] Provisioning service started for {slug}")
+    except Exception as e:
+        print(f"[ble] Failed to start service: {e}", file=sys.stderr)
 
     print("Select Mode:")
     print("1. Voice Mode (Wake word 'rk')")

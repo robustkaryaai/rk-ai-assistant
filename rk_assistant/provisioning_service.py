@@ -1,0 +1,262 @@
+"""
+BLE Provisioning Service for RK AI Assistant.
+Uses dbus/bluez to advertise 'RK-AI-{SLUG}' and accept Wi-Fi credentials.
+"""
+
+import sys
+import dbus
+import dbus.mainloop.glib
+import dbus.service
+import json
+from gi.repository import GLib
+from networking import apply_wifi_credentials, read_slug, post_audio_to_backend
+
+BLUEZ_SERVICE_NAME = 'org.bluez'
+LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
+DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
+DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
+
+LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
+GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
+GATT_SERVICE_IFACE = 'org.bluez.GattService1'
+GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
+
+# Custom UUIDs
+# Provisioning Service
+PROVISIONING_SVC_UUID = '00000001-710e-4a5b-8d75-3e5b444bc3cf'
+# Credentials Characteristic (Write)
+CREDENTIALS_CHRC_UUID = '00000002-710e-4a5b-8d75-3e5b444bc3cf'
+
+class Application(dbus.service.Object):
+    def __init__(self, bus):
+        self.path = '/'
+        self.services = []
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    def add_service(self, service):
+        self.services.append(service)
+
+    @dbus.service.method(DBUS_OM_IFACE, out_signature='a{oa{sa{sv}}}')
+    def GetManagedObjects(self):
+        response = {}
+        for service in self.services:
+            response[service.get_path()] = service.get_properties()
+            chrcs = service.get_characteristics()
+            for chrc in chrcs:
+                response[chrc.get_path()] = chrc.get_properties()
+        return response
+
+class Service(dbus.service.Object):
+    PATH_BASE = '/org/bluez/example/service'
+    def __init__(self, bus, index, uuid, primary):
+        self.path = self.PATH_BASE + str(index)
+        self.bus = bus
+        self.uuid = uuid
+        self.primary = primary
+        self.characteristics = []
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        return {
+            GATT_SERVICE_IFACE: {
+                'UUID': self.uuid,
+                'Primary': self.primary,
+                'Characteristics': dbus.Array(
+                    self.get_characteristic_paths(),
+                    signature='o')
+            }
+        }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    def add_characteristic(self, characteristic):
+        self.characteristics.append(characteristic)
+
+    def get_characteristic_paths(self):
+        result = []
+        for chrc in self.characteristics:
+            result.append(chrc.get_path())
+        return result
+
+    def get_characteristics(self):
+        return self.characteristics
+
+class Characteristic(dbus.service.Object):
+    def __init__(self, bus, index, uuid, flags, service):
+        self.path = service.path + '/char' + str(index)
+        self.bus = bus
+        self.uuid = uuid
+        self.service = service
+        self.flags = flags
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        return {
+            GATT_CHRC_IFACE: {
+                'Service': self.service.get_path(),
+                'UUID': self.uuid,
+                'Flags': self.flags,
+            }
+        }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
+    def ReadValue(self, options):
+        # Default empty read
+        return []
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
+    def WriteValue(self, value, options):
+        # Override this
+        pass
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StartNotify(self):
+        pass
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StopNotify(self):
+        pass
+
+class CredentialsChrc(Characteristic):
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(
+                self, bus, index,
+                CREDENTIALS_CHRC_UUID,
+                ['write'],
+                service)
+
+    def WriteValue(self, value, options):
+        # Convert dbus bytes to string
+        try:
+            json_str = bytearray(value).decode('utf-8')
+            print(f"[ble] Received credentials data: {json_str}", flush=True)
+            data = json.loads(json_str)
+            ssid = data.get('ssid')
+            password = data.get('password')
+            
+            if ssid:
+                print(f"[ble] Applying WiFi: SSID={ssid}", flush=True)
+                success = apply_wifi_credentials(ssid, password or "")
+                if success:
+                    print("[ble] WiFi credentials applied successfully.", flush=True)
+                else:
+                    print("[ble] Failed to apply WiFi credentials.", flush=True)
+            else:
+                 print("[ble] Invalid JSON: missing 'ssid'", flush=True)
+
+        except Exception as e:
+            print(f"[ble] Error processing write: {e}", flush=True)
+
+class ProvisioningAdvertisement(dbus.service.Object):
+    PATH_BASE = '/org/bluez/example/advertisement'
+    def __init__(self, bus, index, advertising_type, local_name):
+        self.path = self.PATH_BASE + str(index)
+        self.bus = bus
+        self.ad_type = advertising_type
+        self.service_uuids = [PROVISIONING_SVC_UUID]
+        self.local_name = local_name
+        self.include_tx_power = True
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        properties = dict()
+        properties['Type'] = self.ad_type
+        properties['ServiceUUIDs'] = dbus.Array(self.service_uuids, signature='s')
+        properties['LocalName'] = dbus.String(self.local_name)
+        properties['IncludeTxPower'] = dbus.Boolean(self.include_tx_power)
+        return {LE_ADVERTISEMENT_IFACE: properties}
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
+    def GetAll(self, interface):
+        if interface != LE_ADVERTISEMENT_IFACE:
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.UnknownInterface',
+                'The object does not implement the requested interface')
+        return self.get_properties()
+
+    @dbus.service.method(LE_ADVERTISEMENT_IFACE)
+    def Release(self):
+        print(f'{self.path}: Released!')
+
+def register_ad_cb():
+    print('[ble] Advertisement registered')
+
+def register_ad_error_cb(error):
+    print(f'[ble] Failed to register advertisement: {error}')
+
+def register_app_cb():
+    print('[ble] GATT application registered')
+
+def register_app_error_cb(error):
+    print(f'[ble] Failed to register application: {error}')
+
+def find_adapter(bus):
+    remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'), DBUS_OM_IFACE)
+    objects = remote_om.GetManagedObjects()
+    for o, props in objects.items():
+        if LE_ADVERTISING_MANAGER_IFACE in props and GATT_MANAGER_IFACE in props:
+            return o
+        print('Skip adapter:', o)
+    return None
+
+def start_ble_service(slug):
+    """Entry point to run the BLE loop. Blocking call!"""
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+    bus = dbus.SystemBus()
+    adapter = find_adapter(bus)
+    
+    if not adapter:
+        print('[ble] No BLE adapter found')
+        return
+
+    adapter_obj = bus.get_object(BLUEZ_SERVICE_NAME, adapter)
+    adapter_props = dbus.Interface(adapter_obj, DBUS_PROP_IFACE)
+    
+    # Ensure powered on
+    adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(1))
+    # Ensure Discoverable (optional, but good for finding)
+    adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(1))
+    adapter_props.Set('org.bluez.Adapter1', 'Alias', dbus.String(f'RK-AI-{slug}'))
+
+    service_manager = dbus.Interface(adapter_obj, GATT_MANAGER_IFACE)
+    ad_manager = dbus.Interface(adapter_obj, LE_ADVERTISING_MANAGER_IFACE)
+
+    app = Application(bus)
+    prov_service = Service(bus, 0, PROVISIONING_SVC_UUID, True)
+    prov_service.add_characteristic(CredentialsChrc(bus, 0, prov_service))
+    app.add_service(prov_service)
+
+    service_manager.RegisterApplication(app.get_path(), {},
+                                        reply_handler=register_app_cb,
+                                        error_handler=register_app_error_cb)
+
+    ad = ProvisioningAdvertisement(bus, 0, 'peripheral', f'RK-AI-{slug}')
+    ad_manager.RegisterAdvertisement(ad.get_path(), {},
+                                     reply_handler=register_ad_cb,
+                                     error_handler=register_ad_error_cb)
+
+    print(f'[ble] Serving GATT for RK-AI-{slug} ...')
+    
+    mainloop = GLib.MainLoop()
+    try:
+        mainloop.run()
+    except KeyboardInterrupt:
+        ad_manager.UnregisterAdvertisement(ad.get_path())
+        sys.exit(0)
+
+if __name__ == '__main__':
+    # Test run
+    slug, _ = read_slug()
+    if not slug:
+        slug = "000000000"
+    start_ble_service(slug)
