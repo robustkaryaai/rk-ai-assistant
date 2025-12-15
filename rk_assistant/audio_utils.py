@@ -27,6 +27,9 @@ from .config import (
     SAMPLE_RATE,
     POCKETSPHINX_MODEL_DIR,
     WAKE_WORD,
+    GTTS_ENABLE,
+    GTTS_PLAYBACK_TIMEOUT,
+    MPG123_OUTPUT,
 )
 
 try:
@@ -300,13 +303,6 @@ def speak(text: str, voice: str = "hi") -> None:
                     tts = gTTS(text=text, lang=lang, tld=tld, slow=False)
                     tts.save(str(tts_file))
                     
-                    try:
-                        from .config import GTTS_ENABLE, GTTS_PLAYBACK_TIMEOUT, MPG123_OUTPUT
-                    except Exception:
-                        GTTS_ENABLE = False
-                        GTTS_PLAYBACK_TIMEOUT = 10
-                        MPG123_OUTPUT = "pulse"
-                        
                     if GTTS_ENABLE:
                         outputs = [MPG123_OUTPUT, "alsa"]
                         played = False
