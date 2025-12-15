@@ -21,10 +21,10 @@ GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
 GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 
-# Custom UUIDs (Matches Mobile App / Nordic UART)
-# Provisioning Service
+# Nordic UART Service UUIDs (compatible with mobile client)
+# Service (NUS)
 PROVISIONING_SVC_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
-# Credentials Characteristic (Write)
+# RX Characteristic (Write to device)
 CREDENTIALS_CHRC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'
 
 class Application(dbus.service.Object):
@@ -139,7 +139,8 @@ class CredentialsChrc(Characteristic):
             print(f"[ble] Received credentials data: {json_str}", flush=True)
             data = json.loads(json_str)
             ssid = data.get('ssid')
-            password = data.get('pass') or data.get('password')
+            # Accept both 'password' and 'pass' keys from client
+            password = data.get('password', data.get('pass', ''))
             
             if ssid:
                 print(f"[ble] Applying WiFi: SSID={ssid}", flush=True)
@@ -226,7 +227,7 @@ def start_ble_service(slug):
     adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(1))
     # Ensure Discoverable (optional, but good for finding)
     adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(1))
-    adapter_props.Set('org.bluez.Adapter1', 'Alias', dbus.String(f'RK-AI-{slug}'))
+    adapter_props.Set('org.bluez.Adapter1', 'Alias', dbus.String(f'rk-ai-{slug}'))
 
     service_manager = dbus.Interface(adapter_obj, GATT_MANAGER_IFACE)
     ad_manager = dbus.Interface(adapter_obj, LE_ADVERTISING_MANAGER_IFACE)
@@ -240,7 +241,7 @@ def start_ble_service(slug):
                                         reply_handler=register_app_cb,
                                         error_handler=register_app_error_cb)
 
-    ad = ProvisioningAdvertisement(bus, 0, 'peripheral', f'RK-AI-{slug}')
+    ad = ProvisioningAdvertisement(bus, 0, 'peripheral', f'rk-ai-{slug}')
     ad_manager.RegisterAdvertisement(ad.get_path(), {},
                                      reply_handler=register_ad_cb,
                                      error_handler=register_ad_error_cb)
