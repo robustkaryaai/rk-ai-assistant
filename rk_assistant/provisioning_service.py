@@ -171,20 +171,24 @@ class NoInputNoOutputAgent(dbus.service.Object):
     def AuthorizeService(self, device, uuid):
         return
 
-    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
     def RequestPinCode(self, device):
-        return dbus.UInt32(0)
+        return dbus.String("0000")
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
     def RequestPasskey(self, device):
         return dbus.UInt32(0)
 
-    @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
-    def DisplayPasskey(self, device, passkey):
+    @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
+    def DisplayPinCode(self, device, pincode):
         return
 
-    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
-    def RequestConfirmation(self, device):
+    @dbus.service.method(AGENT_IFACE, in_signature='ouq', out_signature='')
+    def DisplayPasskey(self, device, passkey, entered):
+        return
+
+    @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
+    def RequestConfirmation(self, device, passkey):
         return
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
@@ -283,8 +287,10 @@ def start_ble_service(slug):
     
     # Ensure powered on
     adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(1))
-    # Ensure Discoverable (optional, but good for finding)
-    adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(1))
+    # Keep classic BT non-discoverable to avoid phone-to-Pi media relay
+    adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(0))
+    # Allow BLE pairing/bonding for GATT (agent enforces NoInputNoOutput)
+    adapter_props.Set('org.bluez.Adapter1', 'Pairable', dbus.Boolean(1))
     adapter_props.Set('org.bluez.Adapter1', 'Alias', dbus.String(f'rk-ai-{slug}'))
 
     service_manager = dbus.Interface(adapter_obj, GATT_MANAGER_IFACE)
