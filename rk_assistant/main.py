@@ -204,42 +204,65 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
     try:
         if getattr(audio_utils, "SPEECH_RECOGNITION_AVAILABLE", False) and getattr(audio_utils, "sr", None) is not None:
             recognizer = audio_utils.sr.Recognizer()
-            mic = audio_utils.sr.Microphone()
-            handled = {"done": False}
-            def _cb(recognizer_cb, audio_cb):
-                try:
-                    text = recognizer.recognize_google(audio_cb)
-                    print(f"[online] Google STT: '{text}'", flush=True)
-                    low = text.lower()
-                    if "rk" not in low:
-                        return
-                    print("[online] ✓ Wake word 'rk' detected in transcription!", flush=True)
-                    if "pause" in low:
-                        stop_process(music_proc_holder.get("proc"))
-                        speak("Paused.")
-                    elif "volume up" in low:
-                        set_volume(+5)
-                        speak("Volume up.")
-                    elif "volume down" in low:
-                        set_volume(-5)
-                        speak("Volume down.")
-                    else:
-                        print(f"[online] Sending text to backend: '{text}'", flush=True)
-                        resp = post_text_to_backend(text, slug)
-                        print(f"[online] Backend response: {resp}", flush=True)
-                        handle_backend_reply(resp, music_proc_holder, decoder_available)
-                    handled["done"] = True
-                except Exception as e:
-                    print(f"[stt] Live STT error: {e}", flush=True)
-            stop_fn = recognizer.listen_in_background(mic, _cb, phrase_time_limit=3)
-            start = time.time()
-            while not handled["done"] and (time.time() - start) < 15:
-                time.sleep(0.2)
+            recognizer.dynamic_energy_threshold = True
+            mic = None
             try:
-                stop_fn(wait_for_stop=False)
-            except Exception:
-                pass
-            return
+                from .config import MIC_DEVICE_INDEX, MIC_SAMPLE_RATE
+                mic = audio_utils.sr.Microphone(device_index=(None if MIC_DEVICE_INDEX < 0 else MIC_DEVICE_INDEX), sample_rate=MIC_SAMPLE_RATE)
+            except Exception as e:
+                typ = type(e).__name__
+                print(f"[stt] Microphone open failed ({typ}): {e}", flush=True)
+            if mic is not None:
+                try:
+                    with mic as source:
+                        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                except Exception as e:
+                    typ = type(e).__name__
+                    print(f"[stt] Ambient noise calibration failed ({typ}): {e}", flush=True)
+                handled = {"done": False}
+                def _cb(recognizer_cb, audio_cb):
+                    try:
+                        text = recognizer.recognize_google(audio_cb)
+                        print(f"[online] Google STT: '{text}'", flush=True)
+                        low = text.lower()
+                        if "rk" not in low:
+                            return
+                        print("[online] ✓ Wake word 'rk' detected in transcription!", flush=True)
+                        if "pause" in low:
+                            stop_process(music_proc_holder.get("proc"))
+                            speak("Paused.")
+                        elif "volume up" in low:
+                            set_volume(+5)
+                            speak("Volume up.")
+                        elif "volume down" in low:
+                            set_volume(-5)
+                            speak("Volume down.")
+                        else:
+                            print(f"[online] Sending text to backend: '{text}'", flush=True)
+                            resp = post_text_to_backend(text, slug)
+                            print(f"[online] Backend response: {resp}", flush=True)
+                            handle_backend_reply(resp, music_proc_holder, decoder_available)
+                        handled["done"] = True
+                    except Exception as e:
+                        typ = type(e).__name__
+                        msg = str(e) or typ
+                        print(f"[stt] Live STT error: {msg}", flush=True)
+                try:
+                    stop_fn = recognizer.listen_in_background(mic, _cb, phrase_time_limit=4)
+                except Exception as e:
+                    typ = type(e).__name__
+                    print(f"[stt] listen_in_background failed ({typ}): {e}", flush=True)
+                    stop_fn = None
+                start = time.time()
+                while not handled["done"] and (time.time() - start) < 15:
+                    time.sleep(0.2)
+                if stop_fn:
+                    try:
+                        stop_fn(wait_for_stop=False)
+                    except Exception:
+                        pass
+                if handled["done"]:
+                    return
         print("[online] Recording and using Google STT...", flush=True)
         audio_path = record_until_silence(LAST_AUDIO, silence_duration=2.0)
         print(f"[online] Audio recorded to {audio_path}", flush=True)

@@ -43,6 +43,10 @@ CHANNELS = 1
 MAX_RECORD_SECONDS = 15  # safety cap to avoid memory use
 WAKE_WORD = "rk"
 
+# Microphone configuration for live STT
+MIC_DEVICE_INDEX = int(os.getenv("MIC_DEVICE_INDEX", "-1"))  # -1 for default
+MIC_SAMPLE_RATE = int(os.getenv("MIC_SAMPLE_RATE", str(SAMPLE_RATE)))
+
 # Backend
 BACKEND_URL = "https://rk-ai-backend.onrender.com/voice"
 BACKEND_BASE_URL = "https://rk-ai-backend.onrender.com"  # Base URL for text endpoint
@@ -65,7 +69,7 @@ BT_CHANNEL = int(os.getenv("BT_CHANNEL", "3"))
 BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "E0:C8:22:85:F8:32")
 
 # Preferred BlueZ adapter (default hci0 on Raspberry Pi)
-BLUETOOTH_HCI = os.getenv("BLUETOOTH_HCI", "hci0")
+BLUETOOTH_HCI = os.getenv("BLUETOOTH_HCI", "hci1")
 
 # Offline command whitelist (50 max). Keep short strings for cheap checks.
 OFFLINE_COMMANDS = [
