@@ -16,6 +16,8 @@ BLUEZ_SERVICE_NAME = 'org.bluez'
 LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
 DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
 DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
+AGENT_MANAGER_IFACE = 'org.bluez.AgentManager1'
+AGENT_IFACE = 'org.bluez.Agent1'
 
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
@@ -156,6 +158,43 @@ class CredentialsChrc(Characteristic):
         except Exception as e:
             print(f"[ble] Error processing write: {e}", flush=True)
 
+class NoInputNoOutputAgent(dbus.service.Object):
+    def __init__(self, bus, path):
+        dbus.service.Object.__init__(self, bus, path)
+        self.path = path
+
+    @dbus.service.method(AGENT_IFACE)
+    def Release(self):
+        pass
+
+    @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
+    def AuthorizeService(self, device, uuid):
+        return
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
+    def RequestPinCode(self, device):
+        return dbus.UInt32(0)
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
+    def RequestPasskey(self, device):
+        return dbus.UInt32(0)
+
+    @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
+    def DisplayPasskey(self, device, passkey):
+        return
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
+    def RequestConfirmation(self, device):
+        return
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
+    def RequestAuthorization(self, device):
+        return
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
+    def Cancel(self, device):
+        return
+
 class ProvisioningAdvertisement(dbus.service.Object):
     PATH_BASE = '/org/bluez/example/advertisement'
     def __init__(self, bus, index, advertising_type, local_name):
@@ -222,6 +261,16 @@ def start_ble_service(slug):
     """Entry point to run the BLE loop. Blocking call!"""
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
+    
+    try:
+        agent_path = "/org/bluez/rk_ai_agent"
+        agent = NoInputNoOutputAgent(bus, agent_path)
+        mgr = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, "/org/bluez"), AGENT_MANAGER_IFACE)
+        mgr.RegisterAgent(dbus.ObjectPath(agent_path), "NoInputNoOutput")
+        mgr.RequestDefaultAgent(dbus.ObjectPath(agent_path))
+        print("[ble] Pairing agent registered (NoInputNoOutput)")
+    except Exception as e:
+        print(f"[ble] Failed to register agent: {e}")
     
     adapter = find_adapter(bus)
     

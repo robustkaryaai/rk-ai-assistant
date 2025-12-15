@@ -1,46 +1,6 @@
+.env
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.Python
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-
-# Virtual environment
-venv/
-env/
-ENV/
-bin/
-lib/
-lib64/
-include/
-pyvenv.cfg
-
-# Data files
-rk_assistant/data/
-*.wav
-*.mp3
-
-# Logs
-*.log
-backend_error_log.txt
-
-# Environment
-.env
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Secrets
-slug.txt
+rk_assistant/data/
+dialogue_example.mp4
