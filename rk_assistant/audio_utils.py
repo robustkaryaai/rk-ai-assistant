@@ -298,7 +298,11 @@ def speak(text: str, voice: str = "hi") -> None:
                 tts.save(str(tts_file))
                 
                 # Play using mpg123
-                subprocess.run(["mpg123", "-q", str(tts_file)], check=False, timeout=15)
+                try:
+                    subprocess.run(["pkill", "-f", "mpg123"], check=False)
+                except Exception:
+                    pass
+                subprocess.run(["mpg123", "-q", str(tts_file)], check=False, timeout=5)
             finally:
                 # Cleanup (always run, even if timeout occurs)
                 if tts_file.exists():
@@ -428,4 +432,3 @@ def _pocketsphinx_transcribe(audio_path: Path) -> str:
     except Exception as exc:
         _safe_print(f"[stt] Error in PocketSphinx transcription: {exc}")
         return ""
-

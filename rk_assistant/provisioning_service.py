@@ -173,11 +173,11 @@ class NoInputNoOutputAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
     def RequestPinCode(self, device):
-        raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'NoInputNoOutput')
+        return dbus.String("0000")
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
     def RequestPasskey(self, device):
-        raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'NoInputNoOutput')
+        return dbus.UInt32(0)
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def DisplayPinCode(self, device, pincode):
@@ -270,9 +270,9 @@ def start_ble_service(slug):
         agent_path = "/org/bluez/rk_ai_agent"
         agent = NoInputNoOutputAgent(bus, agent_path)
         mgr = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, "/org/bluez"), AGENT_MANAGER_IFACE)
-        mgr.RegisterAgent(dbus.ObjectPath(agent_path), "NoInputNoOutput")
+        mgr.RegisterAgent(dbus.ObjectPath(agent_path), "DisplayYesNo")
         mgr.RequestDefaultAgent(dbus.ObjectPath(agent_path))
-        print("[ble] Pairing agent registered (NoInputNoOutput)")
+        print("[ble] Pairing agent registered (DisplayYesNo)")
     except Exception as e:
         print(f"[ble] Failed to register agent: {e}")
     
