@@ -200,41 +200,65 @@ def offline_flow(decoder_available: bool, music_proc_holder: dict) -> None:
 
 
 def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> None:
-    """Handle online flow - use Google STT to detect wake word and process command."""
-    print("[online] Recording and using Google STT...", flush=True)
-    
+    print("[online] Streaming Google STT...", flush=True)
     try:
-        # Record audio until 2 seconds of silence
-        print("[online] Recording audio (will stop after 2s of silence)...", flush=True)
+        if getattr(audio_utils, "SPEECH_RECOGNITION_AVAILABLE", False) and getattr(audio_utils, "sr", None) is not None:
+            recognizer = audio_utils.sr.Recognizer()
+            mic = audio_utils.sr.Microphone()
+            handled = {"done": False}
+            def _cb(recognizer_cb, audio_cb):
+                try:
+                    text = recognizer.recognize_google(audio_cb)
+                    print(f"[online] Google STT: '{text}'", flush=True)
+                    low = text.lower()
+                    if "rk" not in low:
+                        return
+                    print("[online] ✓ Wake word 'rk' detected in transcription!", flush=True)
+                    if "pause" in low:
+                        stop_process(music_proc_holder.get("proc"))
+                        speak("Paused.")
+                    elif "volume up" in low:
+                        set_volume(+5)
+                        speak("Volume up.")
+                    elif "volume down" in low:
+                        set_volume(-5)
+                        speak("Volume down.")
+                    else:
+                        print(f"[online] Sending text to backend: '{text}'", flush=True)
+                        resp = post_text_to_backend(text, slug)
+                        print(f"[online] Backend response: {resp}", flush=True)
+                        handle_backend_reply(resp, music_proc_holder, decoder_available)
+                    handled["done"] = True
+                except Exception as e:
+                    print(f"[stt] Live STT error: {e}", flush=True)
+            stop_fn = recognizer.listen_in_background(mic, _cb, phrase_time_limit=3)
+            start = time.time()
+            while not handled["done"] and (time.time() - start) < 15:
+                time.sleep(0.2)
+            try:
+                stop_fn(wait_for_stop=False)
+            except Exception:
+                pass
+            return
+        print("[online] Recording and using Google STT...", flush=True)
         audio_path = record_until_silence(LAST_AUDIO, silence_duration=2.0)
         print(f"[online] Audio recorded to {audio_path}", flush=True)
-        
-        # Use Google STT to transcribe
         print("[online] Transcribing with Google STT...", flush=True)
         transcription = online_stt(audio_path)
-        
         if not transcription:
-            print("[online] Google STT returned empty, trying again...", flush=True)
             try:
                 audio_path.unlink(missing_ok=True)
             except Exception:
                 pass
             return
-        
         print(f"[online] Google STT result: '{transcription}'", flush=True)
-        
-        # Check if wake word "rk" is in the transcription
         if "rk" not in transcription.lower():
-            print("[online] Wake word 'rk' not detected in transcription, ignoring...", flush=True)
             try:
                 audio_path.unlink(missing_ok=True)
             except Exception:
                 pass
             return
-        
         print("[online] ✓ Wake word 'rk' detected in transcription!", flush=True)
-        
-        # Quick check for media controls
         low = transcription.lower()
         if "pause" in low:
             stop_process(music_proc_holder.get("proc"))
@@ -260,22 +284,14 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
             except Exception:
                 pass
             return
-        
-        # Cleanup recording
         try:
             audio_path.unlink(missing_ok=True)
         except Exception:
             pass
-
-        # Send TEXT to backend (Save API costs & latency)
-        # We already have the transcription from Google STT
         print(f"[online] Sending text to backend: '{transcription}'", flush=True)
         resp = post_text_to_backend(transcription, slug)
-        
-        # Handle backend response
         print(f"[online] Backend response: {resp}", flush=True)
         handle_backend_reply(resp, music_proc_holder, decoder_available)
-        
     except Exception as e:
         error_msg = f"Error in online flow: {str(e)}"
         print(f"[error] {error_msg}", file=sys.stderr, flush=True)
