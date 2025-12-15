@@ -1,7 +1,6 @@
 """
 BLE Provisioning Service for RK AI Assistant.
 Uses dbus/bluez to advertise 'RK-AI-{SLUG}' and accept Wi-Fi credentials.
-MODIFIED to target a specific HCI adapter (hci1).
 """
 
 import sys
@@ -10,15 +9,13 @@ import dbus.mainloop.glib
 import dbus.service
 import json
 from gi.repository import GLib
-# from .networking import apply_wifi_credentials, read_slug, post_audio_to_backend # Assuming these are available
-# Place holder functions for testing without external dependencies
-def apply_wifi_credentials(ssid, password): return True
-def read_slug(): return ("000000000", None)
+from .networking import apply_wifi_credentials, read_slug, post_audio_to_backend
+from .config import BLUETOOTH_HCI
 
 BLUEZ_SERVICE_NAME = 'org.bluez'
 LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
 DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
-DBUS_PROP_IFACE = 'org.freedesktop.DBUS.Properties'
+DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
@@ -206,28 +203,19 @@ def register_app_error_cb(error):
     print(f'[ble] Failed to register application: {error}')
 
 # --- MODIFIED: Added adapter_name argument to target a specific HCI ---
-def find_adapter(bus, adapter_name='hci0'):
+def find_adapter(bus):
     remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'), DBUS_OM_IFACE)
     objects = remote_om.GetManagedObjects()
-    target_path = f'/org/bluez/{adapter_name}' # D-Bus path for the desired adapter
-
-    # 1. Check for the specific target adapter
-    for o, props in objects.items():
-        if o == target_path:
-            if LE_ADVERTISING_MANAGER_IFACE in props and GATT_MANAGER_IFACE in props:
-                print(f'[ble] Found target adapter: {o}')
-                return o
-            else:
-                print(f'[ble] Target adapter {o} found but missing required interfaces.')
-    
-    # 2. Fall back to finding any suitable adapter if target isn't found/ready
-    print(f'[ble] Target adapter {adapter_name} not found or not fully ready, searching for any suitable adapter...')
+    preferred = None
+    fallback = None
     for o, props in objects.items():
         if LE_ADVERTISING_MANAGER_IFACE in props and GATT_MANAGER_IFACE in props:
-            return o
-        print('Skip adapter:', o)
-
-    return None
+            if o.endswith(f'/{BLUETOOTH_HCI}'):
+                preferred = o
+                break
+            if not fallback:
+                fallback = o
+    return preferred or fallback
 # --- END MODIFIED ---
 
 def start_ble_service(slug):
@@ -235,9 +223,7 @@ def start_ble_service(slug):
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
     
-    # --- MODIFIED: Changed the call to look specifically for 'hci1' ---
-    adapter = find_adapter(bus, adapter_name='hci1')
-    # --- END MODIFIED ---
+    adapter = find_adapter(bus)
     
     if not adapter:
         print('[ble] No BLE adapter found')
