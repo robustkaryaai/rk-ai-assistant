@@ -46,6 +46,8 @@ WAKE_WORD = "rk"
 # Microphone configuration for live STT
 MIC_DEVICE_INDEX = int(os.getenv("MIC_DEVICE_INDEX", "-1"))  # -1 for default
 MIC_SAMPLE_RATE = int(os.getenv("MIC_SAMPLE_RATE", str(SAMPLE_RATE)))
+GTTS_ENABLE = os.getenv("GTTS_ENABLE", "0") == "1"
+GTTS_PLAYBACK_TIMEOUT = int(os.getenv("GTTS_PLAYBACK_TIMEOUT", "20"))
 
 # Backend
 BACKEND_URL = "https://rk-ai-backend.onrender.com/voice"

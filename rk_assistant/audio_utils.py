@@ -297,12 +297,28 @@ def speak(text: str, voice: str = "hi") -> None:
                 tts = gTTS(text=text, lang=lang, tld=tld, slow=False)
                 tts.save(str(tts_file))
                 
-                # Play using mpg123
+                # Play using mpg123 (non-blocking with timeout)
                 try:
-                    subprocess.run(["pkill", "-f", "mpg123"], check=False)
+                    from .config import GTTS_ENABLE, GTTS_PLAYBACK_TIMEOUT
                 except Exception:
-                    pass
-                subprocess.run(["mpg123", "-q", str(tts_file)], check=False, timeout=5)
+                    GTTS_ENABLE = False
+                    GTTS_PLAYBACK_TIMEOUT = 20
+                if GTTS_ENABLE:
+                    proc = subprocess.Popen(["mpg123", "-q", str(tts_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    try:
+                        proc.wait(timeout=GTTS_PLAYBACK_TIMEOUT)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            proc.terminate()
+                            proc.wait(timeout=2)
+                        except Exception:
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
+                        raise TimeoutError(f"mpg123 playback exceeded {GTTS_PLAYBACK_TIMEOUT}s")
+                else:
+                    raise RuntimeError("GTTS disabled by config")
             finally:
                 # Cleanup (always run, even if timeout occurs)
                 if tts_file.exists():
