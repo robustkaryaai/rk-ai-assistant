@@ -55,7 +55,7 @@ def setup_bluetooth() -> bool:
         subprocess.run(["pactl", "set-default-sink", sink_name], check=False)
         
         # 4. Set volume to 15%
-        subprocess.run(["pactl", "set-sink-volume", sink_name, "15%"], check=False)
+        subprocess.run(["pactl", "set-sink-volume", sink_name, "50%"], check=False)
         
         return True
     except Exception as e:
