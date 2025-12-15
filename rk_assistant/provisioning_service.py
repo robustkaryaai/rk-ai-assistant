@@ -136,7 +136,6 @@ class CredentialsChrc(Characteristic):
                 service)
 
     def WriteValue(self, value, options):
-        # Convert dbus bytes to string
         try:
             json_str = bytearray(value).decode('utf-8')
             print(f"[ble] Received credentials data: {json_str}", flush=True)
@@ -169,34 +168,42 @@ class NoInputNoOutputAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def AuthorizeService(self, device, uuid):
+        print(f"[ble] AuthorizeService device={device} uuid={uuid}", flush=True)
         return
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
     def RequestPinCode(self, device):
+        print(f"[ble] RequestPinCode device={device}", flush=True)
         return dbus.String("0000")
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
     def RequestPasskey(self, device):
+        print(f"[ble] RequestPasskey device={device}", flush=True)
         return dbus.UInt32(0)
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def DisplayPinCode(self, device, pincode):
+        print(f"[ble] DisplayPinCode device={device} code={pincode}", flush=True)
         return
 
     @dbus.service.method(AGENT_IFACE, in_signature='ouq', out_signature='')
     def DisplayPasskey(self, device, passkey, entered):
+        print(f"[ble] DisplayPasskey device={device} passkey={passkey} entered={entered}", flush=True)
         return
 
     @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
     def RequestConfirmation(self, device, passkey):
+        print(f"[ble] RequestConfirmation device={device} passkey={passkey} -> accepted", flush=True)
         return
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
     def RequestAuthorization(self, device):
+        print(f"[ble] RequestAuthorization device={device} -> accepted", flush=True)
         return
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
     def Cancel(self, device):
+        print(f"[ble] Agent Cancel device={device}", flush=True)
         return
 
 class ProvisioningAdvertisement(dbus.service.Object):
