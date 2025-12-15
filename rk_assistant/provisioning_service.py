@@ -21,11 +21,11 @@ GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
 GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 
-# Custom UUIDs
+# Custom UUIDs (Matches Mobile App / Nordic UART)
 # Provisioning Service
-PROVISIONING_SVC_UUID = '00000001-710e-4a5b-8d75-3e5b444bc3cf'
+PROVISIONING_SVC_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
 # Credentials Characteristic (Write)
-CREDENTIALS_CHRC_UUID = '00000002-710e-4a5b-8d75-3e5b444bc3cf'
+CREDENTIALS_CHRC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'
 
 class Application(dbus.service.Object):
     def __init__(self, bus):
@@ -139,7 +139,7 @@ class CredentialsChrc(Characteristic):
             print(f"[ble] Received credentials data: {json_str}", flush=True)
             data = json.loads(json_str)
             ssid = data.get('ssid')
-            password = data.get('password')
+            password = data.get('pass') or data.get('password')
             
             if ssid:
                 print(f"[ble] Applying WiFi: SSID={ssid}", flush=True)
