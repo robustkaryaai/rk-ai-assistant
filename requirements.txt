@@ -4,3 +4,4 @@ pocketsphinx
 SpeechRecognition
 PyAudio
 numpy
+gTTS==2.5.1

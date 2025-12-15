@@ -282,52 +282,71 @@ def speak(text: str, voice: str = "hi") -> None:
 
     # Try gTTS if available
     if GTTS_AVAILABLE:
-        try:
-            # Determine language/accent based on voice arg
-            # 'hi' maps to English (India). Default is English (US).
-            # If user asks for 'hi', we give Indian English.
-            lang = 'en'
-            tld = 'co.in' if 'hi' in voice or 'in' in voice else 'us'
-            
-            # Temporary file for gTTS
-            tts_file = Path("temp_gtts.mp3")
-            
+        # Retry loop for gTTS (3 attempts)
+        for attempt in range(1, 4):
             try:
-                # Generate MP3
-                tts = gTTS(text=text, lang=lang, tld=tld, slow=False)
-                tts.save(str(tts_file))
+                # Determine language/accent based on voice arg
+                # 'hi' maps to English (India). Default is English (US).
+                # If user asks for 'hi', we give Indian English.
+                lang = 'en'
+                tld = 'co.in' if 'hi' in voice or 'in' in voice else 'us'
                 
-                # Play using mpg123 (non-blocking with timeout)
+                # Temporary file for gTTS
+                tts_file = Path("temp_gtts.mp3")
+                
                 try:
-                    from .config import GTTS_ENABLE, GTTS_PLAYBACK_TIMEOUT
-                except Exception:
-                    GTTS_ENABLE = False
-                    GTTS_PLAYBACK_TIMEOUT = 20
-                if GTTS_ENABLE:
-                    proc = subprocess.Popen(["mpg123", "-q", str(tts_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    # Attempt generation
+                    _safe_print(f"[tts] gTTS attempt {attempt}...")
+                    tts = gTTS(text=text, lang=lang, tld=tld, slow=False)
+                    tts.save(str(tts_file))
+                    
                     try:
-                        proc.wait(timeout=GTTS_PLAYBACK_TIMEOUT)
-                    except subprocess.TimeoutExpired:
-                        try:
-                            proc.terminate()
-                            proc.wait(timeout=2)
-                        except Exception:
+                        from .config import GTTS_ENABLE, GTTS_PLAYBACK_TIMEOUT, MPG123_OUTPUT
+                    except Exception:
+                        GTTS_ENABLE = False
+                        GTTS_PLAYBACK_TIMEOUT = 10
+                        MPG123_OUTPUT = "pulse"
+                        
+                    if GTTS_ENABLE:
+                        outputs = [MPG123_OUTPUT, "alsa"]
+                        played = False
+                        for out in outputs:
                             try:
-                                proc.kill()
-                            except Exception:
-                                pass
-                        raise TimeoutError(f"mpg123 playback exceeded {GTTS_PLAYBACK_TIMEOUT}s")
+                                proc = subprocess.Popen(["mpg123", "-q", "-o", out, str(tts_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                try:
+                                    proc.wait(timeout=GTTS_PLAYBACK_TIMEOUT)
+                                    played = True
+                                    break
+                                except subprocess.TimeoutExpired:
+                                    try:
+                                        proc.terminate()
+                                        proc.wait(timeout=2)
+                                    except Exception:
+                                        try:
+                                            proc.kill()
+                                        except Exception:
+                                            pass
+                            except FileNotFoundError:
+                                break
+                        if not played:
+                            raise TimeoutError(f"mpg123 playback timeout {GTTS_PLAYBACK_TIMEOUT}s")
+                    else:
+                        raise RuntimeError("GTTS disabled by config")
+                        
+                    # If we got here, success
+                    return
+
+                finally:
+                    # Cleanup (always run after each attempt)
+                    if tts_file.exists():
+                        tts_file.unlink()
+                
+            except Exception as e:
+                _safe_print(f"[tts] gTTS attempt {attempt} failed: {e}")
+                if attempt < 3:
+                     time.sleep(1) # Wait a bit before retry
                 else:
-                    raise RuntimeError("GTTS disabled by config")
-            finally:
-                # Cleanup (always run, even if timeout occurs)
-                if tts_file.exists():
-                    tts_file.unlink()
-            
-            return  # Success, skip espeak
-            
-        except Exception as e:
-            _safe_print(f"[tts] gTTS failed ({e}), falling back to espeak...")
+                     _safe_print("[tts] gTTS failed after 3 attempts, falling back to espeak...")
     
     # Fallback to espeak
     # Using 'hi' (Hindi) often produces an Indian-accented English in espeak
