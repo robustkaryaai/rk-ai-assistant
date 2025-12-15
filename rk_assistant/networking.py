@@ -24,6 +24,7 @@ from .config import (
     REQUEST_TIMEOUT,
     SLUG_FILE,
     BLUETOOTH_SPEAKER_MAC,
+    BLUETOOTH_HCI,
 )
 
 
@@ -35,9 +36,9 @@ def setup_bluetooth() -> bool:
     3. Set as default sink.
     """
     try:
-        # 1. Force hci1 up
-        print("[bluetooth] Ensuring hci1 is up...", flush=True)
-        subprocess.run(["sudo", "hciconfig", "hci1", "up"], check=False)
+        # 1. Force adapter up
+        print(f"[bluetooth] Ensuring {BLUETOOTH_HCI} is up...", flush=True)
+        subprocess.run(["sudo", "hciconfig", BLUETOOTH_HCI, "up"], check=False)
         time.sleep(1)
 
         # 2. Connect to speaker
@@ -209,7 +210,6 @@ def apply_wifi_credentials(ssid: str, password: str) -> bool:
     except Exception as e:
         print("Error:", e)
         return False
-
 
 
 

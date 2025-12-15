@@ -287,8 +287,8 @@ def start_ble_service(slug):
     
     # Ensure powered on
     adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(1))
-    # Keep classic BT non-discoverable to avoid phone-to-Pi media relay
-    adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(0))
+    # Make device visible so users can find it; agent enforces NoInputNoOutput
+    adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(1))
     # Allow BLE pairing/bonding for GATT (agent enforces NoInputNoOutput)
     adapter_props.Set('org.bluez.Adapter1', 'Pairable', dbus.Boolean(1))
     adapter_props.Set('org.bluez.Adapter1', 'Alias', dbus.String(f'rk-ai-{slug}'))

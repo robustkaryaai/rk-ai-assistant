@@ -64,8 +64,8 @@ BT_CHANNEL = int(os.getenv("BT_CHANNEL", "3"))
 # Bluetooth Speaker MAC (for auto-connect)
 BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "E0:C8:22:85:F8:32")
 
-# Preferred BlueZ adapter (e.g., hci1)
-BLUETOOTH_HCI = os.getenv("BLUETOOTH_HCI", "hci1")
+# Preferred BlueZ adapter (default hci0 on Raspberry Pi)
+BLUETOOTH_HCI = os.getenv("BLUETOOTH_HCI", "hci0")
 
 # Offline command whitelist (50 max). Keep short strings for cheap checks.
 OFFLINE_COMMANDS = [
@@ -99,4 +99,3 @@ APPWRITE_PROJECT_ID = os.getenv("APPWRITE_PROJECT_ID", "")
 APPWRITE_API_KEY = os.getenv("APPWRITE_API_KEY", "")
 APPWRITE_DB_ID = os.getenv("APPWRITE_DB_ID", "")
 APPWRITE_USERS_COLLECTION = os.getenv("APPWRITE_USERS_COLLECTION", "")
-
