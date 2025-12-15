@@ -173,11 +173,11 @@ class NoInputNoOutputAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
     def RequestPinCode(self, device):
-        return dbus.String("0000")
+        raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'NoInputNoOutput')
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
     def RequestPasskey(self, device):
-        return dbus.UInt32(0)
+        raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'NoInputNoOutput')
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def DisplayPinCode(self, device, pincode):

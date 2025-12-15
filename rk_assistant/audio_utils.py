@@ -415,7 +415,9 @@ def _pocketsphinx_transcribe(audio_path: Path) -> str:
     """Transcribe audio file using PocketSphinx (offline fallback)."""
     if not POCKETSPHINX_AVAILABLE or LiveSpeech is None:
         return ""
-    
+    # SpeechRecognition may be unavailable; in that case, skip file-based sphinx
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return ""
     try:
         recognizer = sr.Recognizer()
         with sr.AudioFile(str(audio_path)) as source:
@@ -423,11 +425,7 @@ def _pocketsphinx_transcribe(audio_path: Path) -> str:
         text = recognizer.recognize_sphinx(audio)
         _safe_print(f"[stt] PocketSphinx recognized: {text}")
         return text
-    except sr.UnknownValueError:
-        _safe_print("[stt] PocketSphinx could not understand audio")
-        return ""
     except Exception as exc:
         _safe_print(f"[stt] Error in PocketSphinx transcription: {exc}")
         return ""
-
 
