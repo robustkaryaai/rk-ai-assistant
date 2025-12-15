@@ -168,8 +168,31 @@ class NoInputNoOutputAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def AuthorizeService(self, device, uuid):
-        print(f"[ble] AuthorizeService device={device} uuid={uuid}", flush=True)
-        return
+        try:
+            u = str(uuid).lower()
+            print(f"[ble] AuthorizeService device={device} uuid={u}", flush=True)
+            # Allow our BLE provisioning service only
+            if u == PROVISIONING_SVC_UUID:
+                print(f"[ble] Authorization accepted for provisioning service {u}", flush=True)
+                return
+            # Reject classic media/call profiles to avoid "car play" behavior
+            classic_block = {
+                '0000110d-0000-1000-8000-00805f9b34fb',  # A2DP
+                '0000110e-0000-1000-8000-00805f9b34fb',  # AVRCP
+                '0000111e-0000-1000-8000-00805f9b34fb',  # Handsfree
+                '00001108-0000-1000-8000-00805f9b34fb',  # Headset
+            }
+            if u in classic_block:
+                print(f"[ble] Authorization rejected for classic profile {u}", flush=True)
+                raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Classic profile disabled')
+            # Default: reject unknown services
+            print(f"[ble] Authorization rejected for unknown service {u}", flush=True)
+            raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Service not permitted')
+        except dbus.exceptions.DBusException:
+            raise
+        except Exception as e:
+            print(f"[ble] AuthorizeService error: {e}", flush=True)
+            raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Internal error')
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
     def RequestPinCode(self, device):
