@@ -29,6 +29,8 @@ from .config import (
     WAKE_WORD,
     GTTS_ENABLE,
     GTTS_PLAYBACK_TIMEOUT,
+    GTTS_LANG,
+    GTTS_TLD,
     MPG123_OUTPUT,
 )
 
@@ -288,11 +290,10 @@ def speak(text: str, voice: str = "hi") -> None:
         # Retry loop for gTTS (3 attempts)
         for attempt in range(1, 4):
             try:
-                # Determine language/accent based on voice arg
-                # 'hi' maps to English (India). Default is English (US).
-                # If user asks for 'hi', we give Indian English.
-                lang = 'en'
-                tld = 'co.in' if 'hi' in voice or 'in' in voice else 'us'
+                # Use configured language and accent
+                # Defaults: lang='en', tld='co.in' (Indian English)
+                lang = GTTS_LANG
+                tld = GTTS_TLD
                 
                 # Temporary file for gTTS
                 tts_file = Path("temp_gtts.mp3")

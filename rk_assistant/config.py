@@ -48,6 +48,8 @@ MIC_DEVICE_INDEX = int(os.getenv("MIC_DEVICE_INDEX", "-1"))  # -1 for default
 MIC_SAMPLE_RATE = int(os.getenv("MIC_SAMPLE_RATE", str(SAMPLE_RATE)))
 GTTS_ENABLE = os.getenv("GTTS_ENABLE", "1") == "1"
 GTTS_PLAYBACK_TIMEOUT = int(os.getenv("GTTS_PLAYBACK_TIMEOUT", "120"))
+GTTS_LANG = os.getenv("GTTS_LANG", "en")
+GTTS_TLD = os.getenv("GTTS_TLD", "co.in")
 MPG123_OUTPUT = os.getenv("MPG123_OUTPUT", "pulse")
 
 # Backend
