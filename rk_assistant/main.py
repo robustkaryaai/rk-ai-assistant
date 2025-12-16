@@ -63,6 +63,7 @@ from .networking import (
 from .offline_commands import handle_offline_command, match_offline_command, offline_ai_reply
 from .weather_news import fetch_news, fetch_weather
 from .provisioning_service import start_ble_service
+from .intent_classifier import guess_fallback_intent, start_pending_request_msg
 
 
 def _speak_twice(text: str) -> None:
@@ -145,19 +146,26 @@ def _monitor_music_for_wake(decoder_available: bool, music_proc_holder: dict) ->
         speak("Listening.")
 
 
-def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, decoder_available: bool = False) -> None:
+def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, decoder_available: bool = False, original_text: str = "") -> None:
     """Interpret backend JSON. Handles intent-based responses matching buildTaskReply logic."""
     reply_text = (reply_obj.get("reply") or "").strip()
     song_url = reply_obj.get("song_url") or reply_obj.get("link")
     intent = (reply_obj.get("intent") or "").lower()
     
     # TEMPORARY RESTRICTION: Block PPT and Video generation
-    if intent in ["ppt", "video"]:
-        speak("Sorry, presentation and video generation are temporarily unavailable.")
-        _log_backend_error(f"Blocked request for intent: {intent}")
-        return
+    if intent in ["ppt", "video"] and not reply_text:
+         # If backend already identified it but sent no reply, we can block it here
+         pass
 
     if not reply_text and not song_url:
+        # Check for fallback intent from local classifier
+        fallback = guess_fallback_intent(original_text)
+        if fallback:
+            intent_type = fallback.get("intent")
+            msg = start_pending_request_msg(intent_type)
+            speak(msg)
+            return
+
         speak("No response from server.")
         return
 
@@ -241,7 +249,7 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                             print(f"[online] Sending text to backend: '{text}'", flush=True)
                             resp = post_text_to_backend(text, slug)
                             print(f"[online] Backend response: {resp}", flush=True)
-                            handle_backend_reply(resp, music_proc_holder, decoder_available)
+                            handle_backend_reply(resp, music_proc_holder, decoder_available, original_text=text)
                         handled["done"] = True
                     except Exception as e:
                         typ = type(e).__name__
@@ -314,7 +322,7 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
         print(f"[online] Sending text to backend: '{transcription}'", flush=True)
         resp = post_text_to_backend(transcription, slug)
         print(f"[online] Backend response: {resp}", flush=True)
-        handle_backend_reply(resp, music_proc_holder, decoder_available)
+        handle_backend_reply(resp, music_proc_holder, decoder_available, original_text=transcription)
     except Exception as e:
         error_msg = f"Error in online flow: {str(e)}"
         print(f"[error] {error_msg}", file=sys.stderr, flush=True)
@@ -350,7 +358,7 @@ def text_input_flow(slug: str) -> None:
     print(f"[text-mode] Backend response received.", flush=True)
     
     music_proc_holder = {"proc": None} # Placeholder for text mode
-    handle_backend_reply(resp, music_proc_holder, decoder_available=False)
+    handle_backend_reply(resp, music_proc_holder, decoder_available=False, original_text=text)
 
 
 def main():

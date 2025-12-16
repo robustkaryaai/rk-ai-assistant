@@ -180,19 +180,21 @@ class TxCharacteristic(Characteristic):
             ['notify'],
             service)
         self.notifying = False
+        self.pending_msg = None
 
     def send_status(self, status, reason=None):
-        if not self.notifying:
-            print("[ble] TX not subscribed, skipping notification", flush=True)
-            return
-            
         payload = {"status": status}
         if reason:
             payload["reason"] = reason
             
         data = json.dumps(payload).encode('utf-8')
         value = dbus.Array([dbus.Byte(b) for b in data], signature='y')
-        
+
+        if not self.notifying:
+            print(f"[ble] TX not subscribed, queuing message: {payload}", flush=True)
+            self.pending_msg = value
+            return
+            
         self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': value}, [])
         print(f"[ble] TX sent: {payload}", flush=True)
 
@@ -201,8 +203,12 @@ class TxCharacteristic(Characteristic):
         pass
 
     def StartNotify(self):
-        print("[ble] TX StartNotify", flush=True)
+        print("[ble] TX StartNotify - Client subscribed", flush=True)
         self.notifying = True
+        if self.pending_msg:
+             print("[ble] Sending queued message", flush=True)
+             self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': self.pending_msg}, [])
+             self.pending_msg = None
 
     def StopNotify(self):
         print("[ble] TX StopNotify", flush=True)
