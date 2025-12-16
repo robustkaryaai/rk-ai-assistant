@@ -214,24 +214,47 @@ class TxCharacteristic(Characteristic):
         print("[ble] TX StopNotify", flush=True)
         self.notifying = False
 
-class NoInputNoOutputAgent(dbus.service.Object):
+class DisplayOnlyAgent(dbus.service.Object):
+    """
+    Bluetooth pairing agent that displays a fixed passkey.
+    Uses 'DisplayOnly' capability to show passkey to user.
+    """
+    FIXED_PASSKEY = 0  # 000000 - simple passkey for provisioning
+    
     def __init__(self, bus, path):
         dbus.service.Object.__init__(self, bus, path)
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def AuthorizeService(self, device, uuid):
+        """Allow our provisioning service"""
         if str(uuid).lower() == PROVISIONING_SVC_UUID:
+            print(f"[ble] Authorized service {uuid} for {device}", flush=True)
             return
         raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Service not permitted')
 
+    @dbus.service.method(AGENT_IFACE, in_signature='ouu', out_signature='')
+    def DisplayPasskey(self, device, passkey, entered):
+        """Display the passkey for pairing"""
+        print(f"[ble] ===== PAIRING CODE: {self.FIXED_PASSKEY:06d} =====", flush=True)
+        print(f"[ble] Device {device} should enter: {self.FIXED_PASSKEY:06d}", flush=True)
+
+    @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
+    def RequestConfirmation(self, device, passkey):
+        """Auto-confirm pairing with the fixed passkey"""
+        print(f"[ble] Confirming pairing code {passkey:06d} for {device}", flush=True)
+        return
+
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
     def RequestAuthorization(self, device):
+        """Auto-authorize connection"""
         print(f"[ble] Accepting authorization from {device}", flush=True)
         return
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
     def Cancel(self, device):
+        print(f"[ble] Pairing cancelled for {device}", flush=True)
         pass
+
 
 class ProvisioningAdvertisement(dbus.service.Object):
     PATH_BASE = '/org/bluez/rk_ai/advertisement'
@@ -300,18 +323,18 @@ def start_ble_service(slug):
     # 1. Register Agent
     try:
         agent_path = "/org/bluez/rk_ai_agent"
-        agent = NoInputNoOutputAgent(bus, agent_path)
+        agent = DisplayOnlyAgent(bus, agent_path)
         mgr = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, "/org/bluez"), AGENT_MANAGER_IFACE)
         # Attempt minimal cleanup if needed? No, just register.
         try:
-             mgr.RegisterAgent(dbus.ObjectPath(agent_path), "NoInputNoOutput")
+             mgr.RegisterAgent(dbus.ObjectPath(agent_path), "DisplayOnly")
         except dbus.exceptions.DBusException as e:
              if 'AlreadyExists' in str(e):
                  pass # Warning: skipping re-registration
              else:
                  raise
         mgr.RequestDefaultAgent(dbus.ObjectPath(agent_path))
-        print("[ble] Agent registered")
+        print("[ble] Pairing agent registered with DisplayOnly capability")
     except Exception as e:
         print(f"[ble] Agent setup warning: {e}")
 
