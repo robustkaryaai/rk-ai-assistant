@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -58,6 +59,18 @@ except Exception:  # pragma: no cover - optional dependency
 
 def _safe_print(msg: str) -> None:
     print(msg, flush=True)
+
+
+def remove_emojis(text: str) -> str:
+    """
+    Remove emojis from text to prevent TTS from reading them out.
+    Focuses on the astral planes where most emojis reside.
+    """
+    if not text:
+        return ""
+    # Filter high-surrogate pairs (astral plane characters including most emojis)
+    # \U00010000-\U0010ffff matches supplementary characters.
+    return re.sub(r'[^\x00-\uFFFF]', '', text).strip()
 
 
 def load_pocketsphinx_decoder() -> bool:
@@ -282,6 +295,11 @@ def speak(text: str, voice: str = "hi") -> None:
     """
     if not text:
         return
+        
+    # Remove emojis to prevent reading them out
+    text = remove_emojis(text)
+    if not text:
+       return
     
     print(f"[speak] {text}", flush=True)
 
@@ -361,6 +379,11 @@ def synthesize_to_wav(text: str, out_path: Path) -> Optional[Path]:
     # Note: Keeping espeak for WAV generation for now as it's faster for backend upload flow
     if not text:
         return None
+        
+    text = remove_emojis(text)
+    if not text:
+        return None
+        
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         # Use -v hi for Indian accent
