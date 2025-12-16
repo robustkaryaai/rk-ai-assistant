@@ -1,6 +1,6 @@
 """
 BLE Provisioning Service for RK AI Assistant.
-Uses dbus/bluez to advertise 'RK-AI-{SLUG}' and accept Wi-Fi credentials.
+Uses dbus/bluez to advertise 'RK-AI-{SLUG}' and accept Wi-Fi credentials via Nordic UART Service.
 """
 
 import sys
@@ -8,8 +8,10 @@ import dbus
 import dbus.mainloop.glib
 import dbus.service
 import json
+import threading
+import time
 from gi.repository import GLib
-from .networking import apply_wifi_credentials, read_slug, post_audio_to_backend
+from .networking import apply_wifi_credentials, read_slug
 from .config import BLUETOOTH_HCI
 
 BLUEZ_SERVICE_NAME = 'org.bluez'
@@ -24,11 +26,10 @@ GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
 GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 
-# Nordic UART Service UUIDs (compatible with mobile client)
-# Service (NUS)
+# Nordic UART Service UUIDs
 PROVISIONING_SVC_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
-# RX Characteristic (Write to device)
-CREDENTIALS_CHRC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'
+RX_CHRC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'  # Write (Mobile -> Pi)
+TX_CHRC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'  # Notify (Pi -> Mobile)
 
 class Application(dbus.service.Object):
     def __init__(self, bus):
@@ -53,7 +54,7 @@ class Application(dbus.service.Object):
         return response
 
 class Service(dbus.service.Object):
-    PATH_BASE = '/org/bluez/example/service'
+    PATH_BASE = '/org/bluez/rk_ai/service'
     def __init__(self, bus, index, uuid, primary):
         self.path = self.PATH_BASE + str(index)
         self.bus = bus
@@ -80,10 +81,7 @@ class Service(dbus.service.Object):
         self.characteristics.append(characteristic)
 
     def get_characteristic_paths(self):
-        result = []
-        for chrc in self.characteristics:
-            result.append(chrc.get_path())
-        return result
+        return [chrc.get_path() for chrc in self.characteristics]
 
     def get_characteristics(self):
         return self.characteristics
@@ -111,12 +109,10 @@ class Characteristic(dbus.service.Object):
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
     def ReadValue(self, options):
-        # Default empty read
         return []
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
     def WriteValue(self, value, options):
-        # Override this
         pass
 
     @dbus.service.method(GATT_CHRC_IFACE)
@@ -127,126 +123,127 @@ class Characteristic(dbus.service.Object):
     def StopNotify(self):
         pass
 
-class CredentialsChrc(Characteristic):
-    def __init__(self, bus, index, service):
+class RxCharacteristic(Characteristic):
+    def __init__(self, bus, index, service, tx_characteristic):
         Characteristic.__init__(
-                self, bus, index,
-                CREDENTIALS_CHRC_UUID,
-                ['write', 'write-without-response'],
-                service)
+            self, bus, index,
+            RX_CHRC_UUID,
+            ['write', 'write-without-response'],
+            service)
+        self.tx = tx_characteristic
 
     def WriteValue(self, value, options):
         try:
             json_str = bytearray(value).decode('utf-8')
-            print(f"[ble] Received credentials data: {json_str}", flush=True)
-            data = json.loads(json_str)
+            print(f"[ble] RX received {len(json_str)} bytes", flush=True)
+            
+            try:
+                data = json.loads(json_str)
+            except json.JSONDecodeError:
+                print("[ble] Invalid JSON received", flush=True)
+                self.tx.send_status("fail", "Invalid JSON")
+                return
+
             ssid = data.get('ssid')
-            # Accept both 'password' and 'pass' keys from client
             password = data.get('password', data.get('pass', ''))
             
-            if ssid:
-                print(f"[ble] Applying WiFi: SSID={ssid}", flush=True)
+            if not ssid:
+                print("[ble] Missing SSID in payload", flush=True)
+                self.tx.send_status("fail", "Missing SSID")
+                return
+
+            print(f"[ble] Received Wi-Fi credentials for SSID: {ssid}", flush=True)
+            
+            # Application thread
+            def apply_task():
+                print(f"[ble] Applying credentials for {ssid}...", flush=True)
                 success = apply_wifi_credentials(ssid, password or "")
                 if success:
-                    print("[ble] WiFi credentials applied successfully.", flush=True)
+                    print(f"[ble] Successfully applied {ssid}", flush=True)
+                    # Notify success on main loop
+                    GLib.idle_add(self.tx.send_status, "ok")
                 else:
-                    print("[ble] Failed to apply WiFi credentials.", flush=True)
-            else:
-                 print("[ble] Invalid JSON: missing 'ssid'", flush=True)
+                    print(f"[ble] Failed to apply {ssid}", flush=True)
+                    GLib.idle_add(self.tx.send_status, "fail", "Apply failed")
+
+            threading.Thread(target=apply_task, daemon=True).start()
 
         except Exception as e:
-            print(f"[ble] Error processing write: {e}", flush=True)
+            print(f"[ble] RX error: {e}", flush=True)
+            self.tx.send_status("fail", "Internal error")
+
+class TxCharacteristic(Characteristic):
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(
+            self, bus, index,
+            TX_CHRC_UUID,
+            ['notify'],
+            service)
+        self.notifying = False
+
+    def send_status(self, status, reason=None):
+        if not self.notifying:
+            print("[ble] TX not subscribed, skipping notification", flush=True)
+            return
+            
+        payload = {"status": status}
+        if reason:
+            payload["reason"] = reason
+            
+        data = json.dumps(payload).encode('utf-8')
+        value = dbus.Array([dbus.Byte(b) for b in data], signature='y')
+        
+        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': value}, [])
+        print(f"[ble] TX sent: {payload}", flush=True)
+
+    @dbus.service.signal(DBUS_PROP_IFACE, signature='sa{sv}as')
+    def PropertiesChanged(self, interface, changed, invalidated):
+        pass
+
+    def StartNotify(self):
+        print("[ble] TX StartNotify", flush=True)
+        self.notifying = True
+
+    def StopNotify(self):
+        print("[ble] TX StopNotify", flush=True)
+        self.notifying = False
 
 class NoInputNoOutputAgent(dbus.service.Object):
     def __init__(self, bus, path):
         dbus.service.Object.__init__(self, bus, path)
-        self.path = path
-
-    @dbus.service.method(AGENT_IFACE)
-    def Release(self):
-        pass
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def AuthorizeService(self, device, uuid):
-        try:
-            u = str(uuid).lower()
-            print(f"[ble] AuthorizeService device={device} uuid={u}", flush=True)
-            # Allow our BLE provisioning service only
-            if u == PROVISIONING_SVC_UUID:
-                print(f"[ble] Authorization accepted for provisioning service {u}", flush=True)
-                return
-            # Reject classic media/call profiles to avoid "car play" behavior
-            classic_block = {
-                '0000110d-0000-1000-8000-00805f9b34fb',  # A2DP
-                '0000110e-0000-1000-8000-00805f9b34fb',  # AVRCP
-                '0000111e-0000-1000-8000-00805f9b34fb',  # Handsfree
-                '00001108-0000-1000-8000-00805f9b34fb',  # Headset
-            }
-            if u in classic_block:
-                print(f"[ble] Authorization rejected for classic profile {u}", flush=True)
-                raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Classic profile disabled')
-            # Default: reject unknown services
-            print(f"[ble] Authorization rejected for unknown service {u}", flush=True)
-            raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Service not permitted')
-        except dbus.exceptions.DBusException:
-            raise
-        except Exception as e:
-            print(f"[ble] AuthorizeService error: {e}", flush=True)
-            raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Internal error')
-
-    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
-    def RequestPinCode(self, device):
-        print(f"[ble] RequestPinCode device={device}", flush=True)
-        return dbus.String("0000")
-
-    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
-    def RequestPasskey(self, device):
-        print(f"[ble] RequestPasskey device={device}", flush=True)
-        return dbus.UInt32(0)
-
-    @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
-    def DisplayPinCode(self, device, pincode):
-        print(f"[ble] DisplayPinCode device={device} code={pincode}", flush=True)
-        return
-
-    @dbus.service.method(AGENT_IFACE, in_signature='ouq', out_signature='')
-    def DisplayPasskey(self, device, passkey, entered):
-        print(f"[ble] DisplayPasskey device={device} passkey={passkey} entered={entered}", flush=True)
-        return
-
-    @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
-    def RequestConfirmation(self, device, passkey):
-        print(f"[ble] RequestConfirmation device={device} passkey={passkey} -> accepted", flush=True)
-        return
+        if str(uuid).lower() == PROVISIONING_SVC_UUID:
+            return
+        raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Service not permitted')
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
     def RequestAuthorization(self, device):
-        print(f"[ble] RequestAuthorization device={device} -> accepted", flush=True)
+        print(f"[ble] Accepting authorization from {device}", flush=True)
         return
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
     def Cancel(self, device):
-        print(f"[ble] Agent Cancel device={device}", flush=True)
-        return
+        pass
 
 class ProvisioningAdvertisement(dbus.service.Object):
-    PATH_BASE = '/org/bluez/example/advertisement'
-    def __init__(self, bus, index, advertising_type, local_name):
+    PATH_BASE = '/org/bluez/rk_ai/advertisement'
+    def __init__(self, bus, index, local_name):
         self.path = self.PATH_BASE + str(index)
         self.bus = bus
-        self.ad_type = advertising_type
-        self.service_uuids = [PROVISIONING_SVC_UUID]
         self.local_name = local_name
-        self.include_tx_power = True
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
-        properties = dict()
-        properties['Type'] = self.ad_type
-        properties['ServiceUUIDs'] = dbus.Array(self.service_uuids, signature='s')
-        properties['LocalName'] = dbus.String(self.local_name)
-        properties['IncludeTxPower'] = dbus.Boolean(self.include_tx_power)
-        return {LE_ADVERTISEMENT_IFACE: properties}
+        return {
+            LE_ADVERTISEMENT_IFACE: {
+                'Type': 'peripheral',
+                'ServiceUUIDs': dbus.Array([PROVISIONING_SVC_UUID], signature='s'),
+                'LocalName': dbus.String(self.local_name),
+                'IncludeTxPower': dbus.Boolean(True)
+            }
+        }
 
     def get_path(self):
         return dbus.ObjectPath(self.path)
@@ -254,33 +251,23 @@ class ProvisioningAdvertisement(dbus.service.Object):
     @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
     def GetAll(self, interface):
         if interface != LE_ADVERTISEMENT_IFACE:
-            raise dbus.exceptions.DBusException(
-                'org.freedesktop.DBus.Error.UnknownInterface',
-                'The object does not implement the requested interface')
+            raise dbus.exceptions.DBusException('org.freedesktop.DBus.Error.UnknownInterface', '')
         return self.get_properties()
 
     @dbus.service.method(LE_ADVERTISEMENT_IFACE)
     def Release(self):
         print(f'{self.path}: Released!')
 
-def register_ad_cb():
-    print('[ble] Advertisement registered')
+def register_ad_cb(): print('[ble] Advertisement registered')
+def register_ad_error_cb(error): print(f'[ble] Failed to register advertisement: {error}')
+def register_app_cb(): print('[ble] GATT application registered')
+def register_app_error_cb(error): print(f'[ble] Failed to register application: {error}')
 
-def register_ad_error_cb(error):
-    print(f'[ble] Failed to register advertisement: {error}')
-
-def register_app_cb():
-    print('[ble] GATT application registered')
-
-def register_app_error_cb(error):
-    print(f'[ble] Failed to register application: {error}')
-
-# --- MODIFIED: Added adapter_name argument to target a specific HCI ---
 def find_adapter(bus):
     remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'), DBUS_OM_IFACE)
     objects = remote_om.GetManagedObjects()
-    preferred = None
-    fallback = None
+    preferred, fallback = None, None
+    
     for o, props in objects.items():
         if LE_ADVERTISING_MANAGER_IFACE in props and GATT_MANAGER_IFACE in props:
             if o.endswith(f'/{BLUETOOTH_HCI}'):
@@ -288,70 +275,81 @@ def find_adapter(bus):
                 break
             if not fallback:
                 fallback = o
+    
     return preferred or fallback
-# --- END MODIFIED ---
+
+def power_adapter(bus, adapter_path):
+    adapter_props = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter_path), DBUS_PROP_IFACE)
+    print(f"[ble] Ensuring {adapter_path} is powered on...", flush=True)
+    adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(1))
+    adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(1))
+    adapter_props.Set('org.bluez.Adapter1', 'Pairable', dbus.Boolean(1))
+    # Alias is helpful for some devices, but LocalName in Advert overrides it usually
+    # adapter_props.Set('org.bluez.Adapter1', 'Alias', dbus.String(f'rk-ai-UNKNOWN')) 
 
 def start_ble_service(slug):
-    """Entry point to run the BLE loop. Blocking call!"""
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
     
+    # 1. Register Agent
     try:
         agent_path = "/org/bluez/rk_ai_agent"
         agent = NoInputNoOutputAgent(bus, agent_path)
         mgr = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, "/org/bluez"), AGENT_MANAGER_IFACE)
-        mgr.RegisterAgent(dbus.ObjectPath(agent_path), "DisplayYesNo")
+        # Attempt minimal cleanup if needed? No, just register.
+        try:
+             mgr.RegisterAgent(dbus.ObjectPath(agent_path), "NoInputNoOutput")
+        except dbus.exceptions.DBusException as e:
+             if 'AlreadyExists' in str(e):
+                 pass # Warning: skipping re-registration
+             else:
+                 raise
         mgr.RequestDefaultAgent(dbus.ObjectPath(agent_path))
-        print("[ble] Pairing agent registered (DisplayYesNo)")
+        print("[ble] Agent registered")
     except Exception as e:
-        print(f"[ble] Failed to register agent: {e}")
-    
+        print(f"[ble] Agent setup warning: {e}")
+
+    # 2. Setup Adapter
     adapter = find_adapter(bus)
-    
     if not adapter:
-        print('[ble] No BLE adapter found')
+        print("[ble] No adapter found!")
         return
-
-    adapter_obj = bus.get_object(BLUEZ_SERVICE_NAME, adapter)
-    adapter_props = dbus.Interface(adapter_obj, DBUS_PROP_IFACE)
-    
-    # Ensure powered on
-    adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(1))
-    # Make device visible so users can find it; agent enforces NoInputNoOutput
-    adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(1))
-    # Allow BLE pairing/bonding for GATT (agent enforces NoInputNoOutput)
-    adapter_props.Set('org.bluez.Adapter1', 'Pairable', dbus.Boolean(1))
-    adapter_props.Set('org.bluez.Adapter1', 'Alias', dbus.String(f'rk-ai-{slug}'))
-
-    service_manager = dbus.Interface(adapter_obj, GATT_MANAGER_IFACE)
-    ad_manager = dbus.Interface(adapter_obj, LE_ADVERTISING_MANAGER_IFACE)
-
-    app = Application(bus)
-    prov_service = Service(bus, 0, PROVISIONING_SVC_UUID, True)
-    prov_service.add_characteristic(CredentialsChrc(bus, 0, prov_service))
-    app.add_service(prov_service)
-
-    service_manager.RegisterApplication(app.get_path(), {},
-                                        reply_handler=register_app_cb,
-                                        error_handler=register_app_error_cb)
-
-    ad = ProvisioningAdvertisement(bus, 0, 'peripheral', f'rk-ai-{slug}')
-    ad_manager.RegisterAdvertisement(ad.get_path(), {},
-                                     reply_handler=register_ad_cb,
-                                     error_handler=register_ad_error_cb)
-
-    print(f'[ble] Serving GATT for RK-AI-{slug} on adapter {adapter}...')
-    
-    mainloop = GLib.MainLoop()
+        
     try:
+        power_adapter(bus, adapter)
+        adapter_obj = bus.get_object(BLUEZ_SERVICE_NAME, adapter)
+        
+        # 3. Setup GATT
+        app = Application(bus)
+        service = Service(bus, 0, PROVISIONING_SVC_UUID, True)
+        
+        tx = TxCharacteristic(bus, 0, service)
+        rx = RxCharacteristic(bus, 1, service, tx)
+        
+        service.add_characteristic(tx)
+        service.add_characteristic(rx)
+        app.add_service(service)
+        
+        service_manager = dbus.Interface(adapter_obj, GATT_MANAGER_IFACE)
+        service_manager.RegisterApplication(app.get_path(), {},
+                                            reply_handler=register_app_cb,
+                                            error_handler=register_app_error_cb)
+
+        # 4. Advertise
+        ad_manager = dbus.Interface(adapter_obj, LE_ADVERTISING_MANAGER_IFACE)
+        ad = ProvisioningAdvertisement(bus, 0, f"rk-ai-{slug}")
+        ad_manager.RegisterAdvertisement(ad.get_path(), {},
+                                         reply_handler=register_ad_cb,
+                                         error_handler=register_ad_error_cb)
+
+        print(f"[ble] Running provisioning service `rk-ai-{slug}` on {adapter}")
+        mainloop = GLib.MainLoop()
         mainloop.run()
-    except KeyboardInterrupt:
-        ad_manager.UnregisterAdvertisement(ad.get_path())
-        sys.exit(0)
+
+    except Exception as e:
+        print(f"[ble] Critical error: {e}")
+        # In production we might want to retry loop here
 
 if __name__ == '__main__':
-    # Test run
     slug, _ = read_slug()
-    if not slug:
-        slug = "000000000"
-    start_ble_service(slug)
+    start_ble_service(slug or "000000000")
