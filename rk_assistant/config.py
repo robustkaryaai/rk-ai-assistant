@@ -47,7 +47,7 @@ WAKE_WORD = "rk"
 MIC_DEVICE_INDEX = int(os.getenv("MIC_DEVICE_INDEX", "-1"))  # -1 for default
 MIC_SAMPLE_RATE = int(os.getenv("MIC_SAMPLE_RATE", str(SAMPLE_RATE)))
 GTTS_ENABLE = os.getenv("GTTS_ENABLE", "1") == "1"
-GTTS_PLAYBACK_TIMEOUT = int(os.getenv("GTTS_PLAYBACK_TIMEOUT", "10"))
+GTTS_PLAYBACK_TIMEOUT = int(os.getenv("GTTS_PLAYBACK_TIMEOUT", "120"))
 MPG123_OUTPUT = os.getenv("MPG123_OUTPUT", "pulse")
 
 # Backend
