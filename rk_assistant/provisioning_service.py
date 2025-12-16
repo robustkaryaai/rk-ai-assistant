@@ -320,23 +320,11 @@ def start_ble_service(slug):
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
     
-    # 1. Register Agent
-    try:
-        agent_path = "/org/bluez/rk_ai_agent"
-        agent = DisplayOnlyAgent(bus, agent_path)
-        mgr = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, "/org/bluez"), AGENT_MANAGER_IFACE)
-        # Attempt minimal cleanup if needed? No, just register.
-        try:
-             mgr.RegisterAgent(dbus.ObjectPath(agent_path), "DisplayOnly")
-        except dbus.exceptions.DBusException as e:
-             if 'AlreadyExists' in str(e):
-                 pass # Warning: skipping re-registration
-             else:
-                 raise
-        mgr.RequestDefaultAgent(dbus.ObjectPath(agent_path))
-        print("[ble] Pairing agent registered with DisplayOnly capability")
-    except Exception as e:
-        print(f"[ble] Agent setup warning: {e}")
+    # NOTE: Agent registration REMOVED for pairing-free BLE connections
+    # BLE GATT services don't require pairing if characteristics aren't encrypted
+    # This allows instant "Just Works" connection like Alexa - no PIN needed
+    
+    # Previous agent code removed - phones can now connect without any pairing prompt
 
     # 2. Setup Adapter
     adapter = find_adapter(bus)
