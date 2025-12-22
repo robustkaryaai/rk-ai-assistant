@@ -269,9 +269,12 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
         # Try live Google STT with error handling
         if getattr(audio_utils, "SPEECH_RECOGNITION_AVAILABLE", False) and getattr(audio_utils, "sr", None) is not None:
             recognizer = audio_utils.sr.Recognizer()
-            recognizer.dynamic_energy_threshold = True
-            recognizer.energy_threshold = 300  # Lower threshold for better sensitivity
-            recognizer.pause_threshold = 0.8    # Shorter pause detection
+            recognizer.dynamic_energy_threshold = False  # Use fixed threshold for consistency
+            recognizer.energy_threshold = 200  # Very sensitive to catch "rk" at beginning
+            recognizer.pause_threshold = 1.0   # Wait 1 second before considering speech ended
+            recognizer.phrase_threshold = 0.1  # Start recording very quickly (was 0.3)
+            recognizer.non_speaking_duration = 0.3  # Buffer before speech starts
+            
             mic = None
             try:
                 from .config import MIC_DEVICE_INDEX, MIC_SAMPLE_RATE
@@ -281,10 +284,14 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                 print(f"[stt] Microphone open failed ({typ}): {e}", flush=True)
                 _log_backend_error(f"Microphone open failed: {typ}", e)
                 return
+            
             if mic is not None:
+                print("[stt] Calibrating microphone for ambient noise (2 seconds)...", flush=True)
                 try:
                     with mic as source:
-                        recognizer.adjust_for_ambient_noise(source, duration=1.0)
+                        # Longer calibration to properly measure background noise
+                        recognizer.adjust_for_ambient_noise(source, duration=2.0)
+                        print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
                 except Exception as e:
                     typ = type(e).__name__
                     print(f"[stt] Ambient noise calibration failed ({typ}): {e}", flush=True)
