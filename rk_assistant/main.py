@@ -292,9 +292,11 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                         text = recognizer.recognize_google(audio_cb)
                         print(f"[online] Google STT: '{text}'", flush=True)
                         low = text.lower()
-                        if "rk" not in low:
+                        # Check for wake word variations (rk, aarti, arty, arctic, are key, etc.)
+                        wake_words = ["rk", "aarti", "arty", "arctic", "are key", "artie", "r k", "arti"]
+                        if not any(wake in low for wake in wake_words):
                             return
-                        print("[online] ✓ Wake word 'rk' detected in transcription!", flush=True)
+                        print("[online] ✓ Wake word detected in transcription!", flush=True)
                         if "pause" in low:
                             stop_process(music_proc_holder.get("proc"))
                             speak("Paused.")
@@ -377,13 +379,16 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
             return
         
         print(f"[online] STT result: '{transcription}'", flush=True)
-        if "rk" not in transcription.lower():
+        low = transcription.lower()
+        # Check for wake word variations
+        wake_words = ["rk", "aarti", "arty", "arctic", "are key", "artie", "r k", "arti"]
+        if not any(wake in low for wake in wake_words):
             try:
                 audio_path.unlink(missing_ok=True)
             except Exception:
                 pass
             return
-        print("[online] ✓ Wake word 'rk' detected in transcription!", flush=True)
+        print("[online] ✓ Wake word detected in transcription!", flush=True)
         low = transcription.lower()
         if "pause" in low:
             stop_process(music_proc_holder.get("proc"))
