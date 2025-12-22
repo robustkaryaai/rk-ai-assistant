@@ -269,11 +269,11 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
         # Try live Google STT with error handling
         if getattr(audio_utils, "SPEECH_RECOGNITION_AVAILABLE", False) and getattr(audio_utils, "sr", None) is not None:
             recognizer = audio_utils.sr.Recognizer()
-            recognizer.dynamic_energy_threshold = False  # Use fixed threshold for consistency
-            recognizer.energy_threshold = 200  # Very sensitive to catch "rk" at beginning
-            recognizer.pause_threshold = 1.0   # Wait 1 second before considering speech ended
-            recognizer.phrase_threshold = 0.1  # Start recording very quickly (was 0.3)
-            recognizer.non_speaking_duration = 0.3  # Buffer before speech starts
+            recognizer.dynamic_energy_threshold = False  # Use fixed threshold
+            recognizer.energy_threshold = 150  # VERY sensitive
+            recognizer.pause_threshold = 1.2   # Wait longer before ending
+            recognizer.phrase_threshold = 0.05 # Start INSTANTLY
+            recognizer.non_speaking_duration = 0.5  # Long pre-buffer to catch "rk"
             
             mic = None
             try:
