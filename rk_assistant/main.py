@@ -270,6 +270,8 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
         if getattr(audio_utils, "SPEECH_RECOGNITION_AVAILABLE", False) and getattr(audio_utils, "sr", None) is not None:
             recognizer = audio_utils.sr.Recognizer()
             recognizer.dynamic_energy_threshold = True
+            recognizer.energy_threshold = 300  # Lower threshold for better sensitivity
+            recognizer.pause_threshold = 0.8    # Shorter pause detection
             mic = None
             try:
                 from .config import MIC_DEVICE_INDEX, MIC_SAMPLE_RATE
@@ -278,14 +280,16 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                 typ = type(e).__name__
                 print(f"[stt] Microphone open failed ({typ}): {e}", flush=True)
                 _log_backend_error(f"Microphone open failed: {typ}", e)
+                return
             if mic is not None:
                 try:
                     with mic as source:
-                        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                        recognizer.adjust_for_ambient_noise(source, duration=1.0)
                 except Exception as e:
                     typ = type(e).__name__
                     print(f"[stt] Ambient noise calibration failed ({typ}): {e}", flush=True)
                     _log_backend_error(f"Ambient noise calibration failed: {typ}", e)
+                
                 handled = {"done": False}
                 def _cb(recognizer_cb, audio_cb):
                     try:
@@ -318,7 +322,7 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                                 speak("Could not reach backend server.")
                         handled["done"] = True
                     except audio_utils.sr.UnknownValueError:
-                        print(f"[stt] Could not understand audio", flush=True)
+                        pass  # Normal - background noise, do nothing
                     except audio_utils.sr.RequestError as e:
                         print(f"[stt] Google STT request error: {e}", flush=True)
                         _log_backend_error("Google STT request failed", e)
@@ -327,113 +331,36 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                         msg = str(e) or typ
                         print(f"[stt] Live STT error: {msg}", flush=True)
                         _log_backend_error(f"Live STT error: {typ}", e)
+                
                 try:
-                    stop_fn = recognizer.listen_in_background(mic, _cb, phrase_time_limit=4)
+                    stop_fn = recognizer.listen_in_background(mic, _cb, phrase_time_limit=10)
                 except Exception as e:
                     typ = type(e).__name__
                     print(f"[stt] listen_in_background failed ({typ}): {e}", flush=True)
                     _log_backend_error(f"listen_in_background failed: {typ}", e)
                     stop_fn = None
+                    return
+                
+                # Keep monitoring for 60 seconds, then restart
                 start = time.time()
-                while not handled["done"] and (time.time() - start) < 15:
-                    time.sleep(0.2)
+                while not handled["done"] and (time.time() - start) < 60:
+                    time.sleep(0.1)
+                
                 if stop_fn:
                     try:
                         stop_fn(wait_for_stop=False)
                     except Exception:
                         pass
+                
+                # If command was handled, return. Otherwise loop will continue monitoring
                 if handled["done"]:
                     return
-        
-        # Fallback to record and transcribe
-        print("[online] Recording and using Google STT...", flush=True)
-        try:
-            audio_path = record_until_silence(LAST_AUDIO, silence_duration=2.0)
-        except Exception as e:
-            print(f"[stt] Recording failed: {e}", flush=True)
-            _log_backend_error("Audio recording failed", e)
-            speak("Could not record audio.")
-            return
-            
-        print(f"[online] Audio recorded to {audio_path}", flush=True)
-        print("[online] Transcribing with Google STT...", flush=True)
-        
-        try:
-            transcription = online_stt(audio_path)
-        except Exception as e:
-            print(f"[stt] Google STT failed: {e}", flush=True)
-            _log_backend_error("Google STT transcription failed", e)
-            # Try PocketSphinx as fallback
-            if decoder_available:
-                print("[stt] Falling back to PocketSphinx...", flush=True)
-                transcription = quick_stt(decoder_available, seconds=4)
-            else:
-                transcription = None
-                speak("Could not transcribe audio.")
-        
-        if not transcription:
-            try:
-                audio_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            return
-        
-        print(f"[online] STT result: '{transcription}'", flush=True)
-        low = transcription.lower()
-        # Check for wake word variations
-        wake_words = ["rk", "aarti", "arty", "arctic", "are key", "artie", "r k", "arti"]
-        if not any(wake in low for wake in wake_words):
-            try:
-                audio_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            return
-        print("[online] ✓ Wake word detected in transcription!", flush=True)
-        low = transcription.lower()
-        if "pause" in low:
-            stop_process(music_proc_holder.get("proc"))
-            speak("Paused.")
-            try:
-                audio_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            return
-        if "volume up" in low:
-            set_volume(+5)
-            speak("Volume up.")
-            try:
-                audio_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            return
-        if "volume down" in low:
-            set_volume(-5)
-            speak("Volume down.")
-            try:
-                audio_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            return
-        try:
-            audio_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-        
-        print(f"[online] Sending text to backend: '{transcription}'", flush=True)
-        try:
-            resp = post_text_to_backend(transcription, slug)
-            print(f"[online] Backend response: {resp}", flush=True)
-            handle_backend_reply(resp, music_proc_holder, decoder_available, original_text=transcription)
-        except Exception as be:
-            print(f"[backend] Error: {be}", flush=True)
-            _log_backend_error("Backend communication failed", be)
-            speak("Could not reach backend server.")
     
     except Exception as e:
         error_msg = f"Error in online flow: {str(e)}"
         print(f"[error] {error_msg}", file=sys.stderr, flush=True)
         _log_backend_error(error_msg, e)
-        speak("Error processing voice input.")
+        time.sleep(1)  # Brief pause before retry
 
 def text_input_flow(slug: str) -> None:
     """TEMPORARY: Text input mode for testing without audio."""
