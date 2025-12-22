@@ -76,28 +76,61 @@ BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "E0:C8:22:85:F8:32")
 # Preferred BlueZ adapter (default hci0 on Raspberry Pi)
 BLUETOOTH_HCI = os.getenv("BLUETOOTH_HCI", "hci1")
 
-# Offline command whitelist (50 max). Keep short strings for cheap checks.
+# Offline command whitelist (100 max). Keep short strings for cheap checks.
 OFFLINE_COMMANDS = [
+    # Greetings and conversational
+    "hello", "hi", "hey", "good morning", "good afternoon", "good evening", "good night",
+    "how are you", "what's up", "how's it going", "what are you doing",
+    "thank you", "thanks", "thank you very much", "many thanks",
+    "okay", "ok", "alright", "fine", "sure", "yes", "yeah", "yep", "no", "nope",
+    "goodbye", "bye", "see you", "see you later", "take care",
+    "nice", "great", "awesome", "cool", "wonderful", "excellent", "perfect",
+    "sorry", "excuse me", "pardon me", "my bad",
+    
+    # Music and media controls
     "play music", "pause music", "resume music", "stop music",
-    "volume up", "volume down", "mute", "unmute",
-    "next song", "previous song",
-    "what's the weather", "weather", "news", "headlines",
-    "time", "date",
-    "announce", "announcement",
-    "battery", "status",
-    "restart", "reboot", "shutdown",
-    "wifi status", "internet status", "ip address",
+    "next song", "previous song", "skip", "replay",
+    "volume up", "volume down", "mute", "unmute", "increase volume", "decrease volume",
+    
+    # Information queries
+    "what's the weather", "weather", "weather today",
+    "news", "headlines", "latest news", "today's news",
+    "time", "what time is it", "current time",
+    "date", "what's the date", "today's date",
+    
+    # Announcements and alarms
+    "announce", "announcement", "make announcement",
+    "set alarm", "cancel alarm", "delete alarm", "stop alarm",
+    "set timer", "start timer", "cancel timer", "stop timer",
+    "set reminder", "remind me",
+    
+    # System commands
+    "battery", "battery level", "battery status",
+    "status", "system status",
+    "restart", "reboot", "shutdown", "power off",
+    "sleep", "wake", "wake up",
+    
+    # Network and connectivity
+    "wifi status", "internet status", "network status",
+    "ip address", "my ip", "connection status",
+    "connect wifi", "wifi connect", "disconnect wifi",
+    "bluetooth status", "open bluetooth", "close bluetooth", "pair bluetooth",
+    "ping", "speed test", "test connection",
+    
+    # Assistant controls
+    "who are you", "what's your name", "introduce yourself",
+    "help", "help me", "what can you do",
+    "commands", "list commands", "available commands",
+    "quiet", "be quiet", "silence", "louder", "speak louder",
+    
+    # Notes and recording
+    "save note", "read note", "take note", "note this",
     "record", "start recording", "stop recording",
-    "set timer", "set alarm", "cancel alarm",
+    
+    # LED and hardware controls (if available)
+    "led on", "led off", "turn on led", "turn off led",
     "brightness up", "brightness down",
-    "open bluetooth", "close bluetooth",
-    "connect wifi", "wifi connect",
-    "ping", "speed test",
-    "who are you", "help", "commands",
-    "sleep", "wake", "quiet", "louder",
-    "save note", "read note",
-    "led on", "led off"
-][:50]
+][:100]
 
 # PocketSphinx model path (optional; uses system default if not set)
 POCKETSPHINX_MODEL_DIR = os.getenv("POCKETSPHINX_MODEL_DIR", str(DATA_DIR / "pocketsphinx-model"))

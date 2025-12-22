@@ -147,17 +147,25 @@ def _monitor_music_for_wake(decoder_available: bool, music_proc_holder: dict) ->
 
 
 def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, decoder_available: bool = False, original_text: str = "") -> None:
-    """Interpret backend JSON. Handles intent-based responses matching buildTaskReply logic."""
+    """Interpret backend JSON. Handles intent-based responses with proper intent checking."""
+    # Validate JSON structure
+    if not isinstance(reply_obj, dict):
+        print(f"[backend] Invalid response type: {type(reply_obj)}")
+        speak("Received invalid response from server.")
+        return
+    
+    # Extract fields
     reply_text = (reply_obj.get("reply") or "").strip()
     song_url = reply_obj.get("song_url") or reply_obj.get("link")
     intent = (reply_obj.get("intent") or "").lower()
     
-    # TEMPORARY RESTRICTION: Block PPT and Video generation
-    if intent in ["ppt", "video"] and not reply_text:
-         # If backend already identified it but sent no reply, we can block it here
-         pass
-
-    if not reply_text and not song_url:
+    # Check if response has intent field
+    has_intent = "intent" in reply_obj
+    
+    print(f"[backend] Reply - Intent: {intent}, Has Reply: {bool(reply_text)}, Has Link: {bool(song_url)}")
+    
+    # Handle no response case
+    if not reply_text and not song_url and not has_intent:
         # Check for fallback intent from local classifier
         fallback = guess_fallback_intent(original_text)
         if fallback:
@@ -165,12 +173,59 @@ def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, decoder_avail
             msg = start_pending_request_msg(intent_type)
             speak(msg)
             return
-
         speak("No response from server.")
         return
-
-    lower = reply_text.lower()
-
+    
+    # ===== INTENT-BASED HANDLING =====
+    
+    # ANNOUNCEMENT INTENT - Speak twice
+    if has_intent and intent == "announcement":
+        if reply_text:
+            print(f"[intent] Announcement: {reply_text}")
+            _speak_twice(reply_text)
+        else:
+            speak("Announcement received but no message provided.")
+        return
+    
+    # MUSIC INTENT - Check for link and play
+    if has_intent and intent == "music":
+        if song_url:
+            print(f"[intent] Music: {song_url}")
+            if reply_text:
+                speak(reply_text)
+            stop_process(music_proc_holder.get("proc"))
+            music_proc_holder["proc"] = play_audio_url(song_url)
+            # Monitor for wake word during playback
+            threading.Thread(target=_monitor_music_for_wake, args=(decoder_available, music_proc_holder), daemon=True).start()
+        else:
+            # Music intent but no link provided
+            speak(reply_text or "Could not find the music.")
+        return
+    
+    # ALARM INTENT - Check for time or ask
+    if has_intent and intent == "alarm":
+        alarm_time = reply_obj.get("time")
+        if alarm_time:
+            # Backend provided time, set alarm
+            from .alarm_manager import set_alarm
+            if set_alarm(alarm_time):
+                speak(f"Alarm set for {alarm_time}.")
+            else:
+                speak("Could not set alarm. Invalid time format.")
+        else:
+            # No time provided, ask user
+            from .alarm_manager import prompt_for_alarm_time, set_alarm
+            time_str = prompt_for_alarm_time()
+            if time_str and set_alarm(time_str):
+                speak(f"Alarm set for {time_str}.")
+            else:
+                speak("Could not set alarm.")
+        return
+    
+    # ===== LEGACY HANDLING (no intent field or other intents) =====
+    
+    lower = reply_text.lower() if reply_text else ""
+    
     # Weather/news handling
     if "weather" in lower:
         weather = fetch_weather()
@@ -184,17 +239,18 @@ def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, decoder_avail
         if news and news.get("articles"):
             titles = [a.get("title", "") for a in news["articles"][:3]]
             speak("Top headlines. " + ". ".join(titles))
-
+    
+    # Speak the reply text
     if reply_text:
-        if intent == "announcement" or "announce" in lower:
+        if "announce" in lower:
             _speak_twice(reply_text)
         else:
             speak(reply_text)
-
-    if song_url:
+    
+    # Play music if URL provided (legacy support)
+    if song_url and not has_intent:
         stop_process(music_proc_holder.get("proc"))
         music_proc_holder["proc"] = play_audio_url(song_url)
-        # run wake monitor in background
         threading.Thread(target=_monitor_music_for_wake, args=(decoder_available, music_proc_holder), daemon=True).start()
 
 
@@ -210,6 +266,7 @@ def offline_flow(decoder_available: bool, music_proc_holder: dict) -> None:
 def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> None:
     print("[online] Streaming Google STT...", flush=True)
     try:
+        # Try live Google STT with error handling
         if getattr(audio_utils, "SPEECH_RECOGNITION_AVAILABLE", False) and getattr(audio_utils, "sr", None) is not None:
             recognizer = audio_utils.sr.Recognizer()
             recognizer.dynamic_energy_threshold = True
@@ -220,6 +277,7 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
             except Exception as e:
                 typ = type(e).__name__
                 print(f"[stt] Microphone open failed ({typ}): {e}", flush=True)
+                _log_backend_error(f"Microphone open failed: {typ}", e)
             if mic is not None:
                 try:
                     with mic as source:
@@ -227,6 +285,7 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                 except Exception as e:
                     typ = type(e).__name__
                     print(f"[stt] Ambient noise calibration failed ({typ}): {e}", flush=True)
+                    _log_backend_error(f"Ambient noise calibration failed: {typ}", e)
                 handled = {"done": False}
                 def _cb(recognizer_cb, audio_cb):
                     try:
@@ -247,19 +306,31 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                             speak("Volume down.")
                         else:
                             print(f"[online] Sending text to backend: '{text}'", flush=True)
-                            resp = post_text_to_backend(text, slug)
-                            print(f"[online] Backend response: {resp}", flush=True)
-                            handle_backend_reply(resp, music_proc_holder, decoder_available, original_text=text)
+                            try:
+                                resp = post_text_to_backend(text, slug)
+                                print(f"[online] Backend response: {resp}", flush=True)
+                                handle_backend_reply(resp, music_proc_holder, decoder_available, original_text=text)
+                            except Exception as be:
+                                print(f"[backend] Error: {be}", flush=True)
+                                _log_backend_error("Backend communication failed", be)
+                                speak("Could not reach backend server.")
                         handled["done"] = True
+                    except audio_utils.sr.UnknownValueError:
+                        print(f"[stt] Could not understand audio", flush=True)
+                    except audio_utils.sr.RequestError as e:
+                        print(f"[stt] Google STT request error: {e}", flush=True)
+                        _log_backend_error("Google STT request failed", e)
                     except Exception as e:
                         typ = type(e).__name__
                         msg = str(e) or typ
                         print(f"[stt] Live STT error: {msg}", flush=True)
+                        _log_backend_error(f"Live STT error: {typ}", e)
                 try:
                     stop_fn = recognizer.listen_in_background(mic, _cb, phrase_time_limit=4)
                 except Exception as e:
                     typ = type(e).__name__
                     print(f"[stt] listen_in_background failed ({typ}): {e}", flush=True)
+                    _log_backend_error(f"listen_in_background failed: {typ}", e)
                     stop_fn = None
                 start = time.time()
                 while not handled["done"] and (time.time() - start) < 15:
@@ -271,18 +342,41 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
                         pass
                 if handled["done"]:
                     return
+        
+        # Fallback to record and transcribe
         print("[online] Recording and using Google STT...", flush=True)
-        audio_path = record_until_silence(LAST_AUDIO, silence_duration=2.0)
+        try:
+            audio_path = record_until_silence(LAST_AUDIO, silence_duration=2.0)
+        except Exception as e:
+            print(f"[stt] Recording failed: {e}", flush=True)
+            _log_backend_error("Audio recording failed", e)
+            speak("Could not record audio.")
+            return
+            
         print(f"[online] Audio recorded to {audio_path}", flush=True)
         print("[online] Transcribing with Google STT...", flush=True)
-        transcription = online_stt(audio_path)
+        
+        try:
+            transcription = online_stt(audio_path)
+        except Exception as e:
+            print(f"[stt] Google STT failed: {e}", flush=True)
+            _log_backend_error("Google STT transcription failed", e)
+            # Try PocketSphinx as fallback
+            if decoder_available:
+                print("[stt] Falling back to PocketSphinx...", flush=True)
+                transcription = quick_stt(decoder_available, seconds=4)
+            else:
+                transcription = None
+                speak("Could not transcribe audio.")
+        
         if not transcription:
             try:
                 audio_path.unlink(missing_ok=True)
             except Exception:
                 pass
             return
-        print(f"[online] Google STT result: '{transcription}'", flush=True)
+        
+        print(f"[online] STT result: '{transcription}'", flush=True)
         if "rk" not in transcription.lower():
             try:
                 audio_path.unlink(missing_ok=True)
@@ -319,10 +413,17 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str) -> 
             audio_path.unlink(missing_ok=True)
         except Exception:
             pass
+        
         print(f"[online] Sending text to backend: '{transcription}'", flush=True)
-        resp = post_text_to_backend(transcription, slug)
-        print(f"[online] Backend response: {resp}", flush=True)
-        handle_backend_reply(resp, music_proc_holder, decoder_available, original_text=transcription)
+        try:
+            resp = post_text_to_backend(transcription, slug)
+            print(f"[online] Backend response: {resp}", flush=True)
+            handle_backend_reply(resp, music_proc_holder, decoder_available, original_text=transcription)
+        except Exception as be:
+            print(f"[backend] Error: {be}", flush=True)
+            _log_backend_error("Backend communication failed", be)
+            speak("Could not reach backend server.")
+    
     except Exception as e:
         error_msg = f"Error in online flow: {str(e)}"
         print(f"[error] {error_msg}", file=sys.stderr, flush=True)
