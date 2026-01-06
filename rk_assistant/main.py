@@ -50,7 +50,7 @@ from . audio_utils import (
     synthesize_to_wav,
     wait_for_wake_word,
 )
-from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD, BACKEND_BASE_URL
+from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD, BACKEND_BASE_URL, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, GEMINI_MODEL, USE_GEMINI_DIRECT
 from .networking import (
     generate_slug,
     is_online,
@@ -63,7 +63,10 @@ from .networking import (
 from .offline_commands import handle_offline_command, match_offline_command, offline_ai_reply
 from .weather_news import fetch_news, fetch_weather
 from .provisioning_service import start_ble_service
-from .intent_classifier import guess_fallback_intent, start_pending_request_msg
+from .intent_classifier import guess_fallback_intent, start_pending_request_msg, needs_backend
+from . import gemini_client
+from . import local_handlers
+
 
 
 def _speak_twice(text: str) -> None:
@@ -86,6 +89,22 @@ def _log_backend_error(error_msg: str, exception: Optional[Exception] = None) ->
             f.write(log_entry)
     except Exception:
         pass  # Silently fail if logging fails
+
+def _send_to_backend_async(text: str, slug: str) -> None:
+    """Send request to backend asynchronously (fire and forget)."""
+    def _async_send():
+        try:
+            print(f"[backend-async] Sending request to backend: '{text}'", flush=True)
+            post_text_to_backend(text, slug)
+            print(f"[backend-async] Request sent successfully", flush=True)
+        except Exception as e:
+            print(f"[backend-async] Error: {e}", flush=True)
+            _log_backend_error("Async backend request failed", e)
+    
+    # Start in background thread
+    thread = threading.Thread(target=_async_send, daemon=True)
+    thread.start()
+
 
 def ensure_valid_slug() -> Optional[str]:
     """Get or create slug, using backend ensure endpoint."""
@@ -311,15 +330,100 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str, rec
                         set_volume(-5)
                         speak("Volume down.")
                     else:
-                        print(f"[online] Sending text to backend: '{text}'", flush=True)
-                        try:
-                            resp = post_text_to_backend(text, slug)
-                            print(f"[online] Backend response: {resp}", flush=True)
-                            handle_backend_reply(resp, music_proc_holder, decoder_available, original_text=text)
-                        except Exception as be:
-                            print(f"[backend] Error: {be}", flush=True)
-                            _log_backend_error("Backend communication failed", be)
-                            speak("Could not reach backend server.")
+                        # NEW ROUTING: Gemini classifies intent, then route accordingly
+                        if USE_GEMINI_DIRECT and GEMINI_API_KEY:
+                            print(f"[routing] Classifying intent with Gemini: '{text}'", flush=True)
+                            try:
+                                # Step 1: Classify intent with Gemini (with backup key support)
+                                intents = gemini_client.classify_intent(
+                                    text, 
+                                    api_key=GEMINI_API_KEY, 
+                                    backup_key=GEMINI_API_KEY_BACKUP, 
+                                    model_name=GEMINI_MODEL
+                                )
+                                print(f"[routing] Classified intents: {intents}", flush=True)
+                                
+                                # Define intent categories
+                                local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm"]
+                                backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "task",
+                                                   "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
+                                
+                                # Step 2: Route based on first intent
+                                if intents and len(intents) > 0:
+                                    first_intent = intents[0]
+                                    intent_name = first_intent.get("intent", "general")
+                                    parameters = first_intent.get("parameters", {})
+                                    
+                                    if intent_name in local_intents:
+                                        # Handle locally on Pi
+                                        print(f"[routing] Local intent '{intent_name}', handling on Pi", flush=True)
+                                        try:
+                                            response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
+                                            
+                                            # Handle response based on intent
+                                            if intent_name == "music":
+                                                # Music intent
+                                                if response.get("reply"):
+                                                    speak(response["reply"])
+                                                # Note: song_url would be used by music handler
+                                                # For now, Pi needs to implement music search/playback
+                                                
+                                            elif intent_name == "announcement":
+                                                # Announcement - speak twice
+                                                announcement_text = response.get("reply", "")
+                                                if announcement_text:
+                                                    _speak_twice(announcement_text)
+                                            
+                                            else:
+                                                # All other local intents - speak once
+                                                if response.get("reply"):
+                                                    speak(response["reply"])
+                                        
+                                        except Exception as le:
+                                            print(f"[local] Error handling {intent_name}: {le}", flush=True)
+                                            speak("Could not process that request.")
+                                    
+                                    elif intent_name in backend_intents:
+                                        # Send to backend for file operations (Fire and Forget)
+                                        print(f"[routing] Backend intent '{intent_name}', sending async", flush=True)
+                                        
+                                        # 1. Speak immediate confirmation
+                                        confirmation = "Working on it..."
+                                        if intent_name == "image": confirmation = "Generating image..."
+                                        elif intent_name == "video": confirmation = "Creating video..."
+                                        elif intent_name == "docx": confirmation = "Writing document..."
+                                        elif intent_name == "ppt": confirmation = "Creating presentation..."
+                                        elif intent_name in ["note", "planner", "timetable", "task"]: confirmation = "Updating student tools..."
+                                        elif intent_name in ["lesson_plan", "exam_paper", "grading_sheet"]: confirmation = "Preparing teacher resources..."
+                                        
+                                        speak(confirmation)
+                                        
+                                        # 2. Send to backend asynchronously (fire and forget)
+                                        _send_to_backend_async(text, slug)
+                                    
+                                    else:
+                                        # Unknown intent, try backend as fallback
+                                        print(f"[routing] Unknown intent '{intent_name}', trying backend", flush=True)
+                                        speak("Checking...")
+                                        _send_to_backend_async(text, slug)
+                                
+                                else:
+                                    # No intents returned, fallback
+                                    print("[routing] No intents classified, using backend", flush=True)
+                                    speak("One moment...")
+                                    _send_to_backend_async(text, slug)
+                                
+                            except Exception as ge:
+                                print(f"[routing] Intent classification failed: {ge}, falling back to backend", flush=True)
+                                _log_backend_error("Intent classification failed", ge)
+                                # Fallback to backend async
+                                speak("One moment...")
+                                _send_to_backend_async(text, slug)
+                        else:
+                            # Gemini not configured, use backend only
+                            print(f"[routing] Gemini not configured, routing to BACKEND: '{text}'", flush=True)
+                            speak("Processing...")
+                            _send_to_backend_async(text, slug)
                     handled["done"] = True
                 except audio_utils.sr.UnknownValueError:
                     pass  # Normal - background noise, do nothing
@@ -372,6 +476,7 @@ def text_input_flow(slug: str) -> None:
     
     print(f"[text-mode] You entered: '{text}'", flush=True)
     
+    
     # Check if wake word "rk" is in the text
     if "rk" not in text.lower():
         print("[text-mode] Wake word 'rk' not detected, ignoring...", flush=True)
@@ -379,15 +484,103 @@ def text_input_flow(slug: str) -> None:
     
     print("[text-mode] ✓ Wake word 'rk' detected!", flush=True)
     
-    # Send TEXT to backend
-    print(f"[text-mode] Sending text to backend...", flush=True)
-    resp = post_text_to_backend(text, slug)
-    
-    # Handle backend response
-    print(f"[text-mode] Backend response received.", flush=True)
-    
-    music_proc_holder = {"proc": None} # Placeholder for text mode
-    handle_backend_reply(resp, music_proc_holder, decoder_available=False, original_text=text)
+    #NEW ROUTING: Gemini classifies intent, then route accordingly
+    if USE_GEMINI_DIRECT and GEMINI_API_KEY:
+        print(f"[text-mode] Classifying intent with Gemini: '{text}'", flush=True)
+        try:
+            # Step 1: Classify intent with Gemini (with backup key support)
+            intents = gemini_client.classify_intent(
+                text, 
+                api_key=GEMINI_API_KEY, 
+                backup_key=GEMINI_API_KEY_BACKUP, 
+                model_name=GEMINI_MODEL
+            )
+            print(f"[text-mode] Classified intents: {intents}", flush=True)
+            
+            # Define intent categories
+            local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm"]
+            backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "task",
+                               "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
+            
+            # Step 2: Route based on first intent
+            if intents and len(intents) > 0:
+                first_intent = intents[0]
+                intent_name = first_intent.get("intent", "general")
+                parameters = first_intent.get("parameters", {})
+                
+                if intent_name in local_intents:
+                    # Handle locally on Pi
+                    print(f"[text-mode] Local intent '{intent_name}', handling on Pi", flush=True)
+                    try:
+                        response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
+                        
+                        # Handle response based on intent
+                        if intent_name == "music":
+                            # Music intent
+                            if response.get("reply"):
+                                speak(response["reply"])
+                                print(f"[text-mode] Music: {response['reply']}")
+                            
+                        elif intent_name == "announcement":
+                            # Announcement - speak twice
+                            announcement_text = response.get("reply", "")
+                            if announcement_text:
+                                _speak_twice(announcement_text)
+                                print(f"[text-mode] Announcement: {announcement_text}")
+                        
+                        else:
+                            # All other local intents - speak once
+                            if response.get("reply"):
+                                speak(response["reply"])
+                                print(f"[text-mode] Response: {response['reply']}")
+                    
+                    except Exception as le:
+                        print(f"[text-mode] Error handling {intent_name}: {le}", flush=True)
+                        speak("Could not process that request.")
+                
+                elif intent_name in backend_intents:
+                    # Send to backend for file operations (Fire and Forget)
+                    print(f"[text-mode] Backend intent '{intent_name}', sending async", flush=True)
+                    
+                    # 1. Speak immediate confirmation
+                    confirmation = "Working on it..."
+                    if intent_name == "image": confirmation = "Generating image..."
+                    elif intent_name == "video": confirmation = "Creating video..."
+                    elif intent_name == "docx": confirmation = "Writing document..."
+                    elif intent_name == "ppt": confirmation = "Creating presentation..."
+                    elif intent_name in ["note", "planner", "timetable", "task"]: confirmation = "Updating student tools..."
+                    elif intent_name in ["lesson_plan", "exam_paper", "grading_sheet"]: confirmation = "Preparing teacher resources..."
+                    
+                    speak(confirmation)
+                    print(f"[text-mode] Confirmation: {confirmation}")
+                    
+                    # 2. Send to backend asynchronously (fire and forget)
+                    _send_to_backend_async(text, slug)
+                
+                else:
+                    # Unknown intent, try backend as fallback
+                    print(f"[text-mode] Unknown intent '{intent_name}', trying backend", flush=True)
+                    speak("Checking...")
+                    _send_to_backend_async(text, slug)
+            
+            else:
+                # No intents returned, fallback
+                print("[text-mode] No intents classified, using backend", flush=True)
+                speak("One moment...")
+                _send_to_backend_async(text, slug)
+            
+        except Exception as ge:
+            print(f"[text-mode] Intent classification failed: {ge}, falling back to backend", flush=True)
+            # Fallback to backend async
+            speak("One moment...")
+            _send_to_backend_async(text, slug)
+    else:
+        # Gemini not configured, use backend only
+        print(f"[text-mode] Gemini not configured, routing to BACKEND", flush=True)
+        speak("Processing...")
+        _send_to_backend_async(text, slug)
+
+
 
 
 def main():

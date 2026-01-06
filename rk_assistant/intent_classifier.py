@@ -74,3 +74,43 @@ def start_pending_request_msg(intent: str) -> str:
     
     thing = mapping.get(intent, "your request")
     return f"I have requested the server for {thing}. Please check the RK app for further response."
+
+
+def needs_backend(text: str) -> bool:
+    """
+    Determine if the query requires backend processing (file operations).
+    
+    Returns:
+        True: Route to backend (file operations like video, image, ppt, docx)
+        False: Route to Gemini direct (simple queries, conversation, music, alarms)
+    """
+    if not text:
+        return False
+    
+    text_lower = text.lower()
+    
+    # Generative action verbs that indicate file creation
+    gen_verbs = ["generate", "make", "create", "render", "build", "produce"]
+    has_gen_verb = any(verb in text_lower for verb in gen_verbs)
+    
+    # If no generative verb, it's likely a simple query -> Gemini direct
+    if not has_gen_verb:
+        return False
+    
+    # File type keywords that require backend processing
+    video_keywords = ["video", "clip", "short", "episode", "animation", "edit", "movie", "film"]
+    image_keywords = ["image", "picture", "photo", "thumbnail", "poster", "art", "drawing", "illustration"]
+    ppt_keywords = ["slide", "slides", "ppt", "presentation", "deck", "powerpoint"]
+    docx_keywords = ["document", "report", "essay", "paper", "docx", "word", "doc"]
+    text_file_keywords = ["text file", "txt file", "save to file", "write to file"]
+    
+    # Check if query contains file operation keywords
+    needs_backend_processing = (
+        any(keyword in text_lower for keyword in video_keywords) or
+        any(keyword in text_lower for keyword in image_keywords) or
+        any(keyword in text_lower for keyword in ppt_keywords) or
+        any(keyword in text_lower for keyword in docx_keywords) or
+        any(keyword in text_lower for keyword in text_file_keywords)
+    )
+    
+    return needs_backend_processing

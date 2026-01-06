@@ -57,6 +57,14 @@ BACKEND_URL = "https://rk-ai-backend.onrender.com/voice"
 BACKEND_BASE_URL = "https://rk-ai-backend.onrender.com"  # Base URL for text endpoint
 REQUEST_TIMEOUT = 30  # seconds (increased for slow backend responses)
 
+# Gemini API (for direct fast responses)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP", "")  # Backup key for failover
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")  # Fast model for low latency
+USE_GEMINI_DIRECT = os.getenv("USE_GEMINI_DIRECT", "1") == "1"  # Feature flag
+
+
+
 # Error logging
 ERROR_LOG_FILE = BASE_DIR / "backend_error_log.txt"
 
