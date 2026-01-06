@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+.DS_Store
+rk_assistant/data/
+dialogue_example.mp4
