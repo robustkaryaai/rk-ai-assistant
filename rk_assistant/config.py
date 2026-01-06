@@ -11,21 +11,30 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 # Load .env file if it exists (strictly use .env, no hardcoded secrets)
-_env_file = BASE_DIR.parent / ".env"
-if _env_file.exists():
-    try:
-        with open(_env_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    key = key.strip()
-                    value = value.strip().strip('"').strip("'")
-                    # Only set if not already in environment (env vars take precedence)
-                    if key not in os.environ:
-                        os.environ[key] = value
-    except Exception:
-        pass  # Silently fail if .env can't be read
+# Check BASE_DIR first (package dir), then parent (project root)
+_search_paths = [BASE_DIR / ".env", BASE_DIR.parent / ".env"]
+for _env_file in _search_paths:
+    if _env_file.exists():
+        try:
+            with open(_env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
+                        key = key.strip()
+                        value = value.strip().strip('"').strip("'")
+                        # Only set if not already in environment (env vars take precedence)
+                        if key not in os.environ:
+                            os.environ[key] = value
+            # Stop after finding the first valid .env? Or load both? 
+            # Usually one is enough, but loading both doesn't hurt (first one found takes precedence if we break, 
+            # but we continue here so last one might overwrite unless we check existence).
+            # Actually, the logic `if key not in os.environ` protects us. 
+            # So the first file loaded wins for any given key.
+            # We should probably break after finding one, or just load all.
+        except Exception:
+            pass  # Silently fail if .env can't be read
+
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
