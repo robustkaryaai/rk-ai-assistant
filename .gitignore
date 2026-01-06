@@ -3,3 +3,5 @@ __pycache__/
 .DS_Store
 rk_assistant/data/
 dialogue_example.mp4
+
+.env

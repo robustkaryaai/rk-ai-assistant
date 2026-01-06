@@ -277,13 +277,16 @@ def offline_flow(decoder_available: bool, music_proc_holder: dict) -> None:
     text = quick_stt(decoder_available, seconds=4)
     cmd = match_offline_command(text)
     if cmd:
-        handle_offline_command(cmd, music_proc_holder.get("proc"))
+                    print("[online] ✓ Wake word detected in transcription!", flush=True)
+                    if "pause" in low:
+                        stop_process(music_proc_holder.get("proc"))
+                        speak("Paused.")
     else:
         speak(offline_ai_reply(text or ""))
 
 
 def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:
-    print("[online] Streaming Google STT...", flush=True)
+    print("[online] Streaming STT...", flush=True)
     try:
         # If recognizer/mic not provided, try to create them (fallback)
         if not recognizer or not mic:
@@ -312,13 +315,29 @@ def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str, rec
             handled = {"done": False}
             def _cb(recognizer_cb, audio_cb):
                 try:
-                    text = recognizer.recognize_google(audio_cb)
-                    print(f"[online] Google STT: '{text}'", flush=True)
+                    # Use new STT module (supports Groq)
+                    from . import stt
+                    text = stt.transcribe_audio(recognizer_cb, audio_cb)
+                    print(f"[online] Transcribed: '{text}'", flush=True)
                     low = text.lower()
+                    
                     # Check for wake word variations (rk, aarti, arty, arctic, are key, etc.)
-                    wake_words = ["rk", "aarti", "arty", "arctic", "are key", "artie", "r k", "arti"]
+                    wake_words = ["rk", "aarti", "arty", "arctic", "are key", "artie", "r k", "arti", "archie"]
                     if not any(wake in low for wake in wake_words):
-                        return
+                        # If transcript is very short and no wake word, ignore
+                        # But if we using button mode, maybe we don't need wake word? 
+                        # This flow assumes wake word activation for listening, but then we listen for command.
+                        # Wait, online_flow is called AFTER wake word "rk" is detected by PocketSphinx?
+                        # No, main loop calls listen_in_background.
+                        # If we are in "online_flow", we handle the callback.
+                        pass
+                    
+                    # NOTE: original logic filtered by wake-word here too, effectively double-verification?
+                    # "rk" (pocketsphinx) -> online_flow callback -> verify "rk" in google stt.
+                    # With Groq, we should do the same to avoid false positives.
+                    if not any(wake in low for wake in wake_words):
+                         return
+
                     print("[online] ✓ Wake word detected in transcription!", flush=True)
                     if "pause" in low:
                         stop_process(music_proc_holder.get("proc"))
