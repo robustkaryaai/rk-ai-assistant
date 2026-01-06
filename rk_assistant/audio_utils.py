@@ -427,7 +427,7 @@ def stop_process(proc: Optional[subprocess.Popen]) -> None:
 
 def set_volume(delta: int) -> None:
     """Adjust ALSA PCM volume by delta (-20..+20)."""
-    delta = max(-50, min(50, delta))
+    delta = max(-100, min(100, delta))
     sign = "+" if delta >= 0 else ""
     try:
         subprocess.run(["amixer", "set", "PCM", f"{sign}{delta}%"], check=False)
