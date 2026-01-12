@@ -75,8 +75,11 @@ def remove_emojis(text: str) -> str:
 
 def load_pocketsphinx_decoder() -> bool:
     """Check if PocketSphinx is available and ready to use."""
-    if not POCKETSPHINX_AVAILABLE or LiveSpeech is None:
-        _safe_print("[audio] PocketSphinx not installed; wake/STT offline disabled.")
+    if not POCKETSPHINX_AVAILABLE:
+        _safe_print("[audio] PocketSphinx library not installed in Python environment.")
+        return False
+    if LiveSpeech is None:
+        _safe_print("[audio] LiveSpeech could not be imported from pocketsphinx.")
         return False
     try:
         # Test if we can create a LiveSpeech instance
@@ -86,6 +89,7 @@ def load_pocketsphinx_decoder() -> bool:
         return True
     except Exception as exc:  # pragma: no cover
         _safe_print(f"[audio] PocketSphinx available but failed to initialize: {exc}")
+        _safe_print("[audio] TIP: Ensure system libs (swig, libpulse-dev, libasound2-dev) are installed.")
         return False
 
 
