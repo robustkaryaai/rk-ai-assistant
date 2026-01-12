@@ -499,22 +499,34 @@ def live_stt_listen(recognizer: sr.Recognizer, mic: sr.Microphone, timeout: floa
         return ""
     
     try:
+        # Note: 'with mic as source' might close the microphone stream on exit, 
+        # which can cause issues if we reuse the same mic object in a loop.
+        # However, SpeechRecognition's Microphone.__exit__ usually just resets pieces, not full close if it's PyAudio.
+        # But to be safe, let's catch the specific error or avoid re-opening if possible.
+        # Actually, best practice with SR is to use 'with' every time.
+        # The crash 'NoneType object has no attribute close' often comes from PyAudio stream handling in SR library.
+        
         with mic as source:
-            # We don't adjust_for_ambient_noise here as it should be done in main() startup
-            print("[stt] Listening for command...", flush=True)
+            # print("[stt] Listening for command...", flush=True) # Reduced spam
             audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
         
-        print("[stt] Transcribing...", flush=True)
+        # print("[stt] Transcribing...", flush=True)
         text = recognizer.recognize_google(audio)
         return text
     except sr.WaitTimeoutError:
-        print("[stt] No speech detected (timeout)")
+        # print("[stt] No speech detected (timeout)") # Reduced spam
         return ""
     except sr.UnknownValueError:
-        print("[stt] Speech unintelligible")
+        # print("[stt] Speech unintelligible")
         return ""
     except sr.RequestError as e:
         print(f"[stt] Google API error: {e}")
+        return ""
+    except AttributeError as e:
+        if "'NoneType' object has no attribute 'close'" in str(e):
+             # Swallow this specific PyAudio/SR bug on Pi
+             return ""
+        print(f"[stt] Live STT error: {e}")
         return ""
     except Exception as e:
         print(f"[stt] Live STT error: {e}")
