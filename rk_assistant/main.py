@@ -52,6 +52,13 @@ from .audio_utils import (
     wait_for_wake_word,
 )
 from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD, WAKE_WORDS, BACKEND_BASE_URL, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, GEMINI_MODEL, USE_GEMINI_DIRECT
+from .networking import (
+    generate_slug,
+    is_online,
+    post_audio_to_backend,
+    post_text_to_backend,
+    read_slug,
+    write_slug,
     setup_bluetooth,
     wait_for_internet,
 )
