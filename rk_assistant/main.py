@@ -50,7 +50,7 @@ from . audio_utils import (
     synthesize_to_wav,
     wait_for_wake_word,
 )
-from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD, BACKEND_BASE_URL, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, GEMINI_MODEL, USE_GEMINI_DIRECT
+from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD, WAKE_WORDS, BACKEND_BASE_URL, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, GEMINI_MODEL, USE_GEMINI_DIRECT
 from .networking import (
     generate_slug,
     is_online,
@@ -285,205 +285,84 @@ def offline_flow(decoder_available: bool, music_proc_holder: dict) -> None:
         speak(offline_ai_reply(text or ""))
 
 
-def online_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:
-    print("[online] Streaming STT...", flush=True)
-    try:
-        # If recognizer/mic not provided, try to create them (fallback)
-        if not recognizer or not mic:
-            if getattr(audio_utils, "SPEECH_RECOGNITION_AVAILABLE", False) and getattr(audio_utils, "sr", None) is not None:
-                recognizer = audio_utils.sr.Recognizer()
-                recognizer.dynamic_energy_threshold = False
-                recognizer.energy_threshold = 150
-                recognizer.pause_threshold = 1.2
-                recognizer.phrase_threshold = 0.05
-                recognizer.non_speaking_duration = 0.5
-                
-                try:
-                    from .config import MIC_DEVICE_INDEX, MIC_SAMPLE_RATE
-                    mic = audio_utils.sr.Microphone(device_index=(None if MIC_DEVICE_INDEX < 0 else MIC_DEVICE_INDEX), sample_rate=MIC_SAMPLE_RATE)
-                    
-                    if mic is not None:
-                        print("[stt] Calibrating microphone for ambient noise (2 seconds)...", flush=True)
-                        with mic as source:
-                            recognizer.adjust_for_ambient_noise(source, duration=2.0)
-                            print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
-                except Exception as e:
-                    print(f"[stt] Microphone init failed in online_flow: {e}", flush=True)
-                    return
+def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:
+    """Unified voice flow for both online and offline."""
+    print(f"[wake] Waiting for wake word '{WAKE_WORD}' (or variations)...", flush=True)
+    woke = wait_for_wake_word(decoder_available, WAKE_WORDS)
+    if not woke:
+        return
 
-        if recognizer and mic:
-            handled = {"done": False}
-            def _cb(recognizer_cb, audio_cb):
-                try:
-                    # Use new STT module (supports Groq)
-                    from . import stt
-                    text = stt.transcribe_audio(recognizer_cb, audio_cb)
-                    print(f"[online] Transcribed: '{text}'", flush=True)
-                    low = text.lower()
-                    
-                    # Check for wake word variations (rk, aarti, arty, arctic, are key, etc.)
-                    wake_words = ["rk", "aarti", "arty", "arctic", "are key", "artie", "r k", "arti", "archie"]
-                    if not any(wake in low for wake in wake_words):
-                        # If transcript is very short and no wake word, ignore
-                        # But if we using button mode, maybe we don't need wake word? 
-                        # This flow assumes wake word activation for listening, but then we listen for command.
-                        # Wait, online_flow is called AFTER wake word "rk" is detected by PocketSphinx?
-                        # No, main loop calls listen_in_background.
-                        # If we are in "online_flow", we handle the callback.
-                        pass
-                    
-                    # NOTE: original logic filtered by wake-word here too, effectively double-verification?
-                    # "rk" (pocketsphinx) -> online_flow callback -> verify "rk" in google stt.
-                    # With Groq, we should do the same to avoid false positives.
-                    if not any(wake in low for wake in wake_words):
-                         return
-
-                    print("[online] ✓ Wake word detected in transcription!", flush=True)
-                    if "pause" in low:
-                        stop_process(music_proc_holder.get("proc"))
-                        speak("Paused.")
-                    elif "volume up" in low:
-                        set_volume(+5)
-                        speak("Volume up.")
-                    elif "volume down" in low:
-                        set_volume(-5)
-                        speak("Volume down.")
-                    else:
-                        # NEW ROUTING: Gemini classifies intent, then route accordingly
-                        if USE_GEMINI_DIRECT and GEMINI_API_KEY:
-                            print(f"[routing] Classifying intent with Gemini: '{text}'", flush=True)
-                            try:
-                                # Step 1: Classify intent with Gemini (with backup key support)
-                                intents = gemini_client.classify_intent(
-                                    text, 
-                                    api_key=GEMINI_API_KEY, 
-                                    backup_key=GEMINI_API_KEY_BACKUP, 
-                                    model_name=GEMINI_MODEL
-                                )
-                                print(f"[routing] Classified intents: {intents}", flush=True)
-                                
-                                # Define intent categories
-                                local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm"]
-                                backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "task",
-                                                   "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
-                                
-                                # Step 2: Route based on first intent
-                                if intents and len(intents) > 0:
-                                    first_intent = intents[0]
-                                    intent_name = first_intent.get("intent", "general")
-                                    parameters = first_intent.get("parameters", {})
-                                    
-                                    if intent_name in local_intents:
-                                        # Handle locally on Pi
-                                        print(f"[routing] Local intent '{intent_name}', handling on Pi", flush=True)
-                                        try:
-                                            response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
-                                            
-                                            # Handle response based on intent
-                                            if intent_name == "music":
-                                                # Music intent
-                                                if response.get("reply"):
-                                                    speak(response["reply"])
-                                                # Note: song_url would be used by music handler
-                                                # For now, Pi needs to implement music search/playback
-                                                
-                                            elif intent_name == "announcement":
-                                                # Announcement - speak twice
-                                                announcement_text = response.get("reply", "")
-                                                if announcement_text:
-                                                    _speak_twice(announcement_text)
-                                            
-                                            else:
-                                                # All other local intents - speak once
-                                                if response.get("reply"):
-                                                    speak(response["reply"])
-                                        
-                                        except Exception as le:
-                                            print(f"[local] Error handling {intent_name}: {le}", flush=True)
-                                            speak("Could not process that request.")
-                                    
-                                    elif intent_name in backend_intents:
-                                        # Send to backend for file operations (Fire and Forget)
-                                        print(f"[routing] Backend intent '{intent_name}', sending async", flush=True)
-                                        
-                                        # 1. Speak immediate confirmation
-                                        confirmation = "Working on it..."
-                                        if intent_name == "image": confirmation = "Generating image..."
-                                        elif intent_name == "video": confirmation = "Creating video..."
-                                        elif intent_name == "docx": confirmation = "Writing document..."
-                                        elif intent_name == "ppt": confirmation = "Creating presentation..."
-                                        elif intent_name in ["note", "planner", "timetable", "task"]: confirmation = "Updating student tools..."
-                                        elif intent_name in ["lesson_plan", "exam_paper", "grading_sheet"]: confirmation = "Preparing teacher resources..."
-                                        
-                                        speak(confirmation)
-                                        
-                                        # 2. Send to backend asynchronously (fire and forget)
-                                        _send_to_backend_async(text, slug)
-                                    
-                                    else:
-                                        # Unknown intent, try backend as fallback
-                                        print(f"[routing] Unknown intent '{intent_name}', trying backend", flush=True)
-                                        speak("Checking...")
-                                        _send_to_backend_async(text, slug)
-                                
-                                else:
-                                    # No intents returned, fallback
-                                    print("[routing] No intents classified, using backend", flush=True)
-                                    speak("One moment...")
-                                    _send_to_backend_async(text, slug)
-                                
-                            except Exception as ge:
-                                print(f"[routing] Intent classification failed: {ge}, falling back to backend", flush=True)
-                                _log_backend_error("Intent classification failed", ge)
-                                # Fallback to backend async
-                                speak("One moment...")
-                                _send_to_backend_async(text, slug)
-                        else:
-                            # Gemini not configured, use backend only
-                            print(f"[routing] Gemini not configured, routing to BACKEND: '{text}'", flush=True)
-                            speak("Processing...")
-                            _send_to_backend_async(text, slug)
-                    handled["done"] = True
-                except audio_utils.sr.UnknownValueError:
-                    pass  # Normal - background noise, do nothing
-                except audio_utils.sr.RequestError as e:
-                    print(f"[stt] Google STT request error: {e}", flush=True)
-                    _log_backend_error("Google STT request failed", e)
-                except Exception as e:
-                    typ = type(e).__name__
-                    msg = str(e) or typ
-                    print(f"[stt] Live STT error: {msg}", flush=True)
-                    _log_backend_error(f"Live STT error: {typ}", e)
-            
-            try:
-                stop_fn = recognizer.listen_in_background(mic, _cb, phrase_time_limit=10)
-            except Exception as e:
-                typ = type(e).__name__
-                print(f"[stt] listen_in_background failed ({typ}): {e}", flush=True)
-                _log_backend_error(f"listen_in_background failed: {typ}", e)
-                stop_fn = None
-                return
-            
-            # Keep monitoring for 60 seconds, then restart
-            start = time.time()
-            while not handled["done"] and (time.time() - start) < 60:
-                time.sleep(0.1)
-            
-            if stop_fn:
-                try:
-                    stop_fn(wait_for_stop=False)
-                except Exception:
-                    pass
-            
-            # If command was handled, return. Otherwise loop will continue monitoring
-            if handled["done"]:
-                return
+    # Wake word detected
+    if music_proc_holder.get("proc"):
+        set_volume(-20) # Lower volume to listen
     
-    except Exception as e:
-        error_msg = f"Error in online flow: {str(e)}"
-        print(f"[error] {error_msg}", file=sys.stderr, flush=True)
-        _log_backend_error(error_msg, e)
-        time.sleep(1)  # Brief pause before retry
+    # Speak "Listening" or similar? User said "no direct print listining" 
+    # but we need to know it's listening. I'll use a very silent approach.
+    print("[wake] Heard you. Listening for command...", flush=True)
+    
+    # Record command
+    audio_path = record_until_silence(silence_duration=1.5, silence_threshold=500)
+    
+    # Process
+    online = is_online()
+    if online:
+        text = online_stt(audio_path)
+    else:
+        text = _pocketsphinx_transcribe(audio_path)
+    
+    # Restore volume if it was lowered
+    if music_proc_holder.get("proc"):
+        set_volume(+20)
+
+    if not text:
+        return
+        
+    low = text.lower()
+    print(f"[flow] Got text: '{text}'", flush=True)
+
+    # Local quick commands
+    if "pause" in low and "music" in low:
+        stop_process(music_proc_holder.get("proc"))
+        speak("Paused.")
+        return
+    elif "volume up" in low:
+        set_volume(+10)
+        speak("Volume up.")
+        return
+    elif "volume down" in low:
+        set_volume(-10)
+        speak("Volume down.")
+        return
+
+    # Routing
+    if USE_GEMINI_DIRECT and GEMINI_API_KEY:
+        try:
+            intents = gemini_client.classify_intent(text, api_key=GEMINI_API_KEY, backup_key=GEMINI_API_KEY_BACKUP, model_name=GEMINI_MODEL)
+            local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm"]
+            backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "task", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
+            
+            if intents and len(intents) > 0:
+                first_intent = intents[0]
+                intent_name = first_intent.get("intent", "general")
+                parameters = first_intent.get("parameters", {})
+                
+                if intent_name in local_intents:
+                    response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
+                    if intent_name == "announcement":
+                        _speak_twice(response.get("reply", ""))
+                    elif response.get("reply"):
+                        speak(response["reply"])
+                elif intent_name in backend_intents:
+                    speak("Working on it...")
+                    _send_to_backend_async(text, slug)
+                else:
+                    _send_to_backend_async(text, slug)
+            else:
+                _send_to_backend_async(text, slug)
+        except Exception:
+            _send_to_backend_async(text, slug)
+    else:
+        _send_to_backend_async(text, slug)
 
 def text_input_flow(slug: str) -> None:
     """TEMPORARY: Text input mode for testing without audio."""
@@ -690,140 +569,13 @@ def main():
 
     # Voice mode: standard wake word loop
     while True:
-        online = is_online()
-        _state = "online" if online else "offline"
-        print(f"[state] {_state}", flush=True)
-
-        if online:
-            # Online mode: Google STT handles wake word detection inside online_flow
-            online_flow(decoder_available, music_proc_holder, slug, recognizer=recognizer, mic=mic)
-        else:
-            # Offline mode: use PocketSphinx for wake word detection
-            woke = wait_for_wake_word(decoder_available, WAKE_WORD)
-            if not woke:
-                time.sleep(1)
-                continue
-            offline_flow(decoder_available, music_proc_holder)
-
-        # Small idle to avoid tight loop
-        time.sleep(0.5)
-
-
-if __name__ == "__main__":
-    main()
-def text_input_flow(slug: str) -> None:
-    """TEMPORARY: Text input mode for testing without audio."""
-    print("\n[text-mode] Enter your prompt (or 'quit' to exit):")
-    text = input("> ").strip()
-    
-    if not text or text.lower() in ['quit', 'exit', 'q']:
-        return
-    
-    print(f"[text-mode] You entered: '{text}'", flush=True)
-    
-    # Check if wake word "rk" is in the text
-    if "rk" not in text.lower():
-        print("[text-mode] Wake word 'rk' not detected, ignoring...", flush=True)
-        return
-    
-    print("[text-mode] ✓ Wake word 'rk' detected!", flush=True)
-    
-    # Send TEXT to backend
-    print(f"[text-mode] Sending text to backend...", flush=True)
-    resp = post_text_to_backend(text, slug)
-    
-    # Handle backend response
-    # Pass empty music_proc_holder since text mode doesn't need to stop music usually
-    # But if music IS playing, we might want to stop it. Ideally we pass the real one.
-    # For now, let's create a dummy one or use a shared one if we can refactor.
-    # To keep it simple, we'll just handle the reply for speech.
-    print(f"[text-mode] Backend response received.", flush=True)
-    
-    music_proc_holder = {"proc": None} # Placeholder for text mode
-    handle_backend_reply(resp, music_proc_holder, decoder_available=False, original_text=text)
-
-
-def main():
-    """Main entry point - asks for mode selection."""
-    print("\n" + "="*30)
-    print("Initializing rk ai...")
-    print("="*30)
-    
-    # Initialize Bluetooth (Speaker)
-    setup_bluetooth()
-    
-    speak("Initializing rk ai")
-
-    
-    slug = ensure_valid_slug()
-    if not slug:
-        print("Missing or invalid slug.txt (must contain 9-digit code).", file=sys.stderr)
-        return
-    
-    ready_msg = "Radhe Radhe RK AI assistant is ready"
-    print(f"\n{ready_msg}")
-    speak(ready_msg)
-
-    print("\n" + "="*60)
-    print("RK AI ASSISTANT STARTUP")
-    print(f"Device Slug: {slug}")
-    print("="*60)
-    
-    # Start BLE Provisioning Service (Daemon Thread)
-    try:
-        ble_thread = threading.Thread(target=start_ble_service, args=(slug,), daemon=True)
-        ble_thread.start()
-        print(f"[ble] Provisioning service started for {slug}")
-    except Exception as e:
-        print(f"[ble] Failed to start service: {e}", file=sys.stderr)
-
-    print("Select Mode:")
-    print("1. Voice Mode (Wake word 'rk')")
-    print("2. Text Mode (Type commands)")
-    
-    choice = input("\nEnter choice (1 or 2): ").strip()
-
-    if choice == "2":
-        print("\n" + "="*30)
-        print("STARTING TEXT MODE")
-        print("="*30 + "\n")
-        while True:
-            try:
-                text_input_flow(slug)
-            except KeyboardInterrupt:
-                print("\n[text-mode] Exiting...")
-                break
-            except Exception as e:
-                print(f"[text-mode] Error: {e}", flush=True)
-        return
-
-    # Default to Voice Mode
-    print("\n" + "="*30)
-    print("STARTING VOICE MODE")
-    print("="*30 + "\n")
-    
-    decoder_available = load_pocketsphinx_decoder()
-    music_proc_holder = {"proc": None}
-
-    # Voice mode: standard wake word loop
-    while True:
-        online = is_online()
-        _state = "online" if online else "offline"
-        print(f"[state] {_state}", flush=True)
-
-        if online:
-            # Online mode: Google STT handles wake word detection inside online_flow
-            online_flow(decoder_available, music_proc_holder, slug)
-        else:
-            # Offline mode: use PocketSphinx for wake word detection
-            woke = wait_for_wake_word(decoder_available, WAKE_WORD)
-            if not woke:
-                time.sleep(1)
-                continue
-            offline_flow(decoder_available, music_proc_holder)
-
-        # Small idle to avoid tight loop
-        time.sleep(0.5)
+        try:
+            voice_flow(decoder_available, music_proc_holder, slug)
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"[main] Error in voice loop: {e}")
+            time.sleep(1)
 
 
 if __name__ == "__main__":

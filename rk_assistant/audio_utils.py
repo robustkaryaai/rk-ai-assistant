@@ -89,9 +89,9 @@ def load_pocketsphinx_decoder() -> bool:
         return False
 
 
-def wait_for_wake_word(decoder_available: bool, wake_word: str = WAKE_WORD, max_seconds: float | None = None) -> bool:
+def wait_for_wake_word(decoder_available: bool, wake_word: str | list[str] = WAKE_WORD, max_seconds: float | None = None) -> bool:
     """
-    Stream audio until wake word is detected.
+    Stream audio until wake word (or any variation) is detected.
     Returns True when wake word heard, False on error/timeout.
     """
     if not decoder_available or LiveSpeech is None:
@@ -99,33 +99,42 @@ def wait_for_wake_word(decoder_available: bool, wake_word: str = WAKE_WORD, max_
         time.sleep(1)
         return False
 
-    # Configure keyword spotting for wake word
+    # Convert to list for consistent handling
+    wake_words = [wake_word] if isinstance(wake_word, str) else wake_word
+    wake_words = [w.lower() for w in wake_words]
+
+    # Configure PocketSphinx
+    # We use default decoding if multiple words are provided to catch variations
     config = {
         'verbose': False,
         'sampling_rate': SAMPLE_RATE,
         'buffer_size': 2048,
         'no_search': False,
         'full_utt': False,
-        'keyphrase': wake_word.lower(),
-        'kws_threshold': 1e-20,  # Lower threshold for better detection
     }
+    
+    # If only one word, we can use keyphrase spotting (more efficient)
+    if len(wake_words) == 1:
+        config['keyphrase'] = wake_words[0]
+        config['kws_threshold'] = 1e-20
     
     # Add model path if specified
     model_path = POCKETSPHINX_MODEL_DIR
     if model_path and Path(model_path).exists():
         config['hmm'] = str(Path(model_path) / 'acoustic-model')
         config['dict'] = str(Path(model_path) / 'pronunciation-dictionary.dict')
+    
     try:
         speech = LiveSpeech(**config)
-        _safe_print(f"[wake] Listening for wake word '{wake_word}' ...")
         start = time.time()
         for phrase in speech:
             if max_seconds and (time.time() - start) > max_seconds:
                 return False
+            
             text = str(phrase).strip().lower()
-            if wake_word.lower() in text:
-                _safe_print("[wake] Wake word detected.")
+            if any(w in text for w in wake_words):
                 return True
+            
             if time.time() - start > 300:  # reset every 5 minutes
                 start = time.time()
     except Exception as exc:
@@ -195,8 +204,19 @@ def record_until_silence(out_path: Path = LAST_AUDIO, silence_duration: float = 
             blocksize=chunk_samples
         )
         stream.start()
-        _safe_print("[record] Listening... (speak now)")
         
+        # --- Ambient Noise Calibration (0.5s) ---
+        calibration_chunks = int(0.5 / chunk_duration)
+        calibration_rms = []
+        for _ in range(calibration_chunks):
+            chunk, _ = stream.read(chunk_samples)
+            calibration_rms.append(np.sqrt(np.mean(chunk**2)))
+        
+        # Set threshold to 1.5x ambient RMS, but at least 500
+        avg_ambient = np.mean(calibration_rms) if calibration_rms else 500
+        active_threshold = max(silence_threshold, int(avg_ambient * 1.5))
+        # ----------------------------------------
+
         while total_time < max_duration:
             chunk, overflowed = stream.read(chunk_samples)
             recorded_chunks.append(chunk.copy())
@@ -204,10 +224,9 @@ def record_until_silence(out_path: Path = LAST_AUDIO, silence_duration: float = 
             # Calculate RMS (root mean square) to detect volume
             rms = np.sqrt(np.mean(chunk**2))
             
-            if rms < silence_threshold:
+            if rms < active_threshold:
                 silence_counter += 1
                 if silence_counter >= silence_chunks_needed:
-                    _safe_print(f"[record] Silence detected for {silence_duration}s, stopping...")
                     break
             else:
                 silence_counter = 0  # Reset on sound detection
@@ -454,10 +473,8 @@ def online_stt(audio_path: Path) -> str:
         # Try Google Speech Recognition first (requires internet)
         try:
             text = recognizer.recognize_google(audio)
-            _safe_print(f"[stt] Google recognized: {text}")
             return text
         except sr.UnknownValueError:
-            _safe_print("[stt] Google could not understand audio")
             return ""
         except sr.RequestError as e:
             _safe_print(f"[stt] Google API error: {e}, falling back to PocketSphinx")
@@ -482,7 +499,6 @@ def _pocketsphinx_transcribe(audio_path: Path) -> str:
         with sr.AudioFile(str(audio_path)) as source:
             audio = recognizer.record(source)
         text = recognizer.recognize_sphinx(audio)
-        _safe_print(f"[stt] PocketSphinx recognized: {text}")
         return text
     except Exception as exc:
         _safe_print(f"[stt] Error in PocketSphinx transcription: {exc}")

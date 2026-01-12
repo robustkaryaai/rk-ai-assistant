@@ -51,6 +51,16 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 MAX_RECORD_SECONDS = 15  # safety cap to avoid memory use
 WAKE_WORD = "rk"
+WAKE_WORDS = [
+    "rk", "arky", "arkey", "arkie", "archi", "archai", "archana", "arke", 
+    "aarti", "arti", "arty", "artie", "aarty", "earthy", "arty",
+    "arctic", "arctic", "arcade", "ark", "arc", "arkay", "arkey",
+    "are key", "arr key", "r k", "r.k.", "our key", "our k",
+    "archi", "archie", "archie", "aarav", "aari", "aarti",
+    "rocket", "rocky", "rocky", "ruby", "rishi", "rushi",
+    "hey rk", "okay rk", "hi rk", "hello rk",
+    "park", "mark", "dark", "ark", "arc", "arise", "arya", "aryan"
+]
 
 # Microphone configuration for live STT
 MIC_DEVICE_INDEX = int(os.getenv("MIC_DEVICE_INDEX", "-1"))  # -1 for default
@@ -74,7 +84,7 @@ USE_GEMINI_DIRECT = os.getenv("USE_GEMINI_DIRECT", "1") == "1"  # Feature flag
 
 # Groq API (for ultra-fast STT)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-STT_ENGINE = os.getenv("STT_ENGINE", "groq")  # Options: "groq", "google"
+STT_ENGINE = os.getenv("STT_ENGINE", "google")  # Options: "groq", "google"
 
 
 
