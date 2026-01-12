@@ -275,56 +275,20 @@ def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, decoder_avail
         threading.Thread(target=_monitor_music_for_wake, args=(decoder_available, music_proc_holder), daemon=True).start()
 
 
-def offline_flow(decoder_available: bool, music_proc_holder: dict) -> None:
-    text = quick_stt(decoder_available, seconds=4)
-    cmd = match_offline_command(text)
-    if cmd:
-                    print("[online] ✓ Wake word detected in transcription!", flush=True)
-                    if "pause" in low:
-                        stop_process(music_proc_holder.get("proc"))
-                        speak("Paused.")
-    else:
-        speak(offline_ai_reply(text or ""))
+def _send_to_backend_async(text: str, slug: str):
+    """Fire-and-forget sending text to backend."""
+    def _send():
+        post_text_to_backend(text, slug)
+    threading.Thread(target=_send, daemon=True).start()
 
 
-def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:
-    """Unified voice flow for both online and offline."""
-    print(f"[wake] Waiting for wake word '{WAKE_WORD}' (or variations)...", flush=True)
-    woke = wait_for_wake_word(decoder_available, WAKE_WORDS)
-    if not woke:
-        return
-
-    # Wake word detected
-    if music_proc_holder.get("proc"):
-        set_volume(-20) # Lower volume to listen
-    
-    # Speak "Listening" or similar? User said "no direct print listining" 
-    # but we need to know it's listening. I'll use a very silent approach.
-    print("[wake] Heard you. Listening for command...", flush=True)
-    
-    # Record and Process
-    online = is_online()
-    if online and recognizer and mic:
-        # Use LIVE STT for faster Alexa-like experience
-        text = live_stt_listen(recognizer, mic)
-    else:
-        # Fallback to file-based recording (offline or missing objects)
-        audio_path = record_until_silence(silence_duration=1.5, silence_threshold=500)
-        if online:
-            text = online_stt(audio_path)
-        else:
-            text = _pocketsphinx_transcribe(audio_path)
-    
-    # Restore volume if it was lowered
-    if music_proc_holder.get("proc"):
-        set_volume(+20)
-
+def process_online_command(text: str, slug: str, music_proc_holder: dict) -> None:
+    """Helper to process a command string using Gemini/Backend."""
     if not text:
         return
         
     low = text.lower()
-    print(f"[flow] Got text: '{text}'", flush=True)
-
+    
     # Local quick commands
     if "pause" in low and "music" in low:
         stop_process(music_proc_holder.get("proc"))
@@ -368,6 +332,118 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
             _send_to_backend_async(text, slug)
     else:
         _send_to_backend_async(text, slug)
+
+
+def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:
+    """
+    Unified voice flow.
+    ONLINE: Uses Google STT continuously to listen. If 'rk' is in text, executes command.
+    OFFLINE: Falls back to PocketSphinx for wake word.
+    """
+    # 1. Determine mode
+    online = is_online()
+    
+    if online and recognizer and mic:
+        # --- ONLINE MODE (Always-on Google STT) ---
+        print(f"[wake] Listening (Google STT)... Say '{WAKE_WORD}'...", flush=True)
+        
+        # This blocks until a phrase is heard and transcribed
+        # We increase phrase limit to allow natural speaking "rk play music"
+        text = live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=10.0)
+        
+        if not text:
+            return
+
+        text_lower = text.lower()
+        print(f"[stt] Heard: '{text}'")
+
+        # Check for wake word
+        if WAKE_WORD in text_lower:
+            print(f"[wake] Wake word '{WAKE_WORD}' detected in online stream!")
+            
+            # Duck volume (visual/audio feedback)
+            if music_proc_holder.get("proc"):
+                set_volume(20)
+
+            # Play wake sound
+            play_audio_url("https://github.com/Starttoaster/rk-voice/raw/main/wake.wav")
+            
+            # Strip key word to get command
+            # Find detection index
+            idx = text_lower.find(WAKE_WORD)
+            # Take everything AFTER the wake word
+            command_part = text[idx + len(WAKE_WORD):].strip()
+            
+            # If user just said "rk", listen for follow-up
+            if not command_part:
+                print("[stt] Wake word heard but no command. Listening for follow-up...")
+                command_part = live_stt_listen(recognizer, mic, timeout=5.0)
+            
+            if command_part:
+                print(f"[stt] Processing command: '{command_part}'")
+                
+                # Execute logic
+                if match_offline_command(command_part):
+                     # Offline command (lights etc)
+                     handle_offline_command(command_part, slug)
+                     speak(offline_ai_reply(command_part))
+                else:
+                     # Online AI
+                     process_online_command(command_part, slug, music_proc_holder)
+                
+                # Restore volume
+                if music_proc_holder.get("proc"):
+                    set_volume(80)
+            else:
+                print("[stt] No command heard after wake word.")
+                if music_proc_holder.get("proc"):
+                    set_volume(80)
+            
+        else:
+            # print(f"[stt] Ignored (no wake word): {text}")
+            pass
+            
+    else:
+        # --- OFFLINE MODE (PocketSphinx Fallback) ---
+        print(f"[wake] Waiting for wake word '{WAKE_WORD}' (Offline/Pocketsphinx)...", flush=True)
+        woke = wait_for_wake_word(decoder_available, WAKE_WORDS)
+        if not woke:
+            return
+
+        print("[wake] Wake word detected (Offline)!")
+        
+        if music_proc_holder.get("proc"):
+            set_volume(20)
+            
+        play_audio_url("https://github.com/Starttoaster/rk-voice/raw/main/wake.wav")
+        
+        # Record & Transcribe
+        audio_path = record_until_silence(LAST_AUDIO)
+        
+        text = ""
+        # If we coincidentally have net now (flaky connection)
+        if is_online():
+             text = online_stt(audio_path)
+        
+        if not text:
+             print("[stt] No transcription.")
+             if music_proc_holder.get("proc"):
+                set_volume(80)
+             return
+             
+        print(f"[stt] Transcription: {text}")
+        
+        if match_offline_command(text):
+            handle_offline_command(text, slug)
+            speak(offline_ai_reply(text))
+        else:
+            if is_online():
+                process_online_command(text, slug, music_proc_holder)
+            else:
+                speak("I am offline.")
+
+        if music_proc_holder.get("proc"):
+            set_volume(80)
 
 
 
