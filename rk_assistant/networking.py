@@ -51,21 +51,31 @@ def setup_bluetooth() -> bool:
         subprocess.run(["sudo", "hciconfig", BLUETOOTH_HCI, "up"], check=False)
         time.sleep(1)
 
-        # 2. Connect to speaker
+        # 3. Connect to speaker (Blocking Loop)
         mac = BLUETOOTH_SPEAKER_MAC
-        print(f"[bluetooth] Connecting to speaker {mac}...", flush=True)
-        # Use simple timeout with check=False to avoid crashing if already connected
-        subprocess.run(["bluetoothctl", "connect", mac], check=False, timeout=10)
+        print(f"[bluetooth] Waiting for speaker {mac} to connect...", flush=True)
+
+        while True:
+            # Try to connect
+            subprocess.run(["bluetoothctl", "connect", mac], check=False, timeout=10)
+            
+            # Verify connection
+            info = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True)
+            if "Connected: yes" in info.stdout:
+                 print(f"[bluetooth] Speaker {mac} connected!", flush=True)
+                 break
+            
+            print("[bluetooth] Speaker not connected, retrying in 5s...", flush=True)
+            time.sleep(5)
+
         time.sleep(2)
         
-        # 3. Set default sink (construct name from MAC)
-        # MAC E0:C8... -> bluez_output.E0_C8..._32.1
-        # Replace : with _ and append .1 (usually)
+        # 4. Set default sink (construct name from MAC)
         sink_name = f"bluez_output.{mac.replace(':', '_')}.1"
         print(f"[bluetooth] Setting default sink to {sink_name}...", flush=True)
         subprocess.run(["pactl", "set-default-sink", sink_name], check=False)
         
-        # 4. Set volume to 100%
+        # 5. Set volume to 100%
         subprocess.run(["pactl", "set-sink-volume", sink_name, "100%"], check=False)
         
         return True
