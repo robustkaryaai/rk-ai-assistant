@@ -5,10 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# If your username is NOT 'pi', change this or remove it to run as root (not recommended)
-User=pi
-WorkingDirectory=/home/pi/Documents/rk-ai-assistant
-ExecStart=/usr/bin/bash /home/pi/Documents/rk-ai-assistant/start_rk.sh
+User=raspberrypi
+WorkingDirectory=/home/raspberrypi/Documents/rk-ai-assistant
+ExecStart=/usr/bin/bash /home/raspberrypi/Documents/rk-ai-assistant/start_rk.sh
 Restart=always
 RestartSec=10
 StandardOutput=inherit
