@@ -1,0 +1,17 @@
+[Unit]
+Description=RK AI Assistant Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Documents/rk-ai-assistant
+ExecStart=/bin/bash /home/pi/Documents/rk-ai-assistant/start_rk.sh
+Restart=always
+RestartSec=10
+StandardOutput=inherit
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target
