@@ -488,9 +488,18 @@ def main():
             
             if mic is not None:
                 print("[stt] Calibrating microphone for ambient noise (2 seconds)...", flush=True)
-                with mic as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=2.0)
-                    print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
+                try:
+                    with mic as source:
+                        recognizer.adjust_for_ambient_noise(source, duration=2.0)
+                        print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
+                except AttributeError as e:
+                     if "'NoneType' object has no attribute 'close'" in str(e):
+                         print("[stt] Warning: Microphone close error during calibration (ignored).", flush=True)
+                     else:
+                         raise e
+                except Exception as e:
+                     print(f"[stt] Warning: Ambient calibration failed: {e}", flush=True)
+
         except Exception as e:
             print(f"[stt] Failed to initialize microphone: {e}", flush=True)
 
@@ -521,11 +530,6 @@ def main():
     print("\n" + "="*30)
     print("STARTING VOICE MODE")
     print("="*30 + "\n")
-
-    # Default to Voice Mode
-    print("\n" + "="*30)
-    print("STARTING VOICE MODE")
-    print("="*30 + "\n")
     
     decoder_available = load_pocketsphinx_decoder()
     music_proc_holder = {"proc": None}
@@ -534,6 +538,7 @@ def main():
     while True:
         try:
             voice_flow(decoder_available, music_proc_holder, slug, recognizer=recognizer, mic=mic)
+            time.sleep(0.5) # Throttle loop
         except KeyboardInterrupt:
             break
         except Exception as e:
