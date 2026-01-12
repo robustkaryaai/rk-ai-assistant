@@ -75,6 +75,19 @@ def is_online(host: str = "1.1.1.1", port: int = 53, timeout: float = 1.5) -> bo
         return False
 
 
+def wait_for_internet(max_minutes: float = 2.0) -> bool:
+    """Wait for internet connection for up to max_minutes."""
+    print(f"[network] Waiting {max_minutes}m for internet connection...", flush=True)
+    start_time = time.time()
+    while time.time() - start_time < (max_minutes * 60):
+        if is_online():
+            print("[network] Connected to internet!", flush=True)
+            return True
+        time.sleep(5)
+    print("[network] Internet wait timed out.", flush=True)
+    return False
+
+
 def read_slug() -> tuple[Optional[str], bool]:
     """
     Read slug.txt.

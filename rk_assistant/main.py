@@ -52,14 +52,8 @@ from .audio_utils import (
     wait_for_wake_word,
 )
 from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD, WAKE_WORDS, BACKEND_BASE_URL, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, GEMINI_MODEL, USE_GEMINI_DIRECT
-from .networking import (
-    generate_slug,
-    is_online,
-    post_audio_to_backend,
-    post_text_to_backend,
-    read_slug,
-    write_slug,
     setup_bluetooth,
+    wait_for_internet,
 )
 from .offline_commands import handle_offline_command, match_offline_command, offline_ai_reply
 from .weather_news import fetch_news, fetch_weather
@@ -375,13 +369,23 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
 def main():
     """Main entry point - asks for mode selection."""
     print("\n" + "="*30)
-    print("Initializing rk ai...")
+    print("Initializing RK AI Assistant...")
     print("="*30)
     
-    # Initialize Bluetooth (Speaker)
+    # 1. Initialize Bluetooth (Speaker) FIRST
     setup_bluetooth()
     
-    speak("Initializing rk ai")
+    # 2. WAIT FOR INTERNET (User requested 2m max)
+    wait_for_internet(max_minutes=2.0)
+    
+    # 3. SET INITIAL VOLUME (ensure we can hear it)
+    set_volume(80) 
+
+    # 4. INITIAL SPEECH
+    start_msg = "Radhe Radhe RK AI assistant is starting up"
+    print(f"[main] {start_msg}")
+    speak(start_msg)
+    time.sleep(1) # Give it a second
 
     # Initialize and Calibrate Microphone ONE TIME here
     recognizer = None
