@@ -9,11 +9,11 @@ import json
 from typing import Dict, Any, Optional, List
 
 try:
-    import google.generativeai as genai
+    from google import genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-    print("[gemini] google-generativeai not installed. Run: pip install google-generativeai")
+    print("[gemini] google-genai not installed. Run: pip install google-genai")
 
 
 # System prompt for intent classification (from backend)
@@ -102,22 +102,9 @@ User: "set alarm for 8 AM"
 Now only output JSON following the schema and rules."""
 
 
-def configure_gemini(api_key: str) -> bool:
-    """Configure Gemini API with the provided key."""
-    if not GEMINI_AVAILABLE:
-        return False
-    
-    try:
-        genai.configure(api_key=api_key)
-        return True
-    except Exception as e:
-        print(f"[gemini] Configuration error: {e}")
-        return False
-
-
 def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemini-2.0-flash-exp") -> List[Dict[str, Any]]:
     """
-    Classify user intent using Gemini with automatic backup key failover.
+    Classify user intent using Gemini (google-genai SDK 1.0+) with automatic backup key failover.
     
     Args:
         text: User's query/command
@@ -147,18 +134,20 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
     
     for key_type, key in keys_to_try:
         try:
-            # Configure API
-            configure_gemini(key)
-            
-            # Create model instance
-            model = genai.GenerativeModel(model_name)
+            # Create SDK Client
+            client = genai.Client(api_key=key)
             
             # Build prompt
             full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
             
             # Generate classification
             print(f"[gemini] Classifying with {key_type} key: '{text}'", flush=True)
-            response = model.generate_content(full_prompt)
+            
+            # New SDK usage: client.models.generate_content
+            response = client.models.generate_content(
+                model=model_name,
+                contents=full_prompt
+            )
             
             if not response or not response.text:
                 print(f"[gemini] Empty response from {key_type} key")
@@ -211,23 +200,13 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
 def get_conversational_response(text: str, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash-exp") -> str:
     """
     Get conversational response from Gemini for chat/general intents.
-    
-    Args:
-        text: User's message
-        api_key: Gemini API key
-        model_name: Gemini model to use
-        
-    Returns:
-        Conversational response string
     """
     if not GEMINI_AVAILABLE:
         return "I'm having trouble connecting right now."
     
     try:
-        if api_key:
-            configure_gemini(api_key)
-        
-        model = genai.GenerativeModel(model_name)
+        # Create SDK Client
+        client = genai.Client(api_key=api_key)
         
         # Context-aware prompt for voice responses
         system_context = """You are RK AI created by RK Innovators, a helpful voice assistant.
@@ -237,7 +216,10 @@ Be friendly, natural, and concise."""
         full_prompt = f"{system_context}\n\nUser: {text}"
         
         print(f"[gemini] Getting conversational response for: '{text}'", flush=True)
-        response = model.generate_content(full_prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=full_prompt
+        )
         
         if not response or not response.text:
             return "I didn't understand that."
@@ -252,15 +234,17 @@ Be friendly, natural, and concise."""
 
 
 def test_gemini_connection(api_key: str) -> bool:
-    """Test if Gemini API is working with the provided key."""
+    """Test if Gemini API is working with the provided key using new SDK."""
     if not GEMINI_AVAILABLE:
         print("[gemini] Library not available")
         return False
     
     try:
-        configure_gemini(api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash-exp")
-        response = model.generate_content("Say 'Hello' if you can hear me.")
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents="Say 'Hello' if you can hear me."
+        )
         return bool(response and response.text)
     except Exception as e:
         print(f"[gemini] Connection test failed: {e}")

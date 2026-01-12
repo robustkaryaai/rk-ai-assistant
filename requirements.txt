@@ -5,4 +5,4 @@ SpeechRecognition
 PyAudio
 numpy
 gTTS==2.5.1
-google-generativeai
+google-genai
