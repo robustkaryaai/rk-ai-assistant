@@ -99,8 +99,8 @@ def wait_for_wake_word(decoder_available: bool, wake_word: str | list[str] = WAK
     Returns True when wake word heard, False on error/timeout.
     """
     if not decoder_available or LiveSpeech is None:
-        _safe_print("[audio] Wake detection unavailable (no decoder).")
-        time.sleep(1)
+        _safe_print("[audio] Wake detection unavailable (no decoder). Retrying in 10s...")
+        time.sleep(10)
         return False
 
     # Convert to list for consistent handling
