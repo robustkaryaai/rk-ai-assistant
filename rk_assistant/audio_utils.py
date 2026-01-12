@@ -486,6 +486,36 @@ def online_stt(audio_path: Path) -> str:
         _safe_print(f"[stt] Error in online STT: {exc}")
         return ""
 
+def live_stt_listen(recognizer: sr.Recognizer, mic: sr.Microphone, timeout: float = 5.0, phrase_time_limit: float = 10.0) -> str:
+    """
+    Directly listen from microphone and transcribe using Google.
+    Provides the 'live interpret' experience.
+    """
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return ""
+    
+    try:
+        with mic as source:
+            # We don't adjust_for_ambient_noise here as it should be done in main() startup
+            print("[stt] Listening for command...", flush=True)
+            audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
+        
+        print("[stt] Transcribing...", flush=True)
+        text = recognizer.recognize_google(audio)
+        return text
+    except sr.WaitTimeoutError:
+        print("[stt] No speech detected (timeout)")
+        return ""
+    except sr.UnknownValueError:
+        print("[stt] Speech unintelligible")
+        return ""
+    except sr.RequestError as e:
+        print(f"[stt] Google API error: {e}")
+        return ""
+    except Exception as e:
+        print(f"[stt] Live STT error: {e}")
+        return ""
+
 
 def _pocketsphinx_transcribe(audio_path: Path) -> str:
     """Transcribe audio file using PocketSphinx (offline fallback)."""

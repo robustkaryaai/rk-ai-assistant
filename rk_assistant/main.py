@@ -37,7 +37,8 @@ from typing import Optional
 import requests
 
 from . import audio_utils
-from . audio_utils import (
+from .audio_utils import (
+    live_stt_listen,
     load_pocketsphinx_decoder,
     online_stt,
     play_audio_url,
@@ -300,15 +301,18 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
     # but we need to know it's listening. I'll use a very silent approach.
     print("[wake] Heard you. Listening for command...", flush=True)
     
-    # Record command
-    audio_path = record_until_silence(silence_duration=1.5, silence_threshold=500)
-    
-    # Process
+    # Record and Process
     online = is_online()
-    if online:
-        text = online_stt(audio_path)
+    if online and recognizer and mic:
+        # Use LIVE STT for faster Alexa-like experience
+        text = live_stt_listen(recognizer, mic)
     else:
-        text = _pocketsphinx_transcribe(audio_path)
+        # Fallback to file-based recording (offline or missing objects)
+        audio_path = record_until_silence(silence_duration=1.5, silence_threshold=500)
+        if online:
+            text = online_stt(audio_path)
+        else:
+            text = _pocketsphinx_transcribe(audio_path)
     
     # Restore volume if it was lowered
     if music_proc_holder.get("proc"):
@@ -364,119 +368,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
     else:
         _send_to_backend_async(text, slug)
 
-def text_input_flow(slug: str) -> None:
-    """TEMPORARY: Text input mode for testing without audio."""
-    print("\n[text-mode] Enter your prompt (or 'quit' to exit):")
-    text = input("> ").strip()
-    
-    if not text or text.lower() in ['quit', 'exit', 'q']:
-        return
-    
-    print(f"[text-mode] You entered: '{text}'", flush=True)
-    
-    
-    # Check if wake word "rk" is in the text
-    if "rk" not in text.lower():
-        print("[text-mode] Wake word 'rk' not detected, ignoring...", flush=True)
-        return
-    
-    print("[text-mode] ✓ Wake word 'rk' detected!", flush=True)
-    
-    #NEW ROUTING: Gemini classifies intent, then route accordingly
-    if USE_GEMINI_DIRECT and GEMINI_API_KEY:
-        print(f"[text-mode] Classifying intent with Gemini: '{text}'", flush=True)
-        try:
-            # Step 1: Classify intent with Gemini (with backup key support)
-            intents = gemini_client.classify_intent(
-                text, 
-                api_key=GEMINI_API_KEY, 
-                backup_key=GEMINI_API_KEY_BACKUP, 
-                model_name=GEMINI_MODEL
-            )
-            print(f"[text-mode] Classified intents: {intents}", flush=True)
-            
-            # Define intent categories
-            local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm"]
-            backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "task",
-                               "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
-            
-            # Step 2: Route based on first intent
-            if intents and len(intents) > 0:
-                first_intent = intents[0]
-                intent_name = first_intent.get("intent", "general")
-                parameters = first_intent.get("parameters", {})
-                
-                if intent_name in local_intents:
-                    # Handle locally on Pi
-                    print(f"[text-mode] Local intent '{intent_name}', handling on Pi", flush=True)
-                    try:
-                        response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
-                        
-                        # Handle response based on intent
-                        if intent_name == "music":
-                            # Music intent
-                            if response.get("reply"):
-                                speak(response["reply"])
-                                print(f"[text-mode] Music: {response['reply']}")
-                            
-                        elif intent_name == "announcement":
-                            # Announcement - speak twice
-                            announcement_text = response.get("reply", "")
-                            if announcement_text:
-                                _speak_twice(announcement_text)
-                                print(f"[text-mode] Announcement: {announcement_text}")
-                        
-                        else:
-                            # All other local intents - speak once
-                            if response.get("reply"):
-                                speak(response["reply"])
-                                print(f"[text-mode] Response: {response['reply']}")
-                    
-                    except Exception as le:
-                        print(f"[text-mode] Error handling {intent_name}: {le}", flush=True)
-                        speak("Could not process that request.")
-                
-                elif intent_name in backend_intents:
-                    # Send to backend for file operations (Fire and Forget)
-                    print(f"[text-mode] Backend intent '{intent_name}', sending async", flush=True)
-                    
-                    # 1. Speak immediate confirmation
-                    confirmation = "Working on it..."
-                    if intent_name == "image": confirmation = "Generating image..."
-                    elif intent_name == "video": confirmation = "Creating video..."
-                    elif intent_name == "docx": confirmation = "Writing document..."
-                    elif intent_name == "ppt": confirmation = "Creating presentation..."
-                    elif intent_name in ["note", "planner", "timetable", "task"]: confirmation = "Updating student tools..."
-                    elif intent_name in ["lesson_plan", "exam_paper", "grading_sheet"]: confirmation = "Preparing teacher resources..."
-                    
-                    speak(confirmation)
-                    print(f"[text-mode] Confirmation: {confirmation}")
-                    
-                    # 2. Send to backend asynchronously (fire and forget)
-                    _send_to_backend_async(text, slug)
-                
-                else:
-                    # Unknown intent, try backend as fallback
-                    print(f"[text-mode] Unknown intent '{intent_name}', trying backend", flush=True)
-                    speak("Checking...")
-                    _send_to_backend_async(text, slug)
-            
-            else:
-                # No intents returned, fallback
-                print("[text-mode] No intents classified, using backend", flush=True)
-                speak("One moment...")
-                _send_to_backend_async(text, slug)
-            
-        except Exception as ge:
-            print(f"[text-mode] Intent classification failed: {ge}, falling back to backend", flush=True)
-            # Fallback to backend async
-            speak("One moment...")
-            _send_to_backend_async(text, slug)
-    else:
-        # Gemini not configured, use backend only
-        print(f"[text-mode] Gemini not configured, routing to BACKEND", flush=True)
-        speak("Processing...")
-        _send_to_backend_async(text, slug)
 
 
 
@@ -539,25 +430,10 @@ def main():
     except Exception as e:
         print(f"[ble] Failed to start service: {e}", file=sys.stderr)
 
-    print("Select Mode:")
-    print("1. Voice Mode (Wake word 'rk')")
-    print("2. Text Mode (Type commands)")
-    
-    choice = input("\nEnter choice (1 or 2): ").strip()
-
-    if choice == "2":
-        print("\n" + "="*30)
-        print("STARTING TEXT MODE")
-        print("="*30 + "\n")
-        while True:
-            try:
-                text_input_flow(slug)
-            except KeyboardInterrupt:
-                print("\n[text-mode] Exiting...")
-                break
-            except Exception as e:
-                print(f"[text-mode] Error: {e}", flush=True)
-        return
+    # Default to Voice Mode
+    print("\n" + "="*30)
+    print("STARTING VOICE MODE")
+    print("="*30 + "\n")
 
     # Default to Voice Mode
     print("\n" + "="*30)
@@ -570,7 +446,7 @@ def main():
     # Voice mode: standard wake word loop
     while True:
         try:
-            voice_flow(decoder_available, music_proc_holder, slug)
+            voice_flow(decoder_available, music_proc_holder, slug, recognizer=recognizer, mic=mic)
         except KeyboardInterrupt:
             break
         except Exception as e:
