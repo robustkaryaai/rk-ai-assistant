@@ -36,7 +36,17 @@ def setup_bluetooth() -> bool:
     3. Set as default sink.
     """
     try:
-        # 1. Force adapter up
+        # 1. Check if adapter exists
+        print(f"[bluetooth] Checking if {BLUETOOTH_HCI} exists...", flush=True)
+        check = subprocess.run(["hciconfig", BLUETOOTH_HCI], capture_output=True, text=True)
+        if check.returncode != 0:
+            print(f"[bluetooth] CRITICAL ERROR: {BLUETOOTH_HCI} NOT FOUND!", flush=True)
+            print("[bluetooth] Triggering automatic reboot in 5 seconds...", flush=True)
+            time.sleep(5)
+            subprocess.run(["sudo", "reboot"], check=False)
+            return False
+
+        # 2. Force adapter up
         print(f"[bluetooth] Ensuring {BLUETOOTH_HCI} is up...", flush=True)
         subprocess.run(["sudo", "hciconfig", BLUETOOTH_HCI, "up"], check=False)
         time.sleep(1)
