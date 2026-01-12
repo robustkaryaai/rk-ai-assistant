@@ -27,5 +27,9 @@ echo "[startup] Checking for updates..."
 git pull origin main
 
 # Start the assistant
+echo "[startup] Ensuring PulseAudio is started..."
+pulseaudio --start --exit-idle-time=-1
+sleep 2
+
 echo "[startup] Starting RK AI Assistant..."
 python3 -m rk_assistant.main
