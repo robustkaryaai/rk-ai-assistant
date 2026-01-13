@@ -490,23 +490,26 @@ def online_stt(audio_path: Path) -> str:
         _safe_print(f"[stt] Error in online STT: {exc}")
         return ""
 
-def live_stt_listen(recognizer: sr.Recognizer, mic: sr.Microphone, timeout: float = 5.0, phrase_time_limit: float = 10.0) -> str:
+def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None):
     """
-    Directly listen from microphone and transcribe using Google.
-    Provides the 'live interpret' experience.
+    Listen and transcribe using Google STT.
+    
+    Args:
+        recognizer: sr.Recognizer instance
+        mic: sr.Microphone instance
+        timeout: Max seconds to wait for phrase start (None = no limit)
+        phrase_time_limit: Max seconds for phrase duration
+        
+    Returns:
+        Transcribed text or empty string
     """
     if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
         return ""
     
     try:
-        # Note: 'with mic as source' might close the microphone stream on exit, 
-        # which can cause issues if we reuse the same mic object in a loop.
-        # However, SpeechRecognition's Microphone.__exit__ usually just resets pieces, not full close if it's PyAudio.
-        # But to be safe, let's catch the specific error or avoid re-opening if possible.
-        # Actually, best practice with SR is to use 'with' every time.
-        # The crash 'NoneType object has no attribute close' often comes from PyAudio stream handling in SR library.
-        
         with mic as source:
+            # Adjust for ambient noise BEFORE each listen (adaptive sensitivity)
+            recognizer.adjust_for_ambient_noise(source, duration=0.5)
             # print("[stt] Listening for command...", flush=True) # Reduced spam
             audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
         
