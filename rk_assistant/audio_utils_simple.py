@@ -1,38 +1,28 @@
 """
 Simple audio utilities - just what we need.
 """
-from gtts import gTTS
-import subprocess
-import tempfile
-from pathlib import Path
+import pyttsx3
+
+# Initialize TTS engine once
+_engine = None
+
+def _get_engine():
+    """Lazy init TTS engine."""
+    global _engine
+    if _engine is None:
+        _engine = pyttsx3.init()
+        _engine.setProperty('rate', 150)
+    return _engine
 
 
 def speak(text):
     """
-    Convert text to speech using gTTS and play it.
+    Convert text to speech using pyttsx3 (offline, reliable).
     """
     try:
-        print(f"🔊 Speaking: {text}", flush=True)
-        
-        # Generate speech
-        tts = gTTS(text=text, lang='en')
-        
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
-            temp_path = fp.name
-            tts.save(temp_path)
-        
-        # Play using ffplay (silent, close on completion)
-        subprocess.run([
-            'ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet',
-            temp_path
-        ], check=False)
-        
-        # Cleanup
-        try:
-            Path(temp_path).unlink()
-        except:
-            pass
-            
+        print(f"🔊 {text}", flush=True)
+        engine = _get_engine()
+        engine.say(text)
+        engine.runAndWait()
     except Exception as e:
         print(f"⚠ Speak error: {e}", flush=True)
