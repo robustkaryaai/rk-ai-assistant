@@ -245,5 +245,22 @@ def apply_wifi_credentials(ssid: str, password: str) -> bool:
         return False
 
 
+def send_to_backend_async(text: str, slug: str) -> None:
+    """
+    Send command to backend asynchronously (fire and forget).
+    Simple wrapper for voice_simple.py compatibility.
+    """
+    import threading
+    
+    def _send():
+        try:
+            post_text_to_backend(text, slug)
+        except Exception as e:
+            print(f"[network] Async backend error: {e}", flush=True)
+    
+    thread = threading.Thread(target=_send, daemon=True)
+    thread.start()
+
+
 
 
