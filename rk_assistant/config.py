@@ -71,6 +71,13 @@ GTTS_LANG = os.getenv("GTTS_LANG", "en")
 GTTS_TLD = os.getenv("GTTS_TLD", "co.in")
 MPG123_OUTPUT = os.getenv("MPG123_OUTPUT", "pulse")
 
+# Piper TTS (offline, high-quality voice synthesis)
+PIPER_EXECUTABLE = os.getenv("PIPER_EXECUTABLE", "/usr/local/bin/piper")
+PIPER_VOICE_MODEL = os.getenv(
+    "PIPER_VOICE_MODEL", 
+    str(Path.home() / ".local/share/piper/voices/en_US-lessac-medium.onnx")
+)
+
 # Backend
 BACKEND_URL = "https://rk-ai-backend.onrender.com/voice"
 BACKEND_BASE_URL = "https://rk-ai-backend.onrender.com"  # Base URL for text endpoint
