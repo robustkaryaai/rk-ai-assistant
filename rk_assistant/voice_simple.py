@@ -42,7 +42,7 @@ def voice_loop(decoder_available, music_proc_holder, slug):
     from . import local_handlers
     from .networking import send_to_backend_async
     
-    speak("Radhe Radhe! RK is ready and listening.")
+    speak("Radhe Radhe! RK is ready.")
     
     while True:
         command = listen(recognizer, mic)
