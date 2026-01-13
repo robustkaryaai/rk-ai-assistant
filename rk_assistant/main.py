@@ -345,7 +345,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
     
     if online and recognizer and mic:
         # --- ONLINE MODE (Always-on Google STT) ---
-        print(f"[wake] Listening (Google STT)... Say '{WAKE_WORD}'...", flush=True)
+        print(f"[stt] Listening continuously (will respond when '{WAKE_WORD}' detected)...", flush=True)
         
         # This blocks until a phrase is heard and transcribed
         # We increase phrase limit to allow natural speaking "rk play music"
@@ -359,7 +359,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
 
         # Check for wake word
         if WAKE_WORD in text_lower:
-            print(f"[wake] Wake word '{WAKE_WORD}' detected in online stream!")
+            print(f"[wake] ✓ Wake word '{WAKE_WORD}' detected!")
             
             # Duck volume (visual/audio feedback)
             if music_proc_holder.get("proc"):
