@@ -388,7 +388,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 if match_offline_command(command_part):
                      # Offline command (lights etc)
                      handle_offline_command(command_part, slug)
-                     speak(offline_ai_reply(command_part))
+                     # Note: handle_offline_command already calls speak(), no need to call again
                 else:
                      # Online AI
                      process_online_command(command_part, slug, music_proc_holder)
