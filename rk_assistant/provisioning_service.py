@@ -281,7 +281,8 @@ class ProvisioningAdvertisement(dbus.service.Object):
     def GetAll(self, interface):
         if interface != LE_ADVERTISEMENT_IFACE:
             raise dbus.exceptions.DBusException('org.freedesktop.DBus.Error.UnknownInterface', '')
-        return self.get_properties()
+        # Return only the properties dict for this interface, not the wrapped dict
+        return self.get_properties()[LE_ADVERTISEMENT_IFACE]
 
     @dbus.service.method(LE_ADVERTISEMENT_IFACE)
     def Release(self):

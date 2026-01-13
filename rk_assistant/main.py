@@ -490,7 +490,7 @@ def main():
                 print("[stt] Calibrating microphone for ambient noise (2 seconds)...", flush=True)
                 try:
                     with mic as source:
-                        recognizer.adjust_for_ambient_noise(source, duration=2.0)
+                        recognizer.adjust_for_ambient_noise(source, duration=0.5)
                         print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
                 except AttributeError as e:
                      if "'NoneType' object has no attribute 'close'" in str(e):
