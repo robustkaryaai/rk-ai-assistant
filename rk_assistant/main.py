@@ -460,17 +460,17 @@ def main():
     # 1. Initialize Bluetooth (Speaker) FIRST
     setup_bluetooth()
     
-    # 2. WAIT FOR INTERNET (User requested 2m max)
-    wait_for_internet(max_minutes=2.0)
-    
-    # 3. SET INITIAL VOLUME (ensure we can hear it)
-    set_volume(80) 
-
-    # 4. INITIAL SPEECH
+    # 2. INITIAL SPEECH (before waiting for internet, so user hears it immediately)
     start_msg = "Radhe Radhe RK AI assistant is starting up"
     print(f"[main] {start_msg}")
     speak(start_msg)
     time.sleep(1) # Give it a second
+    
+    # 3. WAIT FOR INTERNET (User requested 2m max)
+    wait_for_internet(max_minutes=2.0)
+    
+    # 4. SET INITIAL VOLUME (ensure we can hear it)
+    set_volume(80)
 
     # Initialize and Calibrate Microphone ONE TIME here
     recognizer = None
