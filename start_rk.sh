@@ -28,8 +28,9 @@ git pull origin main
 
 # Start the assistant
 echo "[startup] Ensuring PulseAudio is started..."
-pulseaudio --start --exit-idle-time=-1
+pulseaudio --start --exit-idle-time=-1 || echo "PulseAudio start failed or already running"
 sleep 2
 
 echo "[startup] Starting RK AI Assistant..."
+# Capture stderr too
 python3 -m rk_assistant.main
