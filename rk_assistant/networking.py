@@ -262,5 +262,43 @@ def send_to_backend_async(text: str, slug: str) -> None:
     thread.start()
 
 
+def check_network_health() -> None:
+    """
+    Log current network latency and signal strength (if wifi).
+    Designed to be fast and non-blocking (informative only).
+    """
+    try:
+        # 1. Ping Check (Google DNS)
+        # -c 1 = count 1, -W 1 = timeout 1s
+        res = subprocess.run(["ping", "-c", "1", "-W", "1", "8.8.8.8"], 
+                           capture_output=True, text=True)
+        
+        latency = "Timeout"
+        if res.returncode == 0:
+            # Parse output: "time=14.2 ms"
+            import re
+            match = re.search(r"time=([\d\.]+)", res.stdout)
+            if match:
+                latency = f"{match.group(1)}ms"
+        
+        # 2. Wifi Signal Check (if wlan0 is active)
+        signal = "N/A"
+        try:
+            # iwconfig wlan0 | grep "Signal level"
+            # Output: Link Quality=70/70  Signal level=-40 dBm
+            iw = subprocess.run(["iwconfig", "wlan0"], capture_output=True, text=True)
+            if iw.returncode == 0:
+                match = re.search(r"Signal level=(-\d+)", iw.stdout)
+                if match:
+                    signal = f"{match.group(1)}dBm"
+        except:
+            pass
+            
+        print(f"[network] Status 📶 | Latency: {latency} | Signal: {signal}", flush=True)
+        
+    except Exception as e:
+        print(f"[network] Health check failed: {e}", flush=True)
+
+
 
 
