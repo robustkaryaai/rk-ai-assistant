@@ -102,7 +102,7 @@ User: "set alarm for 8 AM"
 Now only output JSON following the schema and rules."""
 
 
-def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemini-2.5-flash") -> List[Dict[str, Any]]:
+def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemini-1.5-flash") -> List[Dict[str, Any]]:
     """
     Classify user intent using Gemini (google-genai SDK 1.0+) with automatic backup key failover.
     
@@ -134,15 +134,15 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
     
     for key_type, key in keys_to_try:
         try:
-            # Create SDK Client with 5s timeout
+            # Create SDK Client with 10s timeout (Reliability for Pi)
             # http_options uses milliseconds
-            client = genai.Client(api_key=key, http_options={'timeout': 5000})
+            client = genai.Client(api_key=key, http_options={'timeout': 10000})
             
             # Build prompt
             full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
             
             # Generate classification
-            print(f"[gemini] Classifying with {key_type} key: '{text}'", flush=True)
+            print(f"[gemini] Classifying with {key_type} key: '{text}' (Model: {model_name})", flush=True)
             
             # New SDK usage: client.models.generate_content
             response = client.models.generate_content(
@@ -198,7 +198,7 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
     return [{"intent": "chat", "parameters": {"prompt": text}}]
 
 
-def get_conversational_response(text: str, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash") -> str:
+def get_conversational_response(text: str, api_key: Optional[str] = None, model_name: str = "gemini-1.5-flash") -> str:
     """
     Get conversational response from Gemini for chat/general intents.
     """
@@ -206,8 +206,8 @@ def get_conversational_response(text: str, api_key: Optional[str] = None, model_
         return "I'm having trouble connecting right now."
     
     try:
-        # Create SDK Client with 5s timeout
-        client = genai.Client(api_key=api_key, http_options={'timeout': 5000})
+        # Create SDK Client with 10s timeout
+        client = genai.Client(api_key=api_key, http_options={'timeout': 10000})
         
         # Context-aware prompt for voice responses
         system_context = """You are RK AI created by RK Innovators, a helpful voice assistant.
