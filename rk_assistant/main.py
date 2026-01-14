@@ -291,7 +291,7 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> Non
         
     low = text.lower()
     
-    # Local quick commands
+    # Local quick commands (instant, no acknowledgment needed)
     if "pause" in low and "music" in low:
         stop_process(music_proc_holder.get("proc"))
         speak("Paused.")
@@ -305,6 +305,9 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> Non
         speak("Volume down.")
         return
 
+    # For complex commands, give immediate acknowledgment
+    needs_backend_ack = False
+    
     # Routing
     if USE_GEMINI_DIRECT and GEMINI_API_KEY:
         try:
@@ -324,16 +327,25 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> Non
                     elif response.get("reply"):
                         speak(response["reply"])
                 elif intent_name in backend_intents:
-                    speak("Working on it...")
+                    # Immediate acknowledgment for backend requests
+                    speak("Got it, let me get that answer for you.")
                     _send_to_backend_async(text, slug)
                 else:
+                    needs_backend_ack = True
                     _send_to_backend_async(text, slug)
             else:
+                needs_backend_ack = True
                 _send_to_backend_async(text, slug)
         except Exception:
+            needs_backend_ack = True
             _send_to_backend_async(text, slug)
     else:
+        needs_backend_ack = True
         _send_to_backend_async(text, slug)
+    
+    # Acknowledge if sending to backend without specific intent
+    if needs_backend_ack:
+        speak("Got it, let me get that answer for you.")
 
 
 def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:

@@ -8,9 +8,12 @@ import hashlib
 from pathlib import Path
 
 
-# Cache directory for gTTS audio files
-CACHE_DIR = Path.home() / ".cache" / "rk_tts"
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+# Pre-generated audio cache (committed to git, instant playback)
+PREGENERATED_CACHE = Path(__file__).parent / "audio_cache"
+
+# Runtime cache directory for new phrases
+RUNTIME_CACHE = Path.home() / ".cache" / "rk_tts"
+RUNTIME_CACHE.mkdir(parents=True, exist_ok=True)
 
 
 def is_online():
@@ -23,10 +26,18 @@ def is_online():
 
 
 def _get_cache_path(text):
-    """Get cache file path for given text."""
+    """Get cache file path for given text, checking pre-generated first."""
     # Use hash of text as filename to avoid filesystem issues
     text_hash = hashlib.md5(text.encode()).hexdigest()
-    return CACHE_DIR / f"{text_hash}.mp3"
+    filename = f"{text_hash}.mp3"
+    
+    # Check pre-generated cache first (instant!)
+    pregenerated = PREGENERATED_CACHE / filename
+    if pregenerated.exists():
+        return pregenerated
+    
+    # Fall back to runtime cache
+    return RUNTIME_CACHE / filename
 
 
 def _is_piper_available():
