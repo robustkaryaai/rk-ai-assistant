@@ -241,7 +241,8 @@ def test_gemini_connection(api_key: str) -> bool:
         return False
     
     try:
-        client = genai.Client(api_key=api_key)
+        # Add 15s timeout to prevent massive hangs if network/key is broken
+        client = genai.Client(api_key=api_key, http_options={'timeout': 15000})
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents="Say 'Hello' if you can hear me."

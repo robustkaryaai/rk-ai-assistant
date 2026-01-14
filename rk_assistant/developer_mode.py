@@ -107,8 +107,8 @@ def test_audio_input():
         sd.wait()  # Wait until recording is finished
         print("[*] Recording finished.")
         
-        print("[*] Playing back recording...")
-        sd.play(myrecording, fs)
+        print("[*] Playing back recording (with 5x volume boost)...")
+        sd.play(myrecording * 5, fs)
         sd.wait()
         print("✅ Info: Playback complete. (Did you hear yourself?)")
         
