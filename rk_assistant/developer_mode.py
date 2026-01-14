@@ -139,22 +139,21 @@ def main():
         
     print("\n🚀 STARTING SYSTEM DIAGNOSTICS...\n")
     
-    test_network()
-    time.sleep(1)
+    tests = [
+        test_network,
+        test_gemini,
+        test_backend,
+        test_music_dependencies,
+        test_audio_output,
+        test_audio_input
+    ]
     
-    test_gemini()
-    time.sleep(1)
-    
-    test_backend()
-    time.sleep(1)
-    
-    test_music_dependencies()
-    time.sleep(1)
-    
-    test_audio_output()
-    time.sleep(1)
-    
-    test_audio_input()
+    for test in tests:
+        start_time = time.time()
+        test()
+        duration = time.time() - start_time
+        print(f"⏱️  {test.__name__} completed in {duration:.4f}s")
+        time.sleep(1)
     
     print_header("✨ DIAGNOSTICS COMPLETE ✨")
 
