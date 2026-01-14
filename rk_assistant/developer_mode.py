@@ -134,6 +134,176 @@ def test_music_dependencies():
     else:
         print("❌ ffmpeg: NOT FOUND")
 
+def test_intent_classification():
+    print_header("7. INTENT CLASSIFICATION TEST 🎯")
+    print("[*] Testing Gemini's ability to classify intents...")
+    
+    if not GEMINI_API_KEY:
+        print("❌ Skipped (No API Key)")
+        return
+    
+    try:
+        from .gemini_client import classify_intent
+        
+        test_query = "What time is it?"
+        print(f"[*] Query: '{test_query}'")
+        
+        result = classify_intent(test_query, api_key=GEMINI_API_KEY)
+        
+        if result and isinstance(result, list) and len(result) > 0:
+            intent_name = result[0].get("intent", "unknown")
+            print(f"✅ Classification Success: '{intent_name}'")
+        else:
+            print("❌ Classification Failed: No valid intent returned")
+            
+    except Exception as e:
+        print(f"❌ Classification Error: {e}")
+
+def test_time_intent():
+    print_header("8. TIME INTENT TEST 🕐")
+    print("[*] Testing local time retrieval...")
+    
+    try:
+        from .local_handlers import handle_time
+        
+        time_str = handle_time()
+        if time_str:
+            print(f"✅ Time Retrieved: {time_str}")
+        else:
+            print("❌ Time handler returned empty")
+            
+    except Exception as e:
+        print(f"❌ Time Error: {e}")
+
+def test_volume_control():
+    print_header("9. VOLUME CONTROL TEST 🔊")
+    print("[*] Testing volume adjustment...")
+    
+    try:
+        from .audio_utils import set_volume, get_current_volume
+        
+        # Get current volume
+        current = get_current_volume()
+        print(f"[*] Current Volume: {current}%")
+        
+        # Test setting volume
+        set_volume(60)
+        new_vol = get_current_volume()
+        
+        if new_vol == 60:
+            print("✅ Volume Control: WORKING")
+            # Restore original volume
+            set_volume(current)
+        else:
+            print(f"⚠️ Volume set to 60 but got {new_vol}")
+            
+    except Exception as e:
+        print(f"❌ Volume Error: {e}")
+
+def test_bluetooth_status():
+    print_header("10. BLUETOOTH STATUS TEST 📡")
+    print("[*] Checking Bluetooth speaker connection...")
+    
+    try:
+        from .config import BLUETOOTH_SPEAKER_MAC
+        
+        # Check connection via bluetoothctl
+        result = subprocess.run(
+            ["bluetoothctl", "info", BLUETOOTH_SPEAKER_MAC],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        if "Connected: yes" in result.stdout:
+            print(f"✅ Speaker Connected: {BLUETOOTH_SPEAKER_MAC}")
+        else:
+            print(f"❌ Speaker Disconnected: {BLUETOOTH_SPEAKER_MAC}")
+            
+    except Exception as e:
+        print(f"❌ Bluetooth Error: {e}")
+
+def test_music_search():
+    print_header("11. MUSIC SEARCH TEST 🎵")
+    print("[*] Testing music search pipeline...")
+    
+    try:
+        # Check if yt-dlp is available first
+        yt_check = subprocess.run(["which", "yt-dlp"], capture_output=True, text=True)
+        if yt_check.returncode != 0:
+            print("⚠️ Skipped (yt-dlp not installed)")
+            return
+        
+        # Dry-run search (don't download)
+        test_song = "test audio"
+        print(f"[*] Searching for: '{test_song}'")
+        
+        result = subprocess.run(
+            ["yt-dlp", "--get-title", f"ytsearch1:{test_song}"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            print(f"✅ Music Search: WORKING (Found: {result.stdout.strip()[:50]}...)")
+        else:
+            print("❌ Music Search: FAILED")
+            
+    except Exception as e:
+        print(f"❌ Music Search Error: {e}")
+
+def test_backend_integration():
+    print_header("12. BACKEND INTEGRATION TEST ☁️")
+    print("[*] Testing backend communication...")
+    
+    try:
+        from .networking import post_text_to_backend
+        
+        # Read slug
+        slug_path = Path(SLUG_FILE)
+        if not slug_path.exists():
+            print("⚠️ Skipped (No slug file)")
+            return
+        
+        slug = slug_path.read_text().strip().split('\n')[0]
+        print(f"[*] Using Slug: {slug}")
+        
+        # Send test message
+        response = post_text_to_backend("Test from developer mode", slug)
+        
+        if response and not response.get("error"):
+            print("✅ Backend Communication: SUCCESS")
+        else:
+            print(f"⚠️ Backend Response: {response}")
+            
+    except Exception as e:
+        print(f"❌ Backend Error: {e}")
+
+def test_conversational_ai():
+    print_header("13. CONVERSATIONAL AI TEST 💬")
+    print("[*] Testing Gemini chat response...")
+    
+    if not GEMINI_API_KEY:
+        print("❌ Skipped (No API Key)")
+        return
+    
+    try:
+        from .gemini_client import get_conversational_response
+        
+        test_prompt = "Say hello"
+        print(f"[*] Prompt: '{test_prompt}'")
+        
+        response = get_conversational_response(test_prompt, api_key=GEMINI_API_KEY)
+        
+        if response and len(response) > 0 and "trouble" not in response.lower():
+            print(f"✅ AI Response: {response[:80]}...")
+        else:
+            print(f"❌ AI Response Failed: {response}")
+            
+    except Exception as e:
+        print(f"❌ Conversational AI Error: {e}")
+
 def main():
     if not check_auth():
         sys.exit(1)
@@ -146,7 +316,14 @@ def main():
         test_backend,
         test_music_dependencies,
         test_audio_output,
-        test_audio_input
+        test_audio_input,
+        test_intent_classification,
+        test_time_intent,
+        test_volume_control,
+        test_bluetooth_status,
+        test_music_search,
+        test_backend_integration,
+        test_conversational_ai
     ]
     
     for test in tests:
