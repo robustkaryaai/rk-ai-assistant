@@ -417,6 +417,10 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         if detected_wake_word:
             print(f"[wake] ✓ Wake word '{detected_wake_word}' detected!")
             
+            # Diagnostic: Check network health immediately
+            from .networking import check_network_health
+            threading.Thread(target=check_network_health, daemon=True).start()
+            
             # Duck volume (visual/audio feedback)
             if music_proc_holder.get("proc"):
                 set_volume(20)

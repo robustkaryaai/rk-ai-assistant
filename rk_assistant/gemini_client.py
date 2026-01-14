@@ -102,7 +102,7 @@ User: "set alarm for 8 AM"
 Now only output JSON following the schema and rules."""
 
 
-def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemini-2.0-flash-exp") -> List[Dict[str, Any]]:
+def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemini-2.5-flash") -> List[Dict[str, Any]]:
     """
     Classify user intent using Gemini (google-genai SDK 1.0+) with automatic backup key failover.
     
@@ -198,7 +198,7 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
     return [{"intent": "chat", "parameters": {"prompt": text}}]
 
 
-def get_conversational_response(text: str, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash-exp") -> str:
+def get_conversational_response(text: str, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash") -> str:
     """
     Get conversational response from Gemini for chat/general intents.
     """
