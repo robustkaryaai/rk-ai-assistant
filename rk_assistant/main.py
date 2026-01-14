@@ -401,6 +401,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         text = live_stt_listen(recognizer, mic, timeout=2, phrase_time_limit=10.0)
         
         if not text:
+            print('🤔 Couldn\'t understand audio.')
             return
 
 
