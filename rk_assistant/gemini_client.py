@@ -141,14 +141,35 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
             # Build prompt
             full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
             
-            # Generate classification
+            # Generate classification with HARD 15s timeout at process level
             print(f"[gemini] 🚀 Calling {model_name} ({key_type} key)...", flush=True)
             
-            # New SDK usage: client.models.generate_content
-            response = client.models.generate_content(
-                model=model_name,
-                contents=full_prompt
-            )
+            # Use threading to enforce hard timeout (SDK may retry internally)
+            import threading
+            result_holder = {"response": None, "error": None}
+            
+            def _call_gemini():
+                try:
+                    result_holder["response"] = client.models.generate_content(
+                        model=model_name,
+                        contents=full_prompt
+                    )
+                except Exception as e:
+                    result_holder["error"] = e
+            
+            thread = threading.Thread(target=_call_gemini, daemon=True)
+            thread.start()
+            thread.join(timeout=15.0)  # Hard 15s cutoff
+            
+            if thread.is_alive():
+                print(f"[gemini] ⚠️ {key_type} key timed out after 15s (SDK retrying internally)", flush=True)
+                last_error = "Timeout after 15s"
+                continue
+            
+            if result_holder["error"]:
+                raise result_holder["error"]
+            
+            response = result_holder["response"]
             
             if not response or not response.text:
                 print(f"[gemini] Empty response from {key_type} key")
@@ -214,13 +235,34 @@ def get_conversational_response(text: str, api_key: Optional[str] = None, model_
 Respond conversationally in 1-2 sentences maximum (optimized for voice/speech).
 Be friendly, natural, and concise."""
         
-        full_prompt = f"{system_context}\n\nUser: {text}"
+        prompt = f"{system_context}\n\nUser: {text}\n\nAssistant:\
+"
         
-        print(f"[gemini] Getting conversational response for: '{text}'", flush=True)
-        response = client.models.generate_content(
-            model=model_name,
-            contents=full_prompt
-        )
+        # Hard 15s timeout
+        import threading
+        result_holder = {"response": None, "error": None}
+        
+        def _call_gemini():
+            try:
+                result_holder["response"] = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+            except Exception as e:
+                result_holder["error"] = e
+        
+        thread = threading.Thread(target=_call_gemini, daemon=True)
+        thread.start()
+        thread.join(timeout=15.0)
+        
+        if thread.is_alive():
+            print("[gemini] Chat timed out after 15s", flush=True)
+            return "I'm taking too long to respond. Please try again."
+        
+        if result_holder["error"]:
+            raise result_holder["error"]
+        
+        response = result_holder["response"]
         
         if not response or not response.text:
             return "I didn't understand that."
@@ -243,11 +285,32 @@ def test_gemini_connection(api_key: str) -> bool:
     try:
         # Add 15s timeout to prevent massive hangs if network/key is broken
         client = genai.Client(api_key=api_key, http_options={'timeout': 15000})
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents="Say 'Hello' if you can hear me."
-        )
-        return bool(response and response.text)
+        
+        # Hard 15s process-level timeout
+        import threading
+        result_holder = {"response": None, "error": None}
+        
+        def _test():
+            try:
+                result_holder["response"] = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents="Say 'Hello' if you can hear me."
+                )
+            except Exception as e:
+                result_holder["error"] = e
+        
+        thread = threading.Thread(target=_test, daemon=True)
+        thread.start()
+        thread.join(timeout=15.0)
+        
+        if thread.is_alive():
+            print("[gemini] Connection test timed out after 15s")
+            return False
+        
+        if result_holder["error"]:
+            raise result_holder["error"]
+        
+        return bool(result_holder["response"] and result_holder["response"].text)
     except Exception as e:
         print(f"[gemini] Connection test failed: {e}")
         return False
