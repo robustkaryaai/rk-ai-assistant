@@ -235,7 +235,7 @@ def test_music_search():
             return
         
         # Dry-run search (don't download)
-        test_song = "test audio"
+        test_song = "Sandese aate hai"
         print(f"[*] Searching for: '{test_song}'")
         
         result = subprocess.run(
