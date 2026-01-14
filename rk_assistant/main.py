@@ -356,12 +356,19 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         if not text:
             return
 
+
         text_lower = text.lower()
         print(f"[stt] Heard: '{text}'")
 
-        # Check for wake word
-        if WAKE_WORD in text_lower:
-            print(f"[wake] ✓ Wake word '{WAKE_WORD}' detected!")
+        # Check for any wake word from the list
+        detected_wake_word = None
+        for wake_word in WAKE_WORDS:
+            if wake_word in text_lower:
+                detected_wake_word = wake_word
+                break
+        
+        if detected_wake_word:
+            print(f"[wake] ✓ Wake word '{detected_wake_word}' detected!")
             
             # Duck volume (visual/audio feedback)
             if music_proc_holder.get("proc"):
@@ -372,11 +379,11 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
             
             # Strip key word to get command
             # Find detection index
-            idx = text_lower.find(WAKE_WORD)
+            idx = text_lower.find(detected_wake_word)
             # Take everything AFTER the wake word
-            command_part = text[idx + len(WAKE_WORD):].strip()
+            command_part = text[idx + len(detected_wake_word):].strip()
             
-            # If user just said "rk", listen for follow-up
+            # If user just said wake word only, listen for follow-up
             if not command_part:
                 print("[stt] Wake word heard but no command. Listening for follow-up...")
                 command_part = live_stt_listen(recognizer, mic, timeout=5.0)
@@ -404,6 +411,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         else:
             # print(f"[stt] Ignored (no wake word): {text}")
             pass
+
             
     else:
         # --- OFFLINE MODE (PocketSphinx Fallback) ---
