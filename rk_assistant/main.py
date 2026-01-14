@@ -322,7 +322,24 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> Non
                 
                 if intent_name in local_intents:
                     response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
-                    if intent_name == "announcement":
+                    
+                    # Special handling for local music
+                    if response.get("intent") == "music_local":
+                        speak(response.get("reply", "Playing music"))
+                        query = response.get("query")
+                        
+                        from .music_manager import play_music
+                        proc = play_music(query)
+                        
+                        if proc:
+                            stop_process(music_proc_holder.get("proc"))
+                            music_proc_holder["proc"] = proc
+                            # Monitor for wake word while music plays
+                            threading.Thread(target=_monitor_music_for_wake, args=(True, music_proc_holder), daemon=True).start()
+                        else:
+                            speak("I couldn't find that song.")
+                            
+                    elif intent_name == "announcement":
                         _speak_twice(response.get("reply", ""))
                     elif response.get("reply"):
                         speak(response["reply"])

@@ -17,12 +17,23 @@ def handle_music(parameters: Dict[str, Any]) -> Dict[str, Any]:
     """
     prompt = parameters.get("prompt", "music")
     
-    # For now, return a simple response
-    # In the future, this could search YouTube/Spotify locally
+    # Delegate to Music Manager (Handles Cache + Streaming)
+    # The actual playback process will be started by main.py using the returned info
+    # But wait, local_handlers just returns data struct. 
+    # We need to change how local_handlers works or how main.py treats it.
+    
+    # OPTION A: Return a special flag to main.py to call music_manager
+    # OPTION B: Call music_manager here and return the process? 
+    # Current architecture: main.py expects a dict with 'reply' and 'intent'.
+    # If intent is music, main.py looks for 'song_url'.
+    
+    # Let's change this:
+    # Return intent="music_local", and the query.
+    
     return {
-        "intent": "music",
+        "intent": "music_local",
         "reply": f"Playing {prompt}",
-        "song_url": None  # Pi will search and play
+        "query": prompt
     }
 
 
