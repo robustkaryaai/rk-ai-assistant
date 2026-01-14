@@ -518,10 +518,6 @@ def main():
     if not slug:
         print("Missing or invalid slug.txt (must contain 9-digit code).", file=sys.stderr)
         return
-    
-    ready_msg = "Radhe Radhe RK AI assistant is ready"
-    print(f"\n{ready_msg}")
-    speak(ready_msg)
 
     print("\n" + "="*60)
     print("RK AI ASSISTANT STARTUP")
@@ -543,6 +539,12 @@ def main():
     
     decoder_available = load_pocketsphinx_decoder()
     music_proc_holder = {"proc": None}
+    
+    # Announce ready right before starting to listen
+    ready_msg = "Radhe Radhe RK AI assistant is ready"
+    print(f"\n{ready_msg}")
+    speak(ready_msg)
+    print("")
 
     # Voice mode: standard wake word loop
     while True:
