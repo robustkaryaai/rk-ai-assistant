@@ -277,11 +277,29 @@ def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, decoder_avail
         threading.Thread(target=_monitor_music_for_wake, args=(decoder_available, music_proc_holder), daemon=True).start()
 
 
-def _send_to_backend_async(text: str, slug: str):
-    """Fire-and-forget sending text to backend."""
-    def _send():
-        post_text_to_backend(text, slug)
-    threading.Thread(target=_send, daemon=True).start()
+def _send_to_backend_and_handle(text: str, slug: str, music_proc_holder: dict) -> None:
+    """Send text to backend and handle the response (speak it)."""
+    def _handler():
+        try:
+            print(f"[backend] Sending request: '{text}'...", flush=True)
+            # This blocks this thread until response arrives (which is fine, it's a daemon thread)
+            response = post_text_to_backend(text, slug)
+            
+            if response:
+                print(f"[backend] Received response: {response}", flush=True)
+                handle_backend_reply(response, music_proc_holder)
+            else:
+                print("[backend] Empty response received.")
+                speak("I didn't get a response from the server.")
+                
+        except Exception as e:
+            print(f"[backend] Error: {e}", flush=True)
+            _log_backend_error("Backend request failed", e)
+            speak("Sorry, I had trouble reaching the server.")
+
+    # Start in background thread so we don't block the main listening loop completely
+    # (Although user might want to block? usually better to keep listening for 'stop')
+    threading.Thread(target=_handler, daemon=True).start()
 
 
 def process_online_command(text: str, slug: str, music_proc_holder: dict) -> None:
@@ -346,19 +364,19 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> Non
                 elif intent_name in backend_intents:
                     # Immediate acknowledgment for backend requests
                     speak("Got it, let me get that answer for you.")
-                    _send_to_backend_async(text, slug)
+                    _send_to_backend_and_handle(text, slug, music_proc_holder)
                 else:
                     needs_backend_ack = True
-                    _send_to_backend_async(text, slug)
+                    _send_to_backend_and_handle(text, slug, music_proc_holder)
             else:
                 needs_backend_ack = True
-                _send_to_backend_async(text, slug)
+                _send_to_backend_and_handle(text, slug, music_proc_holder)
         except Exception:
             needs_backend_ack = True
-            _send_to_backend_async(text, slug)
+            _send_to_backend_and_handle(text, slug, music_proc_holder)
     else:
         needs_backend_ack = True
-        _send_to_backend_async(text, slug)
+        _send_to_backend_and_handle(text, slug, music_proc_holder)
     
     # Acknowledge if sending to backend without specific intent
     if needs_backend_ack:

@@ -134,8 +134,9 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
     
     for key_type, key in keys_to_try:
         try:
-            # Create SDK Client
-            client = genai.Client(api_key=key)
+            # Create SDK Client with 5s timeout
+            # http_options uses milliseconds
+            client = genai.Client(api_key=key, http_options={'timeout': 5000})
             
             # Build prompt
             full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
@@ -205,8 +206,8 @@ def get_conversational_response(text: str, api_key: Optional[str] = None, model_
         return "I'm having trouble connecting right now."
     
     try:
-        # Create SDK Client
-        client = genai.Client(api_key=api_key)
+        # Create SDK Client with 5s timeout
+        client = genai.Client(api_key=api_key, http_options={'timeout': 5000})
         
         # Context-aware prompt for voice responses
         system_context = """You are RK AI created by RK Innovators, a helpful voice assistant.
