@@ -125,6 +125,7 @@ def test_music_dependencies():
         print(f"✅ yt-dlp: INSTALLED ({yt_check.stdout.strip()})")
     else:
         print("❌ yt-dlp: NOT FOUND")
+        print("   👉 Fix: Run 'pip install yt-dlp' on the Pi.")
 
     # Check ffmpeg
     ff_check = subprocess.run(["which", "ffmpeg"], capture_output=True, text=True)

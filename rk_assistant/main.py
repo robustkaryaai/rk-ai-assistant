@@ -540,7 +540,7 @@ def main():
             print("[stt] Initializing microphone...", flush=True)
             recognizer = audio_utils.sr.Recognizer()
             recognizer.dynamic_energy_threshold = False  # Use fixed threshold
-            recognizer.energy_threshold = 150  # VERY sensitive
+            recognizer.energy_threshold = 100  # Even more sensitive for sealed cases
             recognizer.pause_threshold = 1.2   # Wait longer before ending
             recognizer.phrase_threshold = 0.05 # Start INSTANTLY
             recognizer.non_speaking_duration = 0.5  # Long pre-buffer to catch "rk"
@@ -549,10 +549,10 @@ def main():
             mic = audio_utils.sr.Microphone(device_index=(None if MIC_DEVICE_INDEX < 0 else MIC_DEVICE_INDEX), sample_rate=MIC_SAMPLE_RATE)
             
             if mic is not None:
-                print("[stt] Calibrating microphone for ambient noise (5 seconds)...", flush=True)
+                print("[stt] Calibrating microphone for ambient noise (2 seconds)...", flush=True)
                 try:
                     with mic as source:
-                        recognizer.adjust_for_ambient_noise(source, duration=5.0)
+                        recognizer.adjust_for_ambient_noise(source, duration=2.0)
                         print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
                 except AttributeError as e:
                      if "'NoneType' object has no attribute 'close'" in str(e):

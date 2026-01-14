@@ -131,14 +131,24 @@ def speak(text, use_gtts=True):
                     subprocess.run(['mpg123', '-q', str(cache_path)], check=False, stderr=subprocess.DEVNULL)
                     return
                 
-                # Not cached, generate and cache
+                # Not cached, generate and cache with timeout protection
                 from gtts import gTTS
+                import threading
                 
-                tts = gTTS(text=text, lang='en')
-                tts.save(str(cache_path))
+                def _generate():
+                    tts = gTTS(text=text, lang='en')
+                    tts.save(str(cache_path))
                 
+                gen_thread = threading.Thread(target=_generate)
+                gen_thread.start()
+                gen_thread.join(timeout=10) # 10s hard timeout for gTTS generation
+                
+                if gen_thread.is_alive():
+                    print("⚠ gTTS generation timed out, falling back to espeak", flush=True)
+                    raise TimeoutError("gTTS generation took too long")
+
                 # Play the newly cached audio
-                subprocess.run(['mpg123', '-q', str(cache_path)], check=False, stderr=subprocess.DEVNULL)
+                subprocess.run(['mpg123', '-q', str(cache_path)], check=False, stderr=subprocess.DEVNULL, timeout=10)
                 return
                 
             except Exception as e:
