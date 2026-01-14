@@ -232,7 +232,7 @@ def test_music_search():
             ["yt-dlp", "--get-title", f"ytsearch1:{test_song}"],
             capture_output=True,
             text=True,
-            timeout=30  # Increased to 30s for better reliability
+            timeout=120  # Increased to 2 minutes as requested
         )
         
         if result.returncode == 0 and result.stdout.strip():
