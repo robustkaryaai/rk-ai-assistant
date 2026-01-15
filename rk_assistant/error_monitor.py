@@ -183,7 +183,7 @@ class ErrorMonitor:
             files_affected = set()
             
             for error in recent_errors:
-                error_types[error.type] += 1
+                error_types[error.error_type] += 1
                 severity_counts[error.severity] += 1
                 if error.file_path:
                     files_affected.add(error.file_path)
