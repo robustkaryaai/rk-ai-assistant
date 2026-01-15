@@ -31,6 +31,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback as tb
 from pathlib import Path
 from typing import Optional
 
@@ -73,6 +74,8 @@ from . import gemini_client
 from . import local_handlers
 from . import settings_sync  # Sync mute/memory from Appwrite
 from . import command_poller  # Poll and execute commands from mobile app
+from .error_monitor import register_error, get_monitor
+from . import self_diagnosis
 
 
 
@@ -431,7 +434,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         text = live_stt_listen(recognizer, mic, timeout=2, phrase_time_limit=10.0)
         
         if not text:
-            print('🤔 Couldn\'t understand audio.')
+            # Reduce verbose output - just track silently
             return
 
 
@@ -682,7 +685,28 @@ def main():
         except KeyboardInterrupt:
             break
         except Exception as e:
-            print(f"[main] Error in voice loop: {e}")
+            error_type = type(e).__name__
+            error_msg = str(e)
+            print(f"[main] Error in voice loop: {error_msg}")
+            
+            # Register error for monitoring
+            register_error(
+                error_type=f"voice_loop_{error_type}",
+                message=error_msg,
+                severity="major",
+                traceback=tb.format_exc(),
+                file_path=__file__
+            )
+            
+            # Check if diagnosis should be triggered
+            monitor = get_monitor()
+            if monitor.should_trigger_diagnosis():
+                print("\n[main] 🚨 Triggering self-diagnosis...\n")
+                threading.Thread(
+                    target=lambda: self_diagnosis.SelfDiagnosis().run_full_diagnosis(slug),
+                    daemon=True
+                ).start()
+            
             time.sleep(1)
 
 

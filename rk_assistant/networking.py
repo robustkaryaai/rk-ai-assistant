@@ -76,24 +76,58 @@ def setup_bluetooth() -> bool:
 
         time.sleep(2)
         
-        # 4. Get Bluetooth sink ID from MAC address
+        # 4. Get Bluetooth sink ID from MAC address with fallback patterns
         mac = BLUETOOTH_SPEAKER_MAC
-        sink_name = f"bluez_output.{mac.replace(':', '_')}.1"
+        mac_underscore = mac.replace(':', '_')
         
-        print(f"[bluetooth] Finding sink ID for {sink_name}...", flush=True)
+        # Try multiple sink name patterns
+        sink_patterns = [
+            f"bluez_output.{mac_underscore}.1",
+            f"bluez_sink.{mac_underscore}.a2dp_sink",
+            f"bluez_sink.{mac_underscore}",
+            f"bluez_output.{mac_underscore}",
+            mac_underscore,  # Partial match
+        ]
+        
+        print(f"[bluetooth] Finding Bluetooth sink for speaker {mac}...", flush=True)
         sink_list = subprocess.run(["pactl", "list", "sinks", "short"], capture_output=True, text=True)
         
         sink_id = None
-        for line in sink_list.stdout.split('\n'):
-            if sink_name in line:
-                # Extract sink ID (first column)
-                sink_id = line.split()[0]
-                print(f"[bluetooth] Found sink ID: {sink_id}", flush=True)
+        sink_name_found = None
+        
+        # Try each pattern
+        for pattern in sink_patterns:
+            for line in sink_list.stdout.split('\n'):
+                if pattern in line and line.strip():
+                    # Extract sink ID (first column)
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        sink_id = parts[0]
+                        sink_name_found = parts[1]
+                        print(f"[bluetooth] ✓ Found sink '{sink_name_found}' with ID: {sink_id}", flush=True)
+                        break
+            if sink_id:
                 break
         
         if not sink_id:
-            print(f"[bluetooth] WARNING: Could not find sink ID for {sink_name}", flush=True)
-            return False
+            # Try dynamic discovery - find any bluez sink
+            print(f"[bluetooth] Searching for any bluez sink...", flush=True)
+            for line in sink_list.stdout.split('\n'):
+                if 'bluez' in line.lower() and line.strip():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        sink_id = parts[0]
+                        sink_name_found = parts[1]
+                        print(f"[bluetooth] ✓ Found bluez sink: {sink_name_found} (ID: {sink_id})", flush=True)
+                        break
+        
+        if not sink_id:
+            print(f"[bluetooth] WARNING: Could not find Bluetooth sink for {mac}", flush=True)
+            print(f"[bluetooth] Available sinks:", flush=True)
+            print(sink_list.stdout, flush=True)
+            
+            # Continue anyway - PulseAudio might auto-route
+            return True  # Don't fail completely, audio might still work
         
         # 5. Unsuspend sink if suspended
         if "SUSPENDED" in sink_list.stdout:

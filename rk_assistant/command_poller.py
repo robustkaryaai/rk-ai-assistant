@@ -11,9 +11,17 @@ from typing import Optional
 from .config import BACKEND_BASE_URL
 from .audio_utils import set_volume
 from . import audio_utils_simple
+from .error_monitor import register_error
 
 # Global flag for mute state
 _muted = False
+
+# Circuit breaker state
+_consecutive_failures = 0
+_last_success_time = 0
+_backoff_until = 0
+MAX_FAILURES_BEFORE_BACKOFF = 3
+BACKOFF_DURATION = 60  # seconds
 
 def set_mute(muted: bool) -> str:
     """Set mute state"""
@@ -105,11 +113,25 @@ def execute_command(cmd: dict, slug: str) -> None:
             pass  # Silently fail if we can't report the failure
 
 def poll_commands(slug: str) -> None:
-    """Poll backend for pending commands every 5 seconds"""
+    """Poll backend for pending commands with health check and exponential backoff"""
+    global _consecutive_failures, _last_success_time, _backoff_until
+    
     print(f"[commands] Command poller started for device {slug}")
+    
+    # First, do a health check
+    if not _check_backend_health():
+        print("[commands] Backend health check failed, using degraded mode")
     
     while True:
         try:
+            # Check if in backoff period
+            if time.time() < _backoff_until:
+                remaining = int(_backoff_until - time.time())
+                if remaining % 30 == 0:  # Log every 30s during backoff
+                    print(f"[commands] In backoff mode, resuming in {remaining}s")
+                time.sleep(5)
+                continue
+            
             # Get pending commands from backend
             response = requests.get(
                 f"{BACKEND_BASE_URL}/device/{slug}/commands/pending",
@@ -125,19 +147,75 @@ def poll_commands(slug: str) -> None:
                 
                 for cmd in commands:
                     execute_command(cmd, slug)
+                
+                # Reset failure counter on success
+                _consecutive_failures = 0
+                _last_success_time = time.time()
             
-            elif response.status_code != 200:
+            elif response.status_code == 500:
+                _consecutive_failures += 1
+                error_msg = f"Backend returned 500 error (attempt {_consecutive_failures})"
+                print(f"[commands] {error_msg}")
+                
+                # Register error for monitoring
+                register_error(
+                    error_type="backend_500_error",
+                    message=error_msg,
+                    severity="major" if _consecutive_failures >= 3 else "minor",
+                    file_path=__file__
+                )
+                
+                # Trigger backoff if too many failures
+                if _consecutive_failures >= MAX_FAILURES_BEFORE_BACKOFF:
+                    _backoff_until = time.time() + BACKOFF_DURATION
+                    print(f"[commands] Too many failures, backing off for {BACKOFF_DURATION}s")
+            
+            elif response.status_code == 404:
+                print(f"[commands] Endpoint not found (404) - backend may not have device registered")
+                time.sleep(30)  # Wait longer for 404s
+            
+            else:
                 print(f"[commands] Poll failed with status {response.status_code}")
+                _consecutive_failures += 1
                 
         except requests.exceptions.Timeout:
             print("[commands] Poll timeout (continuing...)")
+            _consecutive_failures += 1
         except requests.exceptions.ConnectionError:
             print("[commands] No backend connection (continuing...)")
+            _consecutive_failures += 1
         except Exception as e:
             print(f"[commands] Poll error: {e}")
+            _consecutive_failures += 1
+            register_error(
+                error_type="command_poller_error",
+                message=str(e),
+                severity="minor",
+                file_path=__file__
+            )
         
-        # Poll every 5 seconds
-        time.sleep(5)
+        # Dynamic poll interval based on failure rate
+        if _consecutive_failures > 0:
+            sleep_time = min(5 * _consecutive_failures, 30)  # Max 30s
+        else:
+            sleep_time = 5
+        
+        time.sleep(sleep_time)
+
+
+def _check_backend_health() -> bool:
+    """Check if backend is reachable and healthy"""
+    try:
+        # Try to reach backend root
+        response = requests.get(f"{BACKEND_BASE_URL}/health", timeout=5)
+        return response.status_code == 200
+    except:
+        try:
+            # Fallback: try base URL
+            response = requests.get(BACKEND_BASE_URL, timeout=5)
+            return response.status_code < 500
+        except:
+            return False
 
 def start_command_poller(slug: str) -> None:
     """Start background thread to poll for commands"""
