@@ -127,6 +127,7 @@ def handle_emergency_alarm(parameters: Dict[str, Any]) -> Dict[str, Any]:
     """
     prompt = parameters.get("prompt", "Emergency alert")
     
+    return {
         "reply": f"⚠️ EMERGENCY: {prompt}"
     }
 

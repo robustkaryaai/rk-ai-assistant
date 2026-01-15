@@ -32,7 +32,7 @@ def setup_bluetooth() -> bool:
     """
     Automate Bluetooth connection on startup.
     1. Bring up hci1 (force up).
-    2. Connect to configured speaker.
+    2. Connect to configured speaker (skip if already connected).
     3. Set as default sink.
     """
     try:
@@ -51,22 +51,28 @@ def setup_bluetooth() -> bool:
         subprocess.run(["sudo", "hciconfig", BLUETOOTH_HCI, "up"], check=False)
         time.sleep(1)
 
-        # 3. Connect to speaker (Blocking Loop)
+        # 3. Check if speaker already connected
         mac = BLUETOOTH_SPEAKER_MAC
-        print(f"[bluetooth] Waiting for speaker {mac} to connect...", flush=True)
-
-        while True:
-            # Try to connect
-            subprocess.run(["bluetoothctl", "connect", mac], check=False, timeout=10)
+        info = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True)
+        
+        if "Connected: yes" in info.stdout:
+            print(f"[bluetooth] Speaker {mac} already connected (auto-connected at boot)!", flush=True)
+        else:
+            # Speaker not connected, attempt connection
+            print(f"[bluetooth] Waiting for speaker {mac} to connect...", flush=True)
             
-            # Verify connection
-            info = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True)
-            if "Connected: yes" in info.stdout:
-                 print(f"[bluetooth] Speaker {mac} connected!", flush=True)
-                 break
-            
-            print("[bluetooth] Speaker not connected, retrying in 5s...", flush=True)
-            time.sleep(5)
+            while True:
+                # Try to connect
+                subprocess.run(["bluetoothctl", "connect", mac], check=False, timeout=10)
+                
+                # Verify connection
+                info = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True)
+                if "Connected: yes" in info.stdout:
+                     print(f"[bluetooth] Speaker {mac} connected!", flush=True)
+                     break
+                
+                print("[bluetooth] Speaker not connected, retrying in 5s...", flush=True)
+                time.sleep(5)
 
         time.sleep(2)
         
