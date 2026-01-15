@@ -231,9 +231,19 @@ def get_conversational_response(text: str, api_key: Optional[str] = None, model_
         client = genai.Client(api_key=api_key, http_options={'timeout': 15000})
         
         # Context-aware prompt for voice responses
-        system_context = """You are RK AI created by RK Innovators, a helpful voice assistant.
+        from .memory_engine import retrieve_memories
+        
+        # Retrieve relevant memories (RAG)
+        memories = retrieve_memories(text)
+        memory_context = ""
+        if memories:
+            memory_list = "\n".join([f"- {m}" for m in memories])
+            memory_context = f"\n\nContext from Memory:\n{memory_list}\nUse this context if relevant to the user's query."
+            print(f"[gemini] Injected {len(memories)} memories into context.", flush=True)
+
+        system_context = f"""You are RK AI created by RK Innovators, a helpful voice assistant.
 Respond conversationally in 1-2 sentences maximum (optimized for voice/speech).
-Be friendly, natural, and concise."""
+Be friendly, natural, and concise.{memory_context}"""
         
         prompt = f"{system_context}\n\nUser: {text}\n\nAssistant:\
 "
