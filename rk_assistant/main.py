@@ -71,7 +71,8 @@ from .provisioning_service import start_ble_service
 from .intent_classifier import guess_fallback_intent, start_pending_request_msg, needs_backend
 from . import gemini_client
 from . import local_handlers
-from . import settings_sync  # NEW: Sync mute/memory from Appwrite
+from . import settings_sync  # Sync mute/memory from Appwrite
+from . import command_poller  # Poll and execute commands from mobile app
 
 
 
@@ -663,6 +664,9 @@ def main():
     
     # Start background sync for mute/memory settings from Appwrite
     settings_sync.start_settings_sync()
+    
+    # Start command poller for mobile app commands
+    command_poller.start_command_poller(slug)
     
     # Announce ready right before starting to listen
     ready_msg = "Radhe Radhe RK AI assistant is ready"
