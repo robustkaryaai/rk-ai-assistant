@@ -70,6 +70,8 @@ from .provisioning_service import start_ble_service
 from .intent_classifier import guess_fallback_intent, start_pending_request_msg, needs_backend
 from . import gemini_client
 from . import local_handlers
+from . import settings_sync  # NEW: Sync mute/memory from Appwrite
+
 
 
 
@@ -409,6 +411,12 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
     ONLINE: Uses Google STT continuously to listen. If 'rk' is in text, executes command.
     OFFLINE: Falls back to PocketSphinx for wake word.
     """
+    # Check if device is muted (synced from Appwrite via mobile app)
+    if settings_sync.is_device_muted():
+        print("[voice] Device is muted, skipping listening...")
+        time.sleep(2)  # Check again in 2 seconds
+        return
+    
     # 1. Determine mode
     online = is_online()
     
@@ -651,6 +659,9 @@ def main():
     
     decoder_available = load_pocketsphinx_decoder()
     music_proc_holder = {"proc": None}
+    
+    # Start background sync for mute/memory settings from Appwrite
+    settings_sync.start_settings_sync()
     
     # Announce ready right before starting to listen
     ready_msg = "Radhe Radhe RK AI assistant is ready"

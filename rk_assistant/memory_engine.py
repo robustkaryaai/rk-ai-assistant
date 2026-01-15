@@ -25,7 +25,10 @@ def init_db():
 def store_memory(text: str, tags: str = "general") -> None:
     """Store a new memory."""
     from .config import MEMORY_ENABLED
-    if not MEMORY_ENABLED:
+    from . import settings_sync
+    
+    # Check both local config AND synced Appwrite setting
+    if not MEMORY_ENABLED or not settings_sync.is_memory_enabled():
         print(f"[memory] Skipped storing (Disabled): '{text}'")
         return
 
