@@ -50,7 +50,12 @@ def guess_fallback_intent(text: str) -> dict | None:
             return {"intent": "stop_alarm", "parameters": params}
         return {"intent": "task", "parameters": params} # task covers alarms usually
 
-    # 4. Emergency
+    # 4. Memory (Remembering facts)
+    if "remember" in text_lower or "memorize" in text_lower:
+        # Extract what to remember (simple heuristic: everything after "remember")
+        return {"intent": "remember", "parameters": params}
+
+    # 5. Emergency
     if any(w in text_lower for w in ["emergency", "fire", "evacuate", "alert"]):
         return {"intent": "emergency_alarm", "parameters": params}
         

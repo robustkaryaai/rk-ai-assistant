@@ -127,24 +127,38 @@ def handle_emergency_alarm(parameters: Dict[str, Any]) -> Dict[str, Any]:
     """
     prompt = parameters.get("prompt", "Emergency alert")
     
-    # This could trigger special emergency protocols
-    return {
-        "intent": "emergency_alarm",
         "reply": f"⚠️ EMERGENCY: {prompt}"
     }
+
+
+def handle_memory(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle 'remember' intent.
+    Stores the text in long-term memory.
+    """
+    from .memory_engine import store_memory
+    
+    text = parameters.get("prompt", "")
+    # Clean up text: remove "remember that" etc.
+    # Simple cleanup for now
+    clean_text = text.replace("remember that", "").replace("remember", "").strip()
+    
+    if clean_text:
+        store_memory(clean_text)
+        return {
+            "intent": "remember",
+            "reply": f"Okay, I've remembered that {clean_text}."
+        }
+    else:
+        return {
+            "intent": "remember",
+            "reply": "What would you like me to remember?"
+        }
 
 
 def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = "") -> Dict[str, Any]:
     """
     Main router for local intent handling.
-    
-    Args:
-        intent: Intent name
-        parameters: Intent parameters
-        original_text: Original user text (for chat context)
-        
-    Returns:
-        Response dict with 'intent' and 'reply' fields
     """
     print(f"[local] Handling intent locally: {intent}", flush=True)
     
@@ -153,6 +167,9 @@ def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = 
     
     elif intent == "alarm":
         return handle_alarm(parameters)
+    
+    elif intent == "remember":
+        return handle_memory(parameters)
     
     elif intent == "announcement":
         return handle_announcement(parameters)
