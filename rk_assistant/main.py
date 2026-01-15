@@ -302,10 +302,13 @@ def _send_to_backend_and_handle(text: str, slug: str, music_proc_holder: dict) -
     threading.Thread(target=_handler, daemon=True).start()
 
 
-def process_online_command(text: str, slug: str, music_proc_holder: dict) -> None:
-    """Helper to process a command string using Gemini/Backend."""
+def process_online_command(text: str, slug: str, music_proc_holder: dict) -> bool:
+    """
+    Helper to process a command string using Gemini/Backend.
+    Returns: True if a follow-up is expected (conversational), False otherwise.
+    """
     if not text:
-        return
+        return False
         
     low = text.lower()
     
@@ -313,24 +316,25 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> Non
     if "pause" in low and "music" in low:
         stop_process(music_proc_holder.get("proc"))
         speak("Paused.")
-        return
+        return False
     elif "volume up" in low:
         set_volume(+10)
         speak("Volume up.")
-        return
+        return False
     elif "volume down" in low:
         set_volume(-10)
         speak("Volume down.")
-        return
+        return False
 
     # For complex commands, give immediate acknowledgment
     needs_backend_ack = False
+    expect_followup = False
     
     # Routing
     if USE_GEMINI_DIRECT and GEMINI_API_KEY:
         try:
             intents = gemini_client.classify_intent(text, api_key=GEMINI_API_KEY, backup_key=GEMINI_API_KEY_BACKUP, model_name=GEMINI_MODEL)
-            local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm"]
+            local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm", "remember"]
             backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "task", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
             
             if intents and len(intents) > 0:
@@ -354,33 +358,49 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> Non
                             music_proc_holder["proc"] = proc
                             # Monitor for wake word while music plays
                             threading.Thread(target=_monitor_music_for_wake, args=(True, music_proc_holder), daemon=True).start()
+                            return False # Music playing, don't follow up immediately
                         else:
                             speak("I couldn't find that song.")
+                            return False
                             
                     elif intent_name == "announcement":
                         _speak_twice(response.get("reply", ""))
+                        return False
+
                     elif response.get("reply"):
                         speak(response["reply"])
+                        # If it's chat/general/remember, we EXPECT a follow-up
+                        if intent_name in ["chat", "general", "remember"]:
+                            return True
+                        return False
+                        
                 elif intent_name in backend_intents:
                     # Immediate acknowledgment for backend requests
                     speak("Got it, let me get that answer for you.")
                     _send_to_backend_and_handle(text, slug, music_proc_holder)
+                    return False
                 else:
                     needs_backend_ack = True
                     _send_to_backend_and_handle(text, slug, music_proc_holder)
+                    return False
             else:
                 needs_backend_ack = True
                 _send_to_backend_and_handle(text, slug, music_proc_holder)
+                return False
         except Exception:
             needs_backend_ack = True
             _send_to_backend_and_handle(text, slug, music_proc_holder)
+            return False
     else:
         needs_backend_ack = True
         _send_to_backend_and_handle(text, slug, music_proc_holder)
+        return False
     
     # Acknowledge if sending to backend without specific intent
     if needs_backend_ack:
         speak("Got it, let me get that answer for you.")
+    
+    return False
 
 
 def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:
@@ -440,25 +460,62 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 print("[stt] Wake word heard but no command. Listening for follow-up...")
                 command_part = live_stt_listen(recognizer, mic, timeout=5.0)
             
-            if command_part:
-                print(f"[stt] Processing command: '{command_part}'")
+            # --- CONVERSATION LOOP ---
+            # If we enter conversation mode, we keep listening until silence/exit
+            
+            current_command = command_part
+            in_conversation = True
+            
+            while in_conversation:
+                in_conversation = False # Default to exit unless renewed
                 
-                # Execute logic
-                if match_offline_command(command_part):
-                     # Offline command (lights etc)
-                     handle_offline_command(command_part, slug)
-                     # Note: handle_offline_command already calls speak(), no need to call again
+                if current_command:
+                    print(f"[stt] Processing command: '{current_command}'")
+                    
+                    # Execute logic
+                    expect_followup = False
+                    
+                    if match_offline_command(current_command):
+                         # Offline command (lights etc)
+                         handle_offline_command(current_command, slug)
+                         # Note: handle_offline_command already calls speak(), no need to call again
+                    else:
+                         # Online AI
+                         expect_followup = process_online_command(current_command, slug, music_proc_holder)
+                    
+                    # Restore volume
+                    if music_proc_holder.get("proc"):
+                        set_volume(80)
+                        
+                    # If this was a chat/question, keep listening!
+                    if expect_followup and is_online():
+                        print("[stt] 🗣️ Follow-up mode active. Listening (5s)...")
+                        # Visual cue could be added here (e.g. LED blink)
+                        
+                        # Short listen window
+                        follow_up_text = live_stt_listen(recognizer, mic, timeout=5.0, phrase_time_limit=8.0)
+                        
+                        if follow_up_text:
+                            # User said something! Loop again.
+                            # Check to avoid looping on "thank you" or "stop"
+                            lower_f = follow_up_text.lower()
+                            if any(x in lower_f for x in ["stop", "cancel", "thank you", "thanks", "bye", "goodbye"]):
+                                print(f"[stt] Conversation ended by user: {follow_up_text}")
+                                speak("You're welcome.")
+                            else:
+                                print(f"[stt] Follow-up heard: '{follow_up_text}'")
+                                current_command = follow_up_text
+                                in_conversation = True
+                                
+                                # Duck volume again if music playing
+                                if music_proc_holder.get("proc"):
+                                    set_volume(20)
+                        else:
+                            print("[stt] No follow-up heard. Conversation ended.")
                 else:
-                     # Online AI
-                     process_online_command(command_part, slug, music_proc_holder)
-                
-                # Restore volume
-                if music_proc_holder.get("proc"):
-                    set_volume(80)
-            else:
-                print("[stt] No command heard after wake word.")
-                if music_proc_holder.get("proc"):
-                    set_volume(80)
+                    print("[stt] No command heard after wake word.")
+                    if music_proc_holder.get("proc"):
+                        set_volume(80)
             
         else:
             # print(f"[stt] Ignored (no wake word): {text}")
