@@ -154,7 +154,7 @@ class SelfDiagnosis:
         error_summary = []
         for error in report['error_context'].get('recent_errors', []):
             error_summary.append(f"- [{error['severity']}] {error['type']}: {error['message']}")
-if error['file']:
+            if error['file']:
                 error_summary[-1] += f" (in {error['file']}:{error['line']})"
         
         files_list = "\n".join([f"- {f}" for f in report.get('files_info', {}).keys()])
@@ -456,7 +456,7 @@ The code must be syntactically valid and maintain all existing functionality whi
                 fixes_applied.append({
                     'file': str(file_path),
                     'error': error_desc,
-'test_result': test_msg,
+                    'test_result': test_msg,
                     'applied': True
                 })
             
