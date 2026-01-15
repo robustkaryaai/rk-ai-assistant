@@ -76,25 +76,40 @@ def setup_bluetooth() -> bool:
 
         time.sleep(2)
         
-        # 4. Set default sink (construct name from MAC)
+        # 4. Get Bluetooth sink ID from MAC address
+        mac = BLUETOOTH_SPEAKER_MAC
         sink_name = f"bluez_output.{mac.replace(':', '_')}.1"
-        print(f"[bluetooth] Setting default sink to {sink_name}...", flush=True)
-        subprocess.run(["pactl", "set-default-sink", sink_name], check=False)
         
-        # 5. Check if sink is suspended and unsuspend it
-        print(f"[bluetooth] Checking sink status...", flush=True)
-        sink_status = subprocess.run(["pactl", "list", "sinks", "short"], capture_output=True, text=True)
-        if "SUSPENDED" in sink_status.stdout:
+        print(f"[bluetooth] Finding sink ID for {sink_name}...", flush=True)
+        sink_list = subprocess.run(["pactl", "list", "sinks", "short"], capture_output=True, text=True)
+        
+        sink_id = None
+        for line in sink_list.stdout.split('\n'):
+            if sink_name in line:
+                # Extract sink ID (first column)
+                sink_id = line.split()[0]
+                print(f"[bluetooth] Found sink ID: {sink_id}", flush=True)
+                break
+        
+        if not sink_id:
+            print(f"[bluetooth] WARNING: Could not find sink ID for {sink_name}", flush=True)
+            return False
+        
+        # 5. Unsuspend sink if suspended
+        if "SUSPENDED" in sink_list.stdout:
             print(f"[bluetooth] Sink is SUSPENDED, unsuspending...", flush=True)
-            # Unsuspend by playing a silent tone (or setting volume)
-            subprocess.run(["pactl", "suspend-sink", sink_name, "0"], check=False)
+            subprocess.run(["pactl", "suspend-sink", sink_id, "0"], check=False)
             time.sleep(1)
             print(f"[bluetooth] Sink unsuspended!", flush=True)
         else:
             print(f"[bluetooth] Sink is active", flush=True)
         
-        # 6. Set volume to 100%
-        subprocess.run(["pactl", "set-sink-volume", sink_name, "100%"], check=False)
+        # 6. Set as default sink
+        print(f"[bluetooth] Setting default sink to ID {sink_id}...", flush=True)
+        subprocess.run(["pactl", "set-default-sink", sink_id], check=False)
+        
+        # 7. Set volume to 100%
+        subprocess.run(["pactl", "set-sink-volume", sink_id, "100%"], check=False)
         print(f"[bluetooth] Volume set to 100%", flush=True)
         
         return True
