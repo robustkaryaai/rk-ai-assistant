@@ -62,6 +62,7 @@ from .networking import (
     read_slug,
     write_slug,
     setup_bluetooth,
+    setup_microphone_volume,
     wait_for_internet,
 )
 from .offline_commands import handle_offline_command, match_offline_command, offline_ai_reply
