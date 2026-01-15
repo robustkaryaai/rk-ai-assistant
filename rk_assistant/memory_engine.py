@@ -24,6 +24,11 @@ def init_db():
 
 def store_memory(text: str, tags: str = "general") -> None:
     """Store a new memory."""
+    from .config import MEMORY_ENABLED
+    if not MEMORY_ENABLED:
+        print(f"[memory] Skipped storing (Disabled): '{text}'")
+        return
+
     init_db() # Ensure table exists
     conn = sqlite3.connect(MEMORY_DB)
     c = conn.cursor()

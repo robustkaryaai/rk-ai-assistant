@@ -171,6 +171,10 @@ def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = 
     elif intent == "remember":
         return handle_memory(parameters)
     
+    elif intent == "mute":
+        return {"intent": "mute", "reply": "Muting microphone. Say 'RK Unmute' meant to be heard but I can't hear you now. You must physically restart or use the app to unmute."}
+        # Note: True voice unmute is hard if we stop listening. Usually "Mute" means "Stop responding" or "Stop sending to cloud".
+    
     elif intent == "announcement":
         return handle_announcement(parameters)
     

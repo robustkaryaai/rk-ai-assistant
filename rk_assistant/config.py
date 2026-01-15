@@ -114,6 +114,11 @@ BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "E0:C8:22:85:F8:32")
 # Preferred BlueZ adapter (default hci0 on Raspberry Pi)
 BLUETOOTH_HCI = os.getenv("BLUETOOTH_HCI", "hci1")
 
+# Feature Toggles
+MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "1") == "1"
+MUTE_MODE = os.getenv("MUTE_MODE", "0") == "1"
+ROUTINES_SYNC_URL = f"{BACKEND_BASE_URL}/routines"
+
 # Offline command whitelist (100 max). Keep short strings for cheap checks.
 OFFLINE_COMMANDS = [
     # Greetings and conversational

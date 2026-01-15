@@ -297,8 +297,56 @@ def test_conversational_ai():
 def main():
     if not check_auth():
         sys.exit(1)
+    print("✅ AI Response: " + (response[:200] + "..." if len(response) > 200 else response))
+
+
+def test_memory_engine():
+    print_header("14. MEMORY ENGINE TEST 🧠")
+    print("[*] Testing long-term memory storage...")
+    
+    try:
+        from .memory_engine import store_memory, retrieve_memories
         
-    print("\n🚀 STARTING SYSTEM DIAGNOSTICS...\n")
+        # Test Store
+        test_fact = f"Developer mode test run at {time.time()}"
+        print(f"[*] Storing fact: '{test_fact}'")
+        store_memory(test_fact, tags="dev_test")
+        
+        # Test Retrieve
+        print("[*] Retrieving memory...")
+        memories = retrieve_memories("developer mode test")
+        
+        found = any(test_fact in m for m in memories)
+        if found:
+            print("✅ Memory Engine: SUCCESS (Fact stored and retrieved)")
+        else:
+            print("❌ Memory Engine: FAILED (Stored fact not found)")
+            
+    except Exception as e:
+        print(f"❌ Memory Engine Error: {e}")
+
+
+def test_automation_engine():
+    print_header("15. AUTOMATION ENGINE TEST 🏠")
+    print("[*] Verifying automation routines...")
+    
+    try:
+        from .automation import ROUTINES, execute_routine
+        
+        count = len(ROUTINES)
+        print(f"[*] Found {count} defined routines: {', '.join(ROUTINES.keys())}")
+        
+        if "night_protocol" in ROUTINES:
+            print("✅ 'Night Protocol' detected.")
+            # We don't execute it to avoid shutting down things, just verify structure
+            print("✅ Automation Engine: AVAILABLE")
+        else:
+            print("❌ 'Night Protocol' missing from routines.")
+            
+    except ImportError:
+        print("❌ Automation Module Missing")
+    except Exception as e:
+        print(f"❌ Automation Error: {e}")
     
     tests = [
         test_network,
@@ -313,7 +361,9 @@ def main():
         test_bluetooth_status,
         test_music_search,
         test_backend_integration,
-        test_conversational_ai
+        test_conversational_ai,
+        test_memory_engine,
+        test_automation_engine
     ]
     
     for test in tests:
