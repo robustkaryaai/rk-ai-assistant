@@ -300,5 +300,29 @@ def check_network_health() -> None:
         print(f"[network] Health check failed: {e}", flush=True)
 
 
+def setup_microphone_volume() -> None:
+    """
+    Force microphone capture volume to 100% using amixer.
+    Tried 'Capture' first, then 'Mic'.
+    """
+    try:
+        print("[audio] Setting hardware microphone gain to 100%...", flush=True)
+        # Try 'Capture' (common for USB mics)
+        res = subprocess.run(["amixer", "sset", "Capture", "100%"], 
+                           capture_output=True, text=True)
+        if res.returncode != 0:
+            # Fallback to 'Mic'
+            res = subprocess.run(["amixer", "sset", "Mic", "100%"], 
+                               capture_output=True, text=True)
+            
+        if res.returncode == 0:
+            print("[audio] Hardware gain set! 🎚️", flush=True)
+        else:
+            print(f"[audio] Warning: Could not set volume: {res.stderr.strip()}", flush=True)
+            
+    except Exception as e:
+        print(f"[audio] Volume setup error: {e}", flush=True)
+
+
 
 

@@ -537,6 +537,9 @@ def main():
     mic = None
     if getattr(audio_utils, "SPEECH_RECOGNITION_AVAILABLE", False) and getattr(audio_utils, "sr", None) is not None:
         try:
+            # FORCE HARDWARE GAIN FIRST
+            setup_microphone_volume()
+            
             print("[stt] Initializing microphone...", flush=True)
             recognizer = audio_utils.sr.Recognizer()
             recognizer.dynamic_energy_threshold = False  # Use fixed threshold
