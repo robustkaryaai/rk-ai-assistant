@@ -11,6 +11,91 @@ echo "[startup] Starting at $SCRIPT_DIR"
 # Navigate to project directory
 cd "$SCRIPT_DIR" || exit 1
 
+# ============================================================
+# PRE-FLIGHT AUDIO RECOVERY CHECK
+# Check and fix audio issues BEFORE updating code
+# ============================================================
+echo "[startup] Running pre-flight audio check..."
+
+# Ensure PulseAudio is running first
+pulseaudio --start --exit-idle-time=-1 2>/dev/null || echo "[startup] PulseAudio already running"
+sleep 2
+
+# Function to check if Bluetooth sink exists
+check_bluetooth_sink() {
+    pactl list sinks short | grep -i bluez | wc -l
+}
+
+# Function to check if any sink is suspended
+check_suspended_sinks() {
+    pactl list sinks | grep -A 5 "State: SUSPENDED" | wc -l
+}
+
+# 1. Check for suspended sinks and unsuspend them
+echo "[startup] Checking for suspended audio sinks..."
+SUSPENDED_COUNT=$(check_suspended_sinks)
+if [ "$SUSPENDED_COUNT" -gt 0 ]; then
+    echo "[startup] Found $SUSPENDED_COUNT suspended sink(s), attempting to unsuspend..."
+    
+    # Get all sink IDs and unsuspend them
+    pactl list sinks short | while read sink_id rest; do
+        echo "[startup] Unsuspending sink $sink_id..."
+        pactl suspend-sink "$sink_id" 0 2>/dev/null
+    done
+    
+    sleep 1
+    echo "[startup] Sinks unsuspended"
+fi
+
+# 2. Check if Bluetooth sink exists
+echo "[startup] Checking for Bluetooth audio sink..."
+BT_SINK_COUNT=$(check_bluetooth_sink)
+
+if [ "$BT_SINK_COUNT" -eq 0 ]; then
+    echo "[startup] ⚠️  WARNING: No Bluetooth sink found!"
+    echo "[startup] Attempting to force PulseAudio Bluetooth discovery..."
+    
+    # Force reload Bluetooth modules
+    pactl unload-module module-bluetooth-discover 2>/dev/null
+    pactl unload-module module-bluez5-discover 2>/dev/null
+    sleep 1
+    
+    MODULE_ID=$(pactl load-module module-bluez5-discover 2>/dev/null)
+    if [ -n "$MODULE_ID" ]; then
+        echo "[startup] Bluetooth discovery module loaded (ID: $MODULE_ID)"
+    fi
+    
+    # Wait for discovery
+    sleep 3
+    
+    # Check again
+    BT_SINK_COUNT=$(check_bluetooth_sink)
+    
+    if [ "$BT_SINK_COUNT" -eq 0 ]; then
+        echo "[startup] ❌ CRITICAL: Bluetooth sink still not available after module reload"
+        echo "[startup] Attempting card profile switch..."
+        
+        # Try to switch card profile
+        pactl set-card-profile bluez_card.* a2dp_sink 2>/dev/null
+        sleep 2
+        
+        # Final check
+        BT_SINK_COUNT=$(check_bluetooth_sink)
+        
+        if [ "$BT_SINK_COUNT" -eq 0 ]; then
+            echo "[startup] ❌ FATAL: Cannot recover Bluetooth audio"
+            echo "[startup] Available sinks:"
+            pactl list sinks short
+            echo "[startup] System will reboot in 10 seconds to attempt recovery..."
+            sleep 10
+            sudo reboot
+            exit 1
+        fi
+    fi
+fi
+
+echo "[startup] ✓ Audio check passed - Bluetooth sink available"
+
 # Activate virtual environment
 # Assuming rk-ai is in the parent directory (Documents)
 if [ -f "../rk-ai/bin/activate" ]; then
@@ -25,11 +110,6 @@ fi
 # Update from git
 echo "[startup] Checking for updates..."
 git pull origin main
-
-# Start the assistant
-echo "[startup] Ensuring PulseAudio is started..."
-pulseaudio --start --exit-idle-time=-1 || echo "PulseAudio start failed or already running"
-sleep 2
 
 echo "[startup] Starting RK AI Assistant..."
 # Capture stderr too
