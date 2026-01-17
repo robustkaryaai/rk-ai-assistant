@@ -108,13 +108,18 @@ if [ "$BT_SINK_COUNT" -eq 0 ]; then
         BT_SINK_COUNT=$(check_bluetooth_sink)
         
         if [ "$BT_SINK_COUNT" -eq 0 ]; then
-            echo "[startup] ❌ FATAL: Cannot recover Bluetooth audio"
+            echo "[startup] ❌ WARNING: Cannot recover Bluetooth audio sink"
             echo "[startup] Available sinks:"
             pactl list sinks short
-            echo "[startup] System will reboot in 10 seconds to attempt recovery..."
-            sleep 10
-            sudo reboot
-            exit 1
+            echo ""
+            echo "[startup] Diagnostic information:"
+            echo "[startup] Bluetooth cards:"
+            pactl list cards short | grep -i bluez
+            echo "[startup] Bluetooth connection status:"
+            bluetoothctl info "$BT_MAC" | grep -E "(Connected|UUID)"
+            echo ""
+            echo "[startup] ⚠️  Continuing without Bluetooth audio - system will work but audio output may not function"
+            echo "[startup] You can manually troubleshoot with: pactl list cards"
         fi
     fi
 fi
