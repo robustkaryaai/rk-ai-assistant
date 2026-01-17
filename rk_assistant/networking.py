@@ -76,7 +76,16 @@ def setup_bluetooth() -> bool:
 
         time.sleep(2)
         
-        # 4. Get Bluetooth sink ID from MAC address with fallback patterns
+        # 4. Force PulseAudio to discover Bluetooth devices
+        print("[bluetooth] Ensuring PulseAudio Bluetooth module is loaded...", flush=True)
+        # Unload and reload module to force discovery
+        subprocess.run(["pactl", "unload-module", "module-bluetooth-discover"], check=False)
+        subprocess.run(["pactl", "unload-module", "module-bluez5-discover"], check=False)
+        time.sleep(0.5)
+        subprocess.run(["pactl", "load-module", "module-bluez5-discover"], check=False)
+        time.sleep(2)  # Give PulseAudio time to discover the connected device
+        
+        # 5. Get Bluetooth sink ID from MAC address with retries
         mac = BLUETOOTH_SPEAKER_MAC
         mac_underscore = mac.replace(':', '_')
         
@@ -89,28 +98,32 @@ def setup_bluetooth() -> bool:
             mac_underscore,  # Partial match
         ]
         
-        print(f"[bluetooth] Finding Bluetooth sink for speaker {mac}...", flush=True)
-        sink_list = subprocess.run(["pactl", "list", "sinks", "short"], capture_output=True, text=True)
-        
         sink_id = None
         sink_name_found = None
         
-        # Try each pattern
-        for pattern in sink_patterns:
-            for line in sink_list.stdout.split('\n'):
-                if pattern in line and line.strip():
-                    # Extract sink ID (first column)
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        sink_id = parts[0]
-                        sink_name_found = parts[1]
-                        print(f"[bluetooth] ✓ Found sink '{sink_name_found}' with ID: {sink_id}", flush=True)
-                        break
+        # Retry up to 5 times with increasing delays
+        for attempt in range(5):
+            print(f"[bluetooth] Finding Bluetooth sink for speaker {mac}... (attempt {attempt + 1}/5)", flush=True)
+            sink_list = subprocess.run(["pactl", "list", "sinks", "short"], capture_output=True, text=True)
+            
+            # Try each pattern
+            for pattern in sink_patterns:
+                for line in sink_list.stdout.split('\n'):
+                    if pattern in line and line.strip():
+                        # Extract sink ID (first column)
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            sink_id = parts[0]
+                            sink_name_found = parts[1]
+                            print(f"[bluetooth] ✓ Found sink '{sink_name_found}' with ID: {sink_id}", flush=True)
+                            break
+                if sink_id:
+                    break
+            
             if sink_id:
                 break
-        
-        if not sink_id:
-            # Try dynamic discovery - find any bluez sink
+            
+            # If not found, try dynamic discovery - find any bluez sink
             print(f"[bluetooth] Searching for any bluez sink...", flush=True)
             for line in sink_list.stdout.split('\n'):
                 if 'bluez' in line.lower() and line.strip():
@@ -120,29 +133,80 @@ def setup_bluetooth() -> bool:
                         sink_name_found = parts[1]
                         print(f"[bluetooth] ✓ Found bluez sink: {sink_name_found} (ID: {sink_id})", flush=True)
                         break
+            
+            if sink_id:
+                break
+            
+            # Not found yet, wait and retry
+            if attempt < 4:
+                wait_time = 2 * (attempt + 1)  # Increasing backoff
+                print(f"[bluetooth] Sink not found yet, waiting {wait_time}s before retry...", flush=True)
+                time.sleep(wait_time)
         
         if not sink_id:
-            print(f"[bluetooth] WARNING: Could not find Bluetooth sink for {mac}", flush=True)
+            print(f"[bluetooth] WARNING: Could not find Bluetooth sink for {mac} after 5 attempts", flush=True)
             print(f"[bluetooth] Available sinks:", flush=True)
             print(sink_list.stdout, flush=True)
             
-            # Continue anyway - PulseAudio might auto-route
-            return True  # Don't fail completely, audio might still work
+            # Try one last thing - trigger card profile switch
+            print("[bluetooth] Attempting to trigger card profile switch...", flush=True)
+            subprocess.run(["pactl", "set-card-profile", "bluez_card.*", "a2dp_sink"], check=False)
+            time.sleep(2)
+            
+            # Final check
+            sink_list = subprocess.run(["pactl", "list", "sinks", "short"], capture_output=True, text=True)
+            for line in sink_list.stdout.split('\n'):
+                if 'bluez' in line.lower() and line.strip():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        sink_id = parts[0]
+                        sink_name_found = parts[1]
+                        print(f"[bluetooth] ✓ Profile switch worked! Found: {sink_name_found}", flush=True)
+                        break
+            
+            if not sink_id:
+                print("[bluetooth] ERROR: Bluetooth sink still not available. Audio will not work.", flush=True)
+                # Continue anyway - maybe it will appear later
+                return True
         
-        # 5. Unsuspend sink if suspended
-        if "SUSPENDED" in sink_list.stdout:
-            print(f"[bluetooth] Sink is SUSPENDED, unsuspending...", flush=True)
-            subprocess.run(["pactl", "suspend-sink", sink_id, "0"], check=False)
-            time.sleep(1)
-            print(f"[bluetooth] Sink unsuspended!", flush=True)
-        else:
-            print(f"[bluetooth] Sink is active", flush=True)
+        # 6. Check if THIS specific sink is suspended and unsuspend it
+        sink_info = subprocess.run(["pactl", "list", "sinks"], capture_output=True, text=True)
+        current_sink_section = ""
+        is_current_sink = False
+        is_suspended = False
         
-        # 6. Set as default sink
+        # Parse the detailed sink info to find our specific sink
+        for line in sink_info.stdout.split('\n'):
+            if line.startswith("Sink #"):
+                # New sink section
+                is_current_sink = False
+                current_sink_section = line
+            elif sink_name_found and sink_name_found in line:
+                # This is our sink
+                is_current_sink = True
+            elif is_current_sink and "State:" in line:
+                if "SUSPENDED" in line:
+                    is_suspended = True
+                    print(f"[bluetooth] Sink {sink_id} is SUSPENDED, unsuspending...", flush=True)
+                    subprocess.run(["pactl", "suspend-sink", sink_id, "0"], check=False)
+                    time.sleep(1)
+                    
+                    # Play a short silence to fully wake the sink
+                    subprocess.run(["paplay", "/usr/share/sounds/alsa/Front_Center.wav"], 
+                                   check=False, timeout=2,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    time.sleep(0.5)
+                    
+                    print(f"[bluetooth] Sink unsuspended and activated!", flush=True)
+                else:
+                    print(f"[bluetooth] Sink is active (state: {line.strip()})", flush=True)
+                break
+        
+        # 7. Set as default sink
         print(f"[bluetooth] Setting default sink to ID {sink_id}...", flush=True)
         subprocess.run(["pactl", "set-default-sink", sink_id], check=False)
         
-        # 7. Set volume to 100%
+        # 8. Set volume to 100%
         subprocess.run(["pactl", "set-sink-volume", sink_id, "100%"], check=False)
         print(f"[bluetooth] Volume set to 100%", flush=True)
         
