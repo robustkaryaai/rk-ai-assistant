@@ -55,6 +55,9 @@ if [ "$BT_SINK_COUNT" -eq 0 ]; then
     echo "[startup] ⚠️  WARNING: No Bluetooth sink found!"
     echo "[startup] Attempting to force PulseAudio Bluetooth discovery..."
     
+    # Get Bluetooth MAC from env or use default
+    BT_MAC="${BLUETOOTH_SPEAKER_MAC:-E0:C8:22:85:F8:32}"
+    
     # Force reload Bluetooth modules
     pactl unload-module module-bluetooth-discover 2>/dev/null
     pactl unload-module module-bluez5-discover 2>/dev/null
@@ -65,7 +68,29 @@ if [ "$BT_SINK_COUNT" -eq 0 ]; then
         echo "[startup] Bluetooth discovery module loaded (ID: $MODULE_ID)"
     fi
     
-    # Wait for discovery
+    # CRITICAL: Disconnect and reconnect Bluetooth to force sink creation
+    echo "[startup] Forcing Bluetooth reconnection to create audio sink..."
+    bluetoothctl disconnect "$BT_MAC" 2>/dev/null
+    sleep 2
+    
+    # Reconnect
+    echo "[startup] Reconnecting to $BT_MAC..."
+    for i in {1..10}; do
+        bluetoothctl connect "$BT_MAC" 2>/dev/null
+        sleep 2
+        
+        # Check if connected
+        if bluetoothctl info "$BT_MAC" | grep -q "Connected: yes"; then
+            echo "[startup] ✓ Bluetooth device reconnected"
+            break
+        fi
+        
+        if [ $i -eq 10 ]; then
+            echo "[startup] ❌ Failed to reconnect Bluetooth device"
+        fi
+    done
+    
+    # Wait for PulseAudio to create sink
     sleep 3
     
     # Check again
