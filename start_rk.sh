@@ -52,20 +52,8 @@ else
     echo "[startup] hci1 ready after ${ELAPSED}s"
 fi
 
-# 2. Ensure PulseAudio is running
-echo "[startup] Ensuring PulseAudio is running..."
-if ! pgrep -x pulseaudio > /dev/null; then
-    pulseaudio --start --exit-idle-time=-1 2>/dev/null
-    sleep 2
-    echo "[startup] ✓ PulseAudio started"
-else
-    echo "[startup] ✓ PulseAudio already running"
-fi
-
-# 3. Load Bluetooth module
-echo "[startup] Loading Bluetooth module..."
-pactl load-module module-bluez5-discover 2>/dev/null || echo "[startup] Bluetooth module already loaded"
-sleep 1
+# 2. Basic Bluetooth check  
+echo "[startup] ✓ Bluetooth ready (ALSA will auto-route to connected device)"
 
 echo "[startup] ✓ Pre-flight check complete"
 
