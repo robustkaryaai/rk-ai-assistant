@@ -114,6 +114,10 @@ def speak(text, use_gtts=True):
     try:
         print(f"🔊 {text}", flush=True)
         
+        # Get Bluetooth speaker MAC for bluealsa output
+        from .config import BLUETOOTH_SPEAKER_MAC
+        bluealsa_device = f"bluealsa:DEV={BLUETOOTH_SPEAKER_MAC}"
+        
         # Try Piper TTS first (natural voice, fast, offline)
         if _is_piper_available():
             if _speak_with_piper(text):
@@ -127,8 +131,9 @@ def speak(text, use_gtts=True):
                 
                 # Check if already cached
                 if cache_path.exists():
-                    # Play cached audio (super fast ~200ms)
-                    subprocess.run(['mpg123', '-q', str(cache_path)], check=False, stderr=subprocess.DEVNULL)
+                    # Play cached audio directly through bluealsa (super fast ~200ms)
+                    subprocess.run(['mpg123', '-a', bluealsa_device, '-q', str(cache_path)], 
+                                 check=False, stderr=subprocess.DEVNULL, timeout=10)
                     return
                 
                 # Not cached, generate and cache with timeout protection
@@ -147,14 +152,16 @@ def speak(text, use_gtts=True):
                     print("⚠ gTTS generation timed out, falling back to espeak", flush=True)
                     raise TimeoutError("gTTS generation took too long")
 
-                # Play the newly cached audio
-                subprocess.run(['mpg123', '-q', str(cache_path)], check=False, stderr=subprocess.DEVNULL, timeout=10)
+                # Play the newly cached audio directly through bluealsa
+                subprocess.run(['mpg123', '-a', bluealsa_device, '-q', str(cache_path)], 
+                             check=False, stderr=subprocess.DEVNULL, timeout=10)
                 return
                 
             except Exception as e:
                 print(f"⚠ gTTS failed, falling back to espeak: {e}", flush=True)
         
         # Final fallback to espeak (offline or gTTS disabled)
+        # espeak doesn't output through bluealsa, will use default ALSA
         subprocess.run(['espeak', text], check=False, stderr=subprocess.DEVNULL)
         
     except Exception as e:
