@@ -44,7 +44,10 @@ if [ $ELAPSED -ge $MAX_WAIT ]; then
     echo "[startup] ⚠️  WARNING: hci1 did not initialize within ${MAX_WAIT}s"
     echo "[startup] Available HCI interfaces:"
     sudo hciconfig || true
-    echo "[startup] Continuing anyway..."
+    echo "[startup] System will reboot in 10 seconds to recover..."
+    sleep 10
+    sudo reboot
+    exit 1
 else
     echo "[startup] hci1 ready after ${ELAPSED}s"
 fi
