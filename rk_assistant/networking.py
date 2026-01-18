@@ -67,7 +67,9 @@ def setup_bluetooth() -> bool:
             print(f"[bluetooth] ⚠️  WARNING: {BLUETOOTH_HCI} not ready after {max_wait}s", flush=True)
             print("[bluetooth] Available adapters:", flush=True)
             subprocess.run(["hciconfig"], check=False)
-            print("[bluetooth] Continuing anyway (audio may not work)...", flush=True)
+            print("[bluetooth] System will reboot in 10 seconds to recover...", flush=True)
+            time.sleep(10)
+            subprocess.run(["sudo", "reboot"], check=False)
             return False
 
         # 2. Ensure adapter is up
