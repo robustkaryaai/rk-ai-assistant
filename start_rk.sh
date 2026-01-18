@@ -52,24 +52,20 @@ else
     echo "[startup] hci1 ready after ${ELAPSED}s"
 fi
 
-# 2. Check if bluealsa service is installed and running
-echo "[startup] Checking bluealsa service..."
-if systemctl is-active --quiet bluealsa.service; then
-    echo "[startup] ✓ bluealsa service is running"
-elif systemctl list-unit-files | grep -q bluealsa.service; then
-    echo "[startup] bluealsa installed but not running, starting..."
-    sudo systemctl start bluealsa.service
+# 2. Ensure PulseAudio is running
+echo "[startup] Ensuring PulseAudio is running..."
+if ! pgrep -x pulseaudio > /dev/null; then
+    pulseaudio --start --exit-idle-time=-1 2>/dev/null
     sleep 2
-    if systemctl is-active --quiet bluealsa.service; then
-        echo "[startup] ✓ bluealsa service started"
-    else
-        echo "[startup] ⚠️  WARNING: bluealsa service failed to start"
-    fi
+    echo "[startup] ✓ PulseAudio started"
 else
-    echo "[startup] ⚠️  WARNING: bluealsa not installed"
-    echo "[startup] Run: sudo ./install_bluez_alsa.sh"
-    echo "[startup] Continuing without bluealsa (audio may not work)..."
+    echo "[startup] ✓ PulseAudio already running"
 fi
+
+# 3. Load Bluetooth module
+echo "[startup] Loading Bluetooth module..."
+pactl load-module module-bluez5-discover 2>/dev/null || echo "[startup] Bluetooth module already loaded"
+sleep 1
 
 echo "[startup] ✓ Pre-flight check complete"
 

@@ -121,9 +121,56 @@ def setup_bluetooth() -> bool:
                     print(f"[bluetooth] ⚠️  Failed to connect after {max_retries} attempts", flush=True)
                     return False
 
-        # 4. With bluez-alsa, audio routing is automatic - no need for sink detection
-        print("[bluetooth] ✓ Bluetooth setup complete (using bluez-alsa)", flush=True)
-        print("[bluetooth] Audio will be routed through bluealsa-aplay service", flush=True)
+        # 4. Find PulseAudio sink for this speaker
+        print("[bluetooth] Finding PulseAudio sink...", flush=True)
+        mac_underscore = mac.replace(':', '_')
+        
+        sink_id = None
+        for attempt in range(10):
+            sink_list = subprocess.run(["pactl", "list", "sinks", "short"], 
+                                      capture_output=True, text=True, timeout=5)
+            
+            # Look for bluez sink with our MAC
+            for line in sink_list.stdout.split('\n'):
+                if mac_underscore in line and 'bluez' in line.lower():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        sink_id = parts[0]
+                        sink_name = parts[1]
+                        print(f"[bluetooth] ✓ Found sink: {sink_name} (ID: {sink_id})", flush=True)
+                        break
+            
+            if sink_id:
+                break
+            
+            if attempt < 9:
+                print(f"[bluetooth] Sink not found, waiting... (attempt {attempt + 1}/10)", flush=True)
+                time.sleep(2)
+        
+        if not sink_id:
+            print(f"[bluetooth] ⚠️  WARNING: PulseAudio sink not found", flush=True)
+            print("[bluetooth] Available sinks:", flush=True)
+            subprocess.run(["pactl", "list", "sinks", "short"], check=False)
+            return True  # Continue anyway, might work later
+        
+        # 5. Unsuspend sink if suspended
+        sink_info = subprocess.run(["pactl", "list", "sinks"], 
+                                  capture_output=True, text=True, timeout=5)
+        if f"Sink #{sink_id}" in sink_info.stdout and "SUSPENDED" in sink_info.stdout:
+            print(f"[bluetooth] Unsuspending sink {sink_id}...", flush=True)
+            subprocess.run(["pactl", "suspend-sink", sink_id, "0"], check=False)
+            time.sleep(1)
+            print(f"[bluetooth] ✓ Sink unsuspended", flush=True)
+        
+        # 6. Set as default sink
+        print(f"[bluetooth] Setting as default sink...", flush=True)
+        subprocess.run(["pactl", "set-default-sink", sink_id], check=False)
+        
+        # 7. Set volume to 100%
+        subprocess.run(["pactl", "set-sink-volume", sink_id, "100%"], check=False)
+        
+        print("[bluetooth] ✓ Bluetooth setup complete (using PulseAudio)", flush=True)
+        print(f"[bluetooth] Audio will play through sink: {sink_id}", flush=True)
         
         return True
     except Exception as e:
