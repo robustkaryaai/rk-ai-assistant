@@ -77,7 +77,17 @@ def setup_bluetooth() -> bool:
 
         # 3. Connect to speaker
         mac = BLUETOOTH_SPEAKER_MAC
-        info = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True)
+        
+        try:
+            info = subprocess.run(["bluetoothctl", "info", mac], 
+                                capture_output=True, text=True, timeout=5)
+        except subprocess.TimeoutExpired:
+            print(f"[bluetooth] bluetoothctl timed out, trying to recover...", flush=True)
+            # Restart bluetooth service
+            subprocess.run(["sudo", "systemctl", "restart", "bluetooth"], check=False)
+            time.sleep(3)
+            info = subprocess.run(["bluetoothctl", "info", mac], 
+                                capture_output=True, text=True, timeout=10)
         
         if "Connected: yes" in info.stdout:
             print(f"[bluetooth] ✓ Speaker {mac} already connected!", flush=True)
@@ -87,16 +97,20 @@ def setup_bluetooth() -> bool:
             
             max_retries = 10
             for attempt in range(max_retries):
-                # Try to connect
-                result = subprocess.run(["bluetoothctl", "connect", mac], 
-                                      capture_output=True, text=True, timeout=10)
-                
-                # Verify connection
-                time.sleep(2)
-                info = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True)
-                if "Connected: yes" in info.stdout:
-                    print(f"[bluetooth] ✓ Speaker {mac} connected!", flush=True)
-                    break
+                try:
+                    # Try to connect
+                    result = subprocess.run(["bluetoothctl", "connect", mac], 
+                                          capture_output=True, text=True, timeout=10)
+                    
+                    # Verify connection
+                    time.sleep(2)
+                    info = subprocess.run(["bluetoothctl", "info", mac], 
+                                        capture_output=True, text=True, timeout=5)
+                    if "Connected: yes" in info.stdout:
+                        print(f"[bluetooth] ✓ Speaker {mac} connected!", flush=True)
+                        break
+                except subprocess.TimeoutExpired:
+                    print(f"[bluetooth] bluetoothctl timeout on attempt {attempt + 1}", flush=True)
                 
                 if attempt < max_retries - 1:
                     print(f"[bluetooth] Connection attempt {attempt + 1} failed, retrying...", flush=True)
