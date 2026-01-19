@@ -36,7 +36,13 @@ def setup_bluetooth() -> bool:
     No PulseAudio/pactl - audio routing handled by bluealsa.
     """
     try:
-        # 1. Wait for adapter to be ready (can take up to 60s after boot)
+        # 1. Restart bluetooth service to ensure bluetoothd is running
+        print("[bluetooth] Ensuring bluetooth service is running...", flush=True)
+        subprocess.run(["sudo", "systemctl", "restart", "bluetooth"], check=False,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(2)
+        
+        # 2. Wait for adapter to be ready (can take up to 60s after boot)
         print(f"[bluetooth] Waiting for {BLUETOOTH_HCI} to initialize...", flush=True)
         max_wait = 60
         elapsed = 0
