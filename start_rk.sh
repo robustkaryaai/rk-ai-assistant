@@ -17,6 +17,11 @@ cd "$SCRIPT_DIR" || exit 1
 # ============================================================
 echo "[startup] Running pre-flight Bluetooth check..."
 
+# Restart bluetooth service first
+echo "[startup] Restarting bluetooth service..."
+sudo systemctl restart bluetooth 2>/dev/null || true
+sleep 5
+
 # 1. Wait for hci1 to be initialized (can take up to 60 seconds after boot)
 echo "[startup] Waiting for Bluetooth adapter hci1 to initialize..."
 MAX_WAIT=60
@@ -26,6 +31,13 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     if sudo hciconfig hci1 2>/dev/null | grep -q "UP RUNNING"; then
         echo "[startup] ✓ hci1 is UP and RUNNING"
         break
+    fi
+    
+    # If hci1 exists but is DOWN, try to bring it up
+    if sudo hciconfig hci1 2>/dev/null | grep -q "DOWN"; then
+        echo "[startup] hci1 is DOWN, attempting to bring it up..."
+        sudo hciconfig hci1 up 2>/dev/null || echo "[startup] Failed to bring up hci1"
+        sleep 1
     fi
     
     if [ $ELAPSED -eq 0 ]; then
