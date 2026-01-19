@@ -134,7 +134,7 @@ def speak(text, use_gtts=True):
                 
                 # Check if WAV is already cached (fastest path)
                 if cache_path_wav.exists():
-                    subprocess.run(['aplay', '-D', bluealsa_device, '-q', str(cache_path_wav)], 
+                    subprocess.run(['aplay', '-D', bluealsa_device, '--buffer-time=1000000', '-q', str(cache_path_wav)], 
                                  check=False, stderr=subprocess.DEVNULL, timeout=10)
                     return
                 
@@ -143,7 +143,7 @@ def speak(text, use_gtts=True):
                     subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)], 
                                  check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     if cache_path_wav.exists():
-                        subprocess.run(['aplay', '-D', bluealsa_device, '-q', str(cache_path_wav)], 
+                        subprocess.run(['aplay', '-D', bluealsa_device, '--buffer-time=1000000', '-q', str(cache_path_wav)], 
                                      check=False, stderr=subprocess.DEVNULL, timeout=10)
                         return
                 
@@ -169,7 +169,7 @@ def speak(text, use_gtts=True):
 
                 # Play the WAV
                 if cache_path_wav.exists():
-                    subprocess.run(['aplay', '-D', bluealsa_device, '-q', str(cache_path_wav)], 
+                    subprocess.run(['aplay', '-D', bluealsa_device, '--buffer-time=1000000', '-q', str(cache_path_wav)], 
                                  check=False, stderr=subprocess.DEVNULL, timeout=10)
                 return
                 
