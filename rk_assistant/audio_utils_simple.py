@@ -127,8 +127,8 @@ def speak(text, use_gtts=True):
                 
                 # Check if already cached
                 if cache_path.exists():
-                    # Play cached audio with VLC (better buffering than mpg123)
-                    subprocess.run(['cvlc', '--play-and-exit', '--no-video', '--quiet', str(cache_path)], 
+                    # Play cached audio with aplay (ALSA player, works with bluetooth)
+                    subprocess.run(['aplay', '-q', str(cache_path)], 
                                  check=False, stderr=subprocess.DEVNULL, timeout=10)
                     return
                 
@@ -148,8 +148,8 @@ def speak(text, use_gtts=True):
                     print("⚠ gTTS generation timed out, falling back to espeak", flush=True)
                     raise TimeoutError("gTTS generation took too long")
 
-                # Play the newly cached audio with VLC (better buffering)
-                subprocess.run(['cvlc', '--play-and-exit', '--no-video', '--quiet', str(cache_path)], 
+                # Play the newly cached audio with aplay
+                subprocess.run(['aplay', '-q', str(cache_path)], 
                              check=False, stderr=subprocess.DEVNULL, timeout=10)
                 return
                 
