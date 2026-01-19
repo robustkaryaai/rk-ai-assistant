@@ -37,10 +37,15 @@ def setup_bluetooth() -> bool:
     """
     try:
         # 1. Restart bluetooth service to ensure bluetoothd is running
-        print("[bluetooth] Ensuring bluetooth service is running...", flush=True)
-        subprocess.run(["sudo", "systemctl", "restart", "bluetooth"], check=False,
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(2)
+        print("[bluetooth] Restarting bluetooth service...", flush=True)
+        result = subprocess.run(["sudo", "systemctl", "restart", "bluetooth"], 
+                              capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"[bluetooth] Warning: bluetooth service restart failed: {result.stderr}", flush=True)
+        
+        # Wait longer for bluetooth service to fully initialize
+        print("[bluetooth] Waiting for bluetooth service to initialize...", flush=True)
+        time.sleep(5)
         
         # 2. Wait for adapter to be ready (can take up to 60s after boot)
         print(f"[bluetooth] Waiting for {BLUETOOTH_HCI} to initialize...", flush=True)
@@ -63,8 +68,14 @@ def setup_bluetooth() -> bool:
             
             # Try to bring it up if it exists but is down
             if check.returncode == 0 and "DOWN" in check.stdout:
-                subprocess.run(["sudo", "hciconfig", BLUETOOTH_HCI, "up"], check=False, 
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"[bluetooth] {BLUETOOTH_HCI} is DOWN, attempting to bring it up...", flush=True)
+                bring_up = subprocess.run(["sudo", "hciconfig", BLUETOOTH_HCI, "up"], 
+                                        capture_output=True, text=True)
+                if bring_up.returncode != 0:
+                    print(f"[bluetooth] Failed to bring up {BLUETOOTH_HCI}: {bring_up.stderr}", flush=True)
+                else:
+                    print(f"[bluetooth] Sent bring-up command to {BLUETOOTH_HCI}", flush=True)
+                    time.sleep(1)  # Give it time to come up
             
             if elapsed % 10 == 0 and elapsed < max_wait:
                 print(f"[bluetooth]   Still waiting... ({elapsed}s/{max_wait}s)", flush=True)
