@@ -131,8 +131,8 @@ def speak(text, use_gtts=True):
                 
                 # Check if already cached
                 if cache_path.exists():
-                    # Play cached audio through bluealsa with larger buffer
-                    subprocess.run(['mpg123', '-a', bluealsa_device, '--buffer', '8192', '-q', str(cache_path)], 
+                    # Play cached audio through bluealsa with large buffer for stability
+                    subprocess.run(['mpg123', '-a', bluealsa_device, '--buffer', '65536', '--preload', '0.5', '-q', str(cache_path)], 
                                  check=False, stderr=subprocess.DEVNULL, timeout=10)
                     return
                 
@@ -152,8 +152,8 @@ def speak(text, use_gtts=True):
                     print("⚠ gTTS generation timed out, falling back to espeak", flush=True)
                     raise TimeoutError("gTTS generation took too long")
 
-                # Play the newly cached audio through bluealsa with larger buffer
-                subprocess.run(['mpg123', '-a', bluealsa_device, '--buffer', '8192', '-q', str(cache_path)], 
+                # Play the newly cached audio through bluealsa with large buffer for stability
+                subprocess.run(['mpg123', '-a', bluealsa_device, '--buffer', '65536', '--preload', '0.5', '-q', str(cache_path)], 
                              check=False, stderr=subprocess.DEVNULL, timeout=10)
                 return
                 
