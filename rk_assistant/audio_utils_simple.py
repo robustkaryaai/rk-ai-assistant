@@ -123,22 +123,32 @@ def speak(text, use_gtts=True):
         # Fallback to gTTS with caching when online
         if use_gtts and is_online():
             try:
-                cache_path = _get_cache_path(text)
+                # We need both MP3 (storage) and WAV (playback) paths
+                cache_path_mp3 = _get_cache_path(text)
+                cache_path_wav = cache_path_mp3.with_suffix('.wav')
                 
-                # Check if already cached
-                if cache_path.exists():
-                    # Play cached audio with aplay (ALSA player, works with bluetooth)
-                    subprocess.run(['aplay', '-q', str(cache_path)], 
+                # Check if WAV is already cached (fastest path)
+                if cache_path_wav.exists():
+                    subprocess.run(['aplay', '-q', str(cache_path_wav)], 
                                  check=False, stderr=subprocess.DEVNULL, timeout=10)
                     return
                 
-                # Not cached, generate and cache with timeout protection
+                # If MP3 exists but WAV doesn't, just convert it
+                if cache_path_mp3.exists():
+                    subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)], 
+                                 check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if cache_path_wav.exists():
+                        subprocess.run(['aplay', '-q', str(cache_path_wav)], 
+                                     check=False, stderr=subprocess.DEVNULL, timeout=10)
+                        return
+                
+                # Neither exists - generate new audio
                 from gtts import gTTS
                 import threading
                 
                 def _generate():
                     tts = gTTS(text=text, lang='en')
-                    tts.save(str(cache_path))
+                    tts.save(str(cache_path_mp3))
                 
                 gen_thread = threading.Thread(target=_generate)
                 gen_thread.start()
@@ -148,9 +158,14 @@ def speak(text, use_gtts=True):
                     print("⚠ gTTS generation timed out, falling back to espeak", flush=True)
                     raise TimeoutError("gTTS generation took too long")
 
-                # Play the newly cached audio with aplay
-                subprocess.run(['aplay', '-q', str(cache_path)], 
-                             check=False, stderr=subprocess.DEVNULL, timeout=10)
+                # Convert generated MP3 to WAV for aplay
+                subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)], 
+                             check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                # Play the WAV
+                if cache_path_wav.exists():
+                    subprocess.run(['aplay', '-q', str(cache_path_wav)], 
+                                 check=False, stderr=subprocess.DEVNULL, timeout=10)
                 return
                 
             except Exception as e:
