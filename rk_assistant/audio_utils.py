@@ -145,7 +145,9 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
     except sr.WaitTimeoutError:
         return "" # Silence
     except Exception as e:
+        # Prevent log spam on hardware failures
         print(f"[stt] Live listen error: {e}")
+        time.sleep(1.0) 
         return ""
 
 
