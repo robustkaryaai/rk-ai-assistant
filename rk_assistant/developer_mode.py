@@ -306,6 +306,33 @@ def main():
     if not check_auth():
         sys.exit(1)
 
+    tests = [
+        test_network,
+        test_gemini,
+        test_backend,
+        test_music_dependencies,
+        test_audio_output,
+        test_audio_input,
+        test_intent_classification,
+        test_time_intent,
+        test_volume_control,
+        test_bluetooth_status,
+        test_music_search,
+        test_backend_integration,
+        test_conversational_ai,
+        test_memory_engine,
+        test_automation_engine,
+    ]
+
+    for test in tests:
+        start_time = time.time()
+        test()
+        duration = time.time() - start_time
+        print(f"⏱️  {test.__name__} completed in {duration:.4f}s")
+        time.sleep(1)
+
+    print_header("✨ DIAGNOSTICS COMPLETE ✨")
+
 
 def test_memory_engine():
     print_header("14. MEMORY ENGINE TEST 🧠")
@@ -354,33 +381,6 @@ def test_automation_engine():
         print("❌ Automation Module Missing")
     except Exception as e:
         print(f"❌ Automation Error: {e}")
-    
-    tests = [
-        test_network,
-        test_gemini,
-        test_backend,
-        test_music_dependencies,
-        test_audio_output,
-        test_audio_input,
-        test_intent_classification,
-        test_time_intent,
-        test_volume_control,
-        test_bluetooth_status,
-        test_music_search,
-        test_backend_integration,
-        test_conversational_ai,
-        test_memory_engine,
-        test_automation_engine
-    ]
-    
-    for test in tests:
-        start_time = time.time()
-        test()
-        duration = time.time() - start_time
-        print(f"⏱️  {test.__name__} completed in {duration:.4f}s")
-        time.sleep(1)
-    
-    print_header("✨ DIAGNOSTICS COMPLETE ✨")
 
 if __name__ == "__main__":
     main()
