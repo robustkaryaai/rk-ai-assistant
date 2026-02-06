@@ -305,7 +305,6 @@ def test_conversational_ai():
 def main():
     if not check_auth():
         sys.exit(1)
-    print("✅ AI Response: " + (response[:200] + "..." if len(response) > 200 else response))
 
 
 def test_memory_engine():
