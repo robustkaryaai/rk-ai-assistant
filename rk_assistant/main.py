@@ -39,7 +39,6 @@ import requests
 
 from . import audio_utils
 from .audio_utils import (
-    live_stt_listen,
     load_pocketsphinx_decoder,
     online_stt,
     play_audio_url,
@@ -51,6 +50,13 @@ from .audio_utils import (
     synthesize_to_wav,
     wait_for_wake_word,
 )
+
+# NOTE: Some deployments may have an older audio_utils.py missing live_stt_listen.
+#       Keep the process alive by falling back to a no-op listener.
+def _live_stt_stub(*_args, **_kwargs) -> str:
+    return ""
+
+live_stt_listen = getattr(audio_utils, "live_stt_listen", _live_stt_stub)
 # Use new hybrid TTS (gTTS online, espeak offline)
 from .audio_utils_simple import speak
 
