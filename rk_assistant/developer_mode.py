@@ -10,6 +10,14 @@ import time
 import subprocess
 import threading
 from getpass import getpass
+
+# Allow running this script directly (python3 developer_mode.py)
+if __name__ == "__main__" and __package__ is None:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)
+    sys.path.insert(0, parent_dir)
+    __package__ = "rk_assistant"
+
 from .config import GEMINI_API_KEY, BACKEND_BASE_URL, SLUG_FILE
 from .gemini_client import test_gemini_connection
 from .networking import check_network_health, is_online
