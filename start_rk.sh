@@ -64,7 +64,14 @@ else
     echo "[startup] hci1 ready after ${ELAPSED}s"
 fi
 
-# 2. Connect to speaker (One-time "Fire and Forget")
+# 2. Ensure PulseAudio is running
+if ! pulseaudio --check; then
+    echo "[startup] Starting PulseAudio..."
+    pulseaudio --start --exit-idle-time=-1 || echo "[startup] Warning: Failed to start PulseAudio"
+    sleep 2
+fi
+
+# 3. Connect to speaker (One-time "Fire and Forget")
 if [ -f "rk_assistant/.env" ]; then
     # Extract MAC from .env directly
     SPEAKER_MAC=$(grep "BLUETOOTH_SPEAKER_MAC" rk_assistant/.env | cut -d '=' -f2 | tr -d '"' | tr -d "'")

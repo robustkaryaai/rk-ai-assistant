@@ -28,33 +28,28 @@ from .config import (
     MIC_DEVICE_INDEX
 )
 
-# Hardcoded optimal settings for Pi Zero W
-# Handle empty MAC gracefully to avoid invalid argument
-if BLUETOOTH_SPEAKER_MAC:
-    ALSA_DEVICE = f"bluealsa:DEV={BLUETOOTH_SPEAKER_MAC},PROFILE=a2dp"
-else:
-    ALSA_DEVICE = "default" # Fallback
-
+# Hardcoded settings for PulseAudio
+ALSA_DEVICE = "pulse" 
 BUFFER_TIME = "500000" # 0.5s buffer
 
 def play_audio_file(file_path: str):
-    """Play WAV file using aplay with optimal buffers."""
+    """Play WAV file using aplay via PulseAudio."""
     if not os.path.exists(file_path): return
     try:
         subprocess.run(
-            ["aplay", "-D", ALSA_DEVICE, "--buffer-time=" + BUFFER_TIME, "-q", file_path],
+            ["aplay", "-D", ALSA_DEVICE, "-q", file_path],
             check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
     except Exception as e:
         print(f"[audio] Play error: {e}")
 
 def play_audio_url(url: str):
-    """Play MP3 URL using mpg123 directly to BlueALSA."""
+    """Play MP3 URL using mpg123 via PulseAudio."""
     if not url: return None
     try:
-        # -a specifies device, -b 1024 is buffer size in KB
+        # -o pulse specifies PulseAudio output
         return subprocess.Popen(
-            ["mpg123", "-a", ALSA_DEVICE, "-b", "1024", "-q", url],
+            ["mpg123", "-o", "pulse", "-b", "1024", "-q", url],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
     except:
@@ -62,19 +57,16 @@ def play_audio_url(url: str):
 
 def speak(text):
     """
-    Ultra-lightweight TTS.
-    1. Piper (if available) -> WAV -> aplay
-    2. Espeak (fallback) -> WAV -> aplay
+    Ultra-lightweight TTS via PulseAudio.
     """
     print(f"🔊 {text}")
     try:
-        # Try Piper first (best quality, efficient if model loaded)
+        # Try Piper first
         piper_binary = "/usr/local/bin/piper"
         model = os.path.expanduser("~/.local/share/piper/voices/en_US-lessac-medium.onnx")
         
         if os.path.exists(piper_binary) and os.path.exists(model):
-            # Pipe piper output directly to aplay to save disk I/O
-            # Use 22050Hz for standard piper models, format S16_LE
+            # Pipe to aplay -D pulse
             cmd = f"{piper_binary} --model {model} --output_raw | aplay -D {ALSA_DEVICE} -r 22050 -f S16_LE -t raw -q"
             subprocess.run(cmd, shell=True)
             return
