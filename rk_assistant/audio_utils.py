@@ -124,17 +124,52 @@ def online_stt(audio_path: Path) -> str:
     except Exception:
         return ""
 
-def record_until_silence(out_path=LAST_AUDIO, silence_duration=2.0) -> Path:
+def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0) -> Path:
     """
-    Record audio using 'arecord' (low CPU) for offline commands.
-    Fixed duration for simplicity on Pi Zero (silence detection in python is heavy).
+    Record audio with VAD (Silence Detection) for 'Alexa-style' interaction.
+    Uses speech_recognition's built-in energy thresholding.
     """
+    if SPEECH_RECOGNITION_AVAILABLE and sr is not None:
+        try:
+            r = sr.Recognizer()
+            r.pause_threshold = silence_duration
+            r.energy_threshold = 300 # Default starting point, dynamic adjustment is on by default
+            r.dynamic_energy_threshold = True
+            
+            # Use configured index or default
+            device_index = MIC_DEVICE_INDEX
+            
+            print(f"[record] Listening... (VAD enabled, silence={silence_duration}s)")
+            with sr.Microphone(device_index=device_index) as source:
+                # Fast calibration (optional, adds 0.5s latency but improves reliability)
+                # r.adjust_for_ambient_noise(source, duration=0.5)
+                
+                # Listen automatically stops when silence is detected
+                # phrase_time_limit ensures we don't record forever if noisy
+                audio = r.listen(source, timeout=10, phrase_time_limit=15)
+            
+            # Save to WAV
+            with open(out_path, "wb") as f:
+                f.write(audio.get_wav_data())
+            
+            return out_path
+            
+        except sr.WaitTimeoutError:
+            print("[record] Timeout (silence)")
+            return out_path # Likely empty or non-existent
+        except Exception as e:
+            print(f"[record] VAD Error: {e}")
+            # Fallback to arecord below
+            pass
+
+    # Fallback to fixed duration arecord if sr fails or not available
     try:
         # Determine device
         device_arg = "default"
         if MIC_DEVICE_INDEX is not None and MIC_DEVICE_INDEX >= 0:
             device_arg = f"plughw:{MIC_DEVICE_INDEX},0"
         
+        print("[record] Fallback: Recording 5s fixed...")
         # Record 5 seconds fixed (simple & robust)
         cmd = ["arecord", "-D", device_arg, "-f", "S16_LE", "-r", "16000", "-d", "5", "-q", str(out_path)]
         subprocess.run(cmd, check=False)
