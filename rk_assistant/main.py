@@ -621,7 +621,10 @@ def main():
             recognizer.non_speaking_duration = 0.5  # Long pre-buffer to catch "rk"
             
             from .config import MIC_DEVICE_INDEX, MIC_SAMPLE_RATE
-            mic = audio_utils.sr.Microphone(device_index=(None if MIC_DEVICE_INDEX < 0 else MIC_DEVICE_INDEX), sample_rate=MIC_SAMPLE_RATE)
+            device_idx = MIC_DEVICE_INDEX
+            if device_idx is not None and device_idx < 0:
+                device_idx = None
+            mic = audio_utils.sr.Microphone(device_index=device_idx, sample_rate=MIC_SAMPLE_RATE)
             
             if mic is not None:
                 print("[stt] Calibrating microphone for ambient noise (2 seconds)...", flush=True)
