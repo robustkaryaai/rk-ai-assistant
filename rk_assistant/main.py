@@ -436,7 +436,8 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         
         # This blocks until a phrase is heard and transcribed
         # We increase phrase limit to allow natural speaking "rk play music"
-        text = live_stt_listen(recognizer, mic, timeout=2, phrase_time_limit=10.0)
+        # Timeout increased to 8s for PipeWire audio stream initialization
+        text = live_stt_listen(recognizer, mic, timeout=8, phrase_time_limit=10.0)
         
         if not text:
             # Reduce verbose output - just track silently
