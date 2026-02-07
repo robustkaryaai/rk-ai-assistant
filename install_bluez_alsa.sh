@@ -38,7 +38,7 @@ Requires=bluetooth.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/bluealsa -p a2dp-sink -p a2dp-source
+ExecStart=/usr/bin/bluealsa -p a2dp-sink --codec=sbc --keep-alive=5
 Restart=on-failure
 RestartSec=5
 
