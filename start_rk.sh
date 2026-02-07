@@ -11,6 +11,19 @@ echo "[startup] Starting at $SCRIPT_DIR"
 # Navigate to project directory
 cd "$SCRIPT_DIR" || exit 1
 
+# Activate virtual environment (Move to top)
+# Assuming rk-ai is in the parent directory (Documents)
+if [ -f "../rk-ai/bin/activate" ]; then
+    source "../rk-ai/bin/activate"
+elif [ -f "../../rk-ai/bin/activate" ]; then
+    source "../../rk-ai/bin/activate"
+else
+    echo "[startup] Warning: Virtual environment 'rk-ai' not found. Using system python."
+fi
+
+# Set PYTHONPATH to include current dir so imports work
+export PYTHONPATH=$SCRIPT_DIR:$PYTHONPATH
+
 # ============================================================
 # PRE-FLIGHT BLUETOOTH & AUDIO CHECK
 # Wait for hci1 and verify bluez-alsa is ready
@@ -102,17 +115,6 @@ fi
 
 echo "[startup] ✓ Bluetooth ready (OS Managed)"
 echo "[startup] ✓ Pre-flight check complete"
-
-# Activate virtual environment
-# Assuming rk-ai is in the parent directory (Documents)
-if [ -f "../rk-ai/bin/activate" ]; then
-    source ../rk-ai/bin/activate
-elif [ -f "../../rk-ai/bin/activate" ]; then
-    source ../../rk-ai/bin/activate
-else
-    echo "[startup] Error: Virtual environment 'rk-ai' not found."
-    # Try system python if venv fails, or just exit
-fi
 
 # Update from git
 echo "[startup] Checking for updates..."
