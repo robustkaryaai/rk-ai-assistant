@@ -5,6 +5,9 @@
 cd /home/raspberrypi/Documents/rk-ai-assistant
 source /home/raspberrypi/Documents/rk-ai/bin/activate
 
+# Silence ALSA backend scanning noise
+export ALSA_CARD=default
+
 echo "Starting RK Assistant (simple mode)..."
 echo "Press Ctrl+C to stop"
 echo ""
