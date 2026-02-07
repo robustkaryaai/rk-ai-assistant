@@ -72,24 +72,32 @@ if ! pulseaudio --check; then
 fi
 
 # 3. Connect to speaker (One-time "Fire and Forget")
-SPEAKER_MAC=""
-
-# Search for .env
-if [ -f "rk_assistant/.env" ]; then
-    SPEAKER_MAC=$(grep "BLUETOOTH_SPEAKER_MAC" rk_assistant/.env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
-elif [ -f ".env" ]; then
-    SPEAKER_MAC=$(grep "BLUETOOTH_SPEAKER_MAC" .env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
-fi
+echo "[startup] Resolving Bluetooth MAC..."
+# Use python to get the MAC (handles .env and defaults correctly)
+SPEAKER_MAC=$(python3 -c "from rk_assistant.config import BLUETOOTH_SPEAKER_MAC; print(BLUETOOTH_SPEAKER_MAC)" 2>/dev/null)
 
 if [ ! -z "$SPEAKER_MAC" ]; then
-    echo "[startup] Connecting to Bluetooth Speaker: $SPEAKER_MAC"
+    echo "[startup] Target Speaker: $SPEAKER_MAC"
+    
+    # Reload PulseAudio Bluetooth linkage to clear "UUID already registered"
+    pactl unload-module module-bluez5-discover 2>/dev/null || true
+    pactl load-module module-bluez5-discover 2>/dev/null || true
+    
     # Trust but verify connection
+    echo "[startup] Connecting..."
     bluetoothctl connect "$SPEAKER_MAC" || true
+    
+    # Check
+    if bluetoothctl info "$SPEAKER_MAC" | grep -q "Connected: yes"; then
+         echo "[startup] ✓ Connected successfully"
+         # Ensure default sink is set
+         pactl set-default-sink bluez_sink.$(echo "$SPEAKER_MAC" | tr ':' '_').a2dp_sink 2>/dev/null || true
+    fi
+    
     # Give it a moment to stabilize audio path
     sleep 5
 else
-    echo "[startup] Warning: BLUETOOTH_SPEAKER_MAC not found in .env"
-    echo "          Please ensure .env exists with correct MAC."
+    echo "[startup] Warning: Could not resolve BLUETOOTH_SPEAKER_MAC"
 fi
 
 echo "[startup] ✓ Bluetooth ready (OS Managed)"
