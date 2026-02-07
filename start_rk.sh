@@ -64,9 +64,24 @@ else
     echo "[startup] hci1 ready after ${ELAPSED}s"
 fi
 
-# 2. Basic Bluetooth check  
-echo "[startup] ✓ Bluetooth ready (ALSA will auto-route to connected device)"
+# 2. Connect to speaker (One-time "Fire and Forget")
+if [ -f "rk_assistant/.env" ]; then
+    # Extract MAC from .env directly
+    SPEAKER_MAC=$(grep "BLUETOOTH_SPEAKER_MAC" rk_assistant/.env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
+    if [ ! -z "$SPEAKER_MAC" ]; then
+        echo "[startup] Connecting to Bluetooth Speaker: $SPEAKER_MAC"
+        # Trust but verify connection
+        bluetoothctl connect "$SPEAKER_MAC" || true
+        # Give it a moment to stabilize audio path
+        sleep 5
+    else
+        echo "[startup] Warning: No speaker MAC found in .env"
+    fi
+else
+    echo "[startup] Warning: .env file not found, skipping auto-connect."
+fi
 
+echo "[startup] ✓ Bluetooth ready (OS Managed)"
 echo "[startup] ✓ Pre-flight check complete"
 
 # Activate virtual environment

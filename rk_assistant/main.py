@@ -68,7 +68,6 @@ from .networking import (
     post_text_to_backend,
     read_slug,
     write_slug,
-    setup_bluetooth,
     setup_microphone_volume,
     wait_for_internet,
 )
@@ -592,9 +591,6 @@ def main():
     print("\n" + "="*30)
     print("Initializing RK AI Assistant...")
     print("="*30)
-    
-    # 1. Initialize Bluetooth (Speaker) FIRST
-    setup_bluetooth()
     
     # 2. INITIAL SPEECH (before waiting for internet, so user hears it immediately)
     start_msg = "Radhe Radhe RK AI assistant is starting up"
