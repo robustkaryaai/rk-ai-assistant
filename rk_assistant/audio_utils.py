@@ -180,10 +180,14 @@ def record_audio(out_path: Path = LAST_AUDIO, seconds: int = 5) -> Path:
     return record_until_silence(out_path) # Fallback alias
 
 def play_audio_url(url: str):
-    """Play URL using mpg123."""
+    """Play URL using mpg123 directly to BlueALSA."""
     if not url: return None
     try:
-        return subprocess.Popen(["mpg123", "-q", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Use direct ALSA output to Bluetooth speaker
+        from .config import BLUETOOTH_SPEAKER_MAC
+        device = f"bluealsa:DEV={BLUETOOTH_SPEAKER_MAC}"
+        # -a specifies the audio device
+        return subprocess.Popen(["mpg123", "-a", device, "-q", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except:
         return None
 

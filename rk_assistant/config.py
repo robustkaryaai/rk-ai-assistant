@@ -23,9 +23,8 @@ for _env_file in _search_paths:
                         key, value = line.split("=", 1)
                         key = key.strip()
                         value = value.strip().strip('"').strip("'")
-                        # Only set if not already in environment (env vars take precedence)
-                        if key not in os.environ:
-                            os.environ[key] = value
+                        # Force overwrite system env vars with .env values (Security requirement)
+                        os.environ[key] = value
             # Stop after finding the first valid .env? Or load both? 
             # Usually one is enough, but loading both doesn't hurt (first one found takes precedence if we break, 
             # but we continue here so last one might overwrite unless we check existence).
