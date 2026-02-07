@@ -106,24 +106,41 @@ def test_audio_output():
 
 def test_audio_input():
     print_header("5. MICROPHONE TEST 🎤")
-    print("[*] Recording 3 seconds... SPEAK NOW!")
+    print("[*] Recording via audio_utils (VAD enabled)... SPEAK NOW!")
+    
     try:
-        fs = 16000  # Sample rate
-        seconds = 3
+        from . import audio_utils
+        from pathlib import Path
         
-        # Record
-        myrecording = sd.rec(int(seconds * fs), samplerate=fs, channels=1, dtype='int16')
-        sd.wait()  # Wait until recording is finished
+        # 1. Record
+        wav_path = Path("/tmp/dev_mode_test.wav")
+        if wav_path.exists(): wav_path.unlink()
+        
+        # Use existing record function (which uses VAD now)
+        recorded_path = audio_utils.record_audio(out_path=wav_path, silence_duration=1.0)
+        
+        if not recorded_path.exists():
+            print("❌ Recording produced no file.")
+            return
+
         print("[*] Recording finished.")
         
-        print("[*] Playing back recording (with 5x volume boost)...")
-        sd.play(myrecording * 5, fs)
-        sd.wait()
-        print("✅ Info: Playback complete. (Did you hear yourself?)")
+        # 2. Playback
+        print("[*] Playing back recording...")
+        audio_utils.play_audio_file(str(recorded_path))
+        print("✅ Info: Playback initiated. (Did you hear yourself?)")
         
+        # 3. Transcribe (STT)
+        print("[*] Transcribing (Google STT)...")
+        text = audio_utils.online_stt(recorded_path)
+        
+        if text:
+            print(f"✅ STT Result: '{text}'")
+        else:
+            print("❌ STT Failed (Silence or unintelligible)")
+            
     except Exception as e:
-        print(f"❌ Microphone Error: {e}")
-        print("(Note: This requires 'sounddevice' and 'portaudio' installed)")
+        print(f"❌ Microphone/STT Error: {e}")
 
 def test_music_dependencies():
     print_header("6. MUSIC SYSTEM CHECK 🎵")
