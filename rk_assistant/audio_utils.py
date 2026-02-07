@@ -78,7 +78,15 @@ def speak(text):
 def load_pocketsphinx_decoder(*args, **kwargs): return False
 def wait_for_wake_word(*args, **kwargs): return False
 def live_stt_listen(*args, **kwargs): return ""
-def record_audio(*args, **kwargs): return None
+def record_audio(out_path=LAST_AUDIO, *args, **kwargs): 
+    # Stub recording
+    if out_path:
+        Path(out_path).touch()
+    return out_path
+def record_until_silence(out_path=LAST_AUDIO, *args, **kwargs): return record_audio(out_path)
 def stop_process(*args, **kwargs): pass
 def set_volume(*args, **kwargs): pass
+def online_stt(*args, **kwargs): return ""
+def quick_stt(*args, **kwargs): return ""
+def synthesize_to_wav(*args, **kwargs): return None
 
