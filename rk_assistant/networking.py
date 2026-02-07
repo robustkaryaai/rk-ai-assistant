@@ -27,57 +27,16 @@ from .config import (
     BLUETOOTH_HCI,
 )
 
-
-        
-        try:
-            info = subprocess.run(["bluetoothctl", "info", mac], 
-                                capture_output=True, text=True, timeout=5)
-        except subprocess.TimeoutExpired:
-            print(f"[bluetooth] bluetoothctl timed out, trying to recover...", flush=True)
-            # Restart bluetooth service
-            subprocess.run(["sudo", "systemctl", "restart", "bluetooth"], check=False)
-            time.sleep(3)
-            info = subprocess.run(["bluetoothctl", "info", mac], 
-                                capture_output=True, text=True, timeout=10)
-        
-        if "Connected: yes" in info.stdout:
-            print(f"[bluetooth] ✓ Speaker {mac} already connected!", flush=True)
-        else:
-            # Speaker not connected, attempt connection
-            print(f"[bluetooth] Connecting to speaker {mac}...", flush=True)
-            
-            max_retries = 10
-            for attempt in range(max_retries):
-                try:
-                    # Try to connect
-                    result = subprocess.run(["bluetoothctl", "connect", mac], 
-                                          capture_output=True, text=True, timeout=10)
-                    
-                    # Verify connection
-                    time.sleep(2)
-                    info = subprocess.run(["bluetoothctl", "info", mac], 
-                                        capture_output=True, text=True, timeout=5)
-                    if "Connected: yes" in info.stdout:
-                        print(f"[bluetooth] ✓ Speaker {mac} connected!", flush=True)
-                        break
-                except subprocess.TimeoutExpired:
-                    print(f"[bluetooth] bluetoothctl timeout on attempt {attempt + 1}", flush=True)
-                
-                if attempt < max_retries - 1:
-                    print(f"[bluetooth] Connection attempt {attempt + 1} failed, retrying...", flush=True)
-                    time.sleep(3)
-                else:
-                    print(f"[bluetooth] ⚠️  Failed to connect after {max_retries} attempts", flush=True)
-                    return False
-
-        # 4. ALSA will automatically route to connected Bluetooth device
-        print("[bluetooth] ✓ Bluetooth setup complete (using ALSA)", flush=True)
-        print(f"[bluetooth] Audio will auto-route to connected speaker: {mac}", flush=True)
-        
-        return True
-    except Exception as e:
-        print(f"[bluetooth] Setup error: {e}", flush=True)
-        return False
+def get_ip_address():
+    """Get current IP address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 
 def is_online(host: str = "1.1.1.1", port: int = 53, timeout: float = 1.5) -> bool:
