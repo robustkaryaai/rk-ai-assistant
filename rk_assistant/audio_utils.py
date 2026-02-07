@@ -75,6 +75,10 @@ def speak(text):
         print(f"[tts] Error: {e}")
 
 # --- STT Stubs (Keep unrelated logic minimum) ---
+def load_pocketsphinx_decoder(*args, **kwargs): return False
 def wait_for_wake_word(*args, **kwargs): return False
 def live_stt_listen(*args, **kwargs): return ""
 def record_audio(*args, **kwargs): return None
+def stop_process(*args, **kwargs): pass
+def set_volume(*args, **kwargs): pass
+

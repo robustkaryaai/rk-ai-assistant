@@ -10,8 +10,12 @@ echo "📡 Disabling WiFi Power Management..."
 sudo iw wlan0 set power_save off
 
 # Make it persistent by adding to rc.local if not present (simple hack for now)
-if ! grep -q "iw wlan0 set power_save off" /etc/rc.local; then
-    sudo sed -i -e '$i \iw wlan0 set power_save off\n' /etc/rc.local
+if [ -f /etc/rc.local ]; then
+    if ! grep -q "iw wlan0 set power_save off" /etc/rc.local; then
+        sudo sed -i -e '$i \iw wlan0 set power_save off\n' /etc/rc.local
+    fi
+else
+    echo "⚠️ /etc/rc.local not found, skipping persistent WiFi power save config."
 fi
 
 # 2. Set CPU Governor to Performance (if available) or Ondemand
