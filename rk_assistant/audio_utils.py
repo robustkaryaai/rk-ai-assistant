@@ -1,6 +1,6 @@
 """
 Optimized Audio Utilities for Pi Zero W.
-Focus: Low CPU overhead, direct ALSA access, no complex logic.
+Restored Google STT and robust TTS.
 """
 import os
 import sys
@@ -9,6 +9,14 @@ import subprocess
 import threading
 from pathlib import Path
 
+# Try to import speech_recognition (for Google STT)
+try:
+    import speech_recognition as sr
+    SPEECH_RECOGNITION_AVAILABLE = True
+except ImportError:
+    sr = None
+    SPEECH_RECOGNITION_AVAILABLE = False
+
 # Configuration
 from .config import (
     SAMPLE_RATE, 
@@ -16,12 +24,18 @@ from .config import (
     POCKETSPHINX_MODEL_DIR,
     WAKE_WORD,
     LAST_AUDIO,
-    BLUETOOTH_SPEAKER_MAC
+    BLUETOOTH_SPEAKER_MAC,
+    MIC_DEVICE_INDEX
 )
 
 # Hardcoded optimal settings for Pi Zero W
-ALSA_DEVICE = f"bluealsa:DEV={BLUETOOTH_SPEAKER_MAC},PROFILE=a2dp"
-BUFFER_TIME = "500000" # 0.5s buffer (balance latency/stability)
+# Handle empty MAC gracefully to avoid invalid argument
+if BLUETOOTH_SPEAKER_MAC:
+    ALSA_DEVICE = f"bluealsa:DEV={BLUETOOTH_SPEAKER_MAC},PROFILE=a2dp"
+else:
+    ALSA_DEVICE = "default" # Fallback
+
+BUFFER_TIME = "500000" # 0.5s buffer
 
 def play_audio_file(file_path: str):
     """Play WAV file using aplay with optimal buffers."""
@@ -60,6 +74,7 @@ def speak(text):
         
         if os.path.exists(piper_binary) and os.path.exists(model):
             # Pipe piper output directly to aplay to save disk I/O
+            # Use 22050Hz for standard piper models, format S16_LE
             cmd = f"{piper_binary} --model {model} --output_raw | aplay -D {ALSA_DEVICE} -r 22050 -f S16_LE -t raw -q"
             subprocess.run(cmd, shell=True)
             return
@@ -74,19 +89,77 @@ def speak(text):
     except Exception as e:
         print(f"[tts] Error: {e}")
 
-# --- STT Stubs (Keep unrelated logic minimum) ---
+def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> str:
+    """
+    Restore Google STT (Online).
+    """
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return ""
+    
+    try:
+        with mic as source:
+            # Short calibration (already done in main, but good to be safe if environment changed)
+            # recognizer.adjust_for_ambient_noise(source, duration=0.5) 
+            # Listen
+            audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
+        
+        # Transcribe
+        try:
+            return recognizer.recognize_google(audio)
+        except sr.UnknownValueError:
+            return ""
+        except sr.RequestError:
+            return ""
+            
+    except sr.WaitTimeoutError:
+        return "" # Silence
+    except Exception as e:
+        print(f"[stt] Live listen error: {e}")
+        return ""
+
+def online_stt(audio_path: Path) -> str:
+    """Transcribe audio file using Google STT."""
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return ""
+    if not os.path.exists(audio_path):
+        return ""
+        
+    try:
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(str(audio_path)) as source:
+            audio = recognizer.record(source)
+        return recognizer.recognize_google(audio)
+    except Exception:
+        return ""
+
+def record_until_silence(out_path=LAST_AUDIO, silence_duration=2.0) -> Path:
+    """
+    Record audio using 'arecord' (low CPU) for offline commands.
+    Fixed duration for simplicity on Pi Zero (silence detection in python is heavy).
+    """
+    try:
+        # Determine device
+        device_arg = "default"
+        if MIC_DEVICE_INDEX is not None and MIC_DEVICE_INDEX >= 0:
+            device_arg = f"plughw:{MIC_DEVICE_INDEX},0"
+        
+        # Record 5 seconds fixed (simple & robust)
+        cmd = ["arecord", "-D", device_arg, "-f", "S16_LE", "-r", "16000", "-d", "5", "-q", str(out_path)]
+        subprocess.run(cmd, check=False)
+        return out_path
+    
+    except Exception as e:
+        print(f"[record] Error: {e}")
+        return out_path
+
+# Alias
+record_audio = record_until_silence
+
+# --- Stubs ---
 def load_pocketsphinx_decoder(*args, **kwargs): return False
 def wait_for_wake_word(*args, **kwargs): return False
-def live_stt_listen(*args, **kwargs): return ""
-def record_audio(out_path=LAST_AUDIO, *args, **kwargs): 
-    # Stub recording
-    if out_path:
-        Path(out_path).touch()
-    return out_path
-def record_until_silence(out_path=LAST_AUDIO, *args, **kwargs): return record_audio(out_path)
 def stop_process(*args, **kwargs): pass
 def set_volume(*args, **kwargs): pass
-def online_stt(*args, **kwargs): return ""
 def quick_stt(*args, **kwargs): return ""
 def synthesize_to_wav(*args, **kwargs): return None
 
