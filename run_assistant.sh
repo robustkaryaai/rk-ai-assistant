@@ -9,5 +9,5 @@ echo "Starting RK Assistant (simple mode)..."
 echo "Press Ctrl+C to stop"
 echo ""
 
-# Run main.py directly
-python3 -m rk_assistant.main
+# Run main.py directly, filtering out noisy ALSA/Jack errors
+python3 -m rk_assistant.main 2> >(grep -v "ALSA" | grep -v "jack" | grep -v "Cannot connect to server" >&2)
