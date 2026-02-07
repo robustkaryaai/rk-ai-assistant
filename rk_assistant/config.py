@@ -62,7 +62,8 @@ WAKE_WORDS = [
 ]
 
 # Microphone configuration for live STT
-MIC_DEVICE_INDEX = int(os.getenv("MIC_DEVICE_INDEX", "-1"))  # -1 for default
+_mic_env = os.getenv("MIC_DEVICE_INDEX")
+MIC_DEVICE_INDEX = int(_mic_env) if _mic_env and _mic_env != "-1" else None
 MIC_SAMPLE_RATE = int(os.getenv("MIC_SAMPLE_RATE", str(SAMPLE_RATE)))
 GTTS_ENABLE = os.getenv("GTTS_ENABLE", "1") == "1"
 GTTS_PLAYBACK_TIMEOUT = int(os.getenv("GTTS_PLAYBACK_TIMEOUT", "120"))
