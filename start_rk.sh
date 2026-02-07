@@ -72,20 +72,24 @@ if ! pulseaudio --check; then
 fi
 
 # 3. Connect to speaker (One-time "Fire and Forget")
+SPEAKER_MAC=""
+
+# Search for .env
 if [ -f "rk_assistant/.env" ]; then
-    # Extract MAC from .env directly
     SPEAKER_MAC=$(grep "BLUETOOTH_SPEAKER_MAC" rk_assistant/.env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
-    if [ ! -z "$SPEAKER_MAC" ]; then
-        echo "[startup] Connecting to Bluetooth Speaker: $SPEAKER_MAC"
-        # Trust but verify connection
-        bluetoothctl connect "$SPEAKER_MAC" || true
-        # Give it a moment to stabilize audio path
-        sleep 5
-    else
-        echo "[startup] Warning: No speaker MAC found in .env"
-    fi
+elif [ -f ".env" ]; then
+    SPEAKER_MAC=$(grep "BLUETOOTH_SPEAKER_MAC" .env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
+fi
+
+if [ ! -z "$SPEAKER_MAC" ]; then
+    echo "[startup] Connecting to Bluetooth Speaker: $SPEAKER_MAC"
+    # Trust but verify connection
+    bluetoothctl connect "$SPEAKER_MAC" || true
+    # Give it a moment to stabilize audio path
+    sleep 5
 else
-    echo "[startup] Warning: .env file not found, skipping auto-connect."
+    echo "[startup] Warning: BLUETOOTH_SPEAKER_MAC not found in .env"
+    echo "          Please ensure .env exists with correct MAC."
 fi
 
 echo "[startup] ✓ Bluetooth ready (OS Managed)"
