@@ -205,9 +205,14 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0) -> Path:
                 # phrase_time_limit ensures we don't record forever if noisy
                 audio = r.listen(source, timeout=10, phrase_time_limit=15)
             
-            # Save to WAV
+            # Save to WAV (Boosted 5x)
+            import audioop
+            raw_data = audio.get_raw_data()
+            boosted_raw = audioop.mul(raw_data, 2, 5.0) # Boost 5x
+            boosted_audio = sr.AudioData(boosted_raw, audio.sample_rate, audio.sample_width)
+            
             with open(out_path, "wb") as f:
-                f.write(audio.get_wav_data())
+                f.write(boosted_audio.get_wav_data())
             
             return out_path
             
