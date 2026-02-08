@@ -123,28 +123,76 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
                 audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
         
         # Transcribe
+# ... existing imports ...
+import audioop
+import math
+
+# ... existing code ...
+
+def _normalize_audio(audio_data: sr.AudioData, target_level=25000) -> sr.AudioData:
+    """Normalize audio to target peak level (max 32767)."""
+    try:
+        raw_data = audio_data.get_raw_data()
+        max_val = audioop.max(raw_data, 2)
+        
+        if max_val == 0:
+            return audio_data
+            
+        factor = target_level / max_val
+        factor = min(factor, 10.0) # Cap at 10x boost
+        
+        if factor > 1.05: # Only boost if significant
+            boosted_raw = audioop.mul(raw_data, 2, factor)
+            return sr.AudioData(boosted_raw, audio_data.sample_rate, audio_data.sample_width)
+            
+    except Exception as e:
+        print(f"[audio] Normalization error: {e}")
+        
+    return audio_data
+
+# ... live_stt_listen ...
+def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> str:
+    # ... (same setup) ...
+        # Transcribe
         try:
             return recognizer.recognize_google(audio)
         except sr.UnknownValueError:
-            # RETRY ONCE WITH 5x BOOST
+            # RETRY ONCE WITH NORMALIZATION
             try:
-                # print("[stt] Speech too quiet, boosting 5x and retrying...", flush=True)
-                raw_data = audio.get_raw_data()
-                # Multiply 16-bit samples by 5
-                # Note: This might clip, but helps with distant speech
-                boosted_raw = audioop.mul(raw_data, 2, 5.0) 
+                norm_audio = _normalize_audio(audio)
+                # Check if it actually changed? (optimization: skip if factor ~1, but helper handles it)
                 
-                boosted_audio = sr.AudioData(boosted_raw, audio.sample_rate, audio.sample_width)
-                
-                text = recognizer.recognize_google(boosted_audio)
-                print(f"[stt] (Boosted 5x) Heard: '{text}'", flush=True)
+                text = recognizer.recognize_google(norm_audio)
+                print(f"[stt] (Normalized) Heard: '{text}'", flush=True)
                 return text
             except Exception:
                 # Still failed
-                print("[stt] Speech detected but unintelligible (even after boost).", flush=True)
+                print("[stt] Speech detected but unintelligible (even after norm).", flush=True)
                 return ""
-                
-        except sr.RequestError as e:
+# ... online_stt ...
+def online_stt(audio_path: Path) -> str:
+    # ...
+            try:
+                return recognizer.recognize_google(audio)
+            except sr.UnknownValueError:
+                 # RETRY ONCE WITH NORMALIZATION
+                try:
+                    norm_audio = _normalize_audio(audio)
+                    text = recognizer.recognize_google(norm_audio)
+                    print(f"[stt] (Normalized) Heard: '{text}'", flush=True)
+                    return text
+                except Exception:
+                    return ""
+
+# ... record_until_silence ...
+def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0) -> Path:
+    # ...
+            # Save to WAV (Normalized)
+            norm_audio = _normalize_audio(audio)
+            with open(out_path, "wb") as f:
+                f.write(norm_audio.get_wav_data())
+            
+            return out_path
             print(f"[stt] Google STT API Error: {e}", flush=True)
             return ""
             
