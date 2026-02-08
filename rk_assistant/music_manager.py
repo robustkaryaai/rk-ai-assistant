@@ -85,24 +85,24 @@ def play_music(query: str):
     from pathlib import Path
     cache_dir = Path.home() / "Downloads" / "rk_music_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"{vid_id}.mp3"
+    cache_file = cache_dir / f"{vid_id}.webm"  # Use webm (no conversion needed)
     
     if not cache_file.exists():
-        # 5. Download with Android client (bypasses 403)
-        print("[music] Downloading... (first time only, ~30-60s)", flush=True)
+        # 5. Download video file (no MP3 conversion = much faster on Pi!)
+        print("[music] Downloading... (~20-30s)", flush=True)
         youtube_url = f"https://www.youtube.com/watch?v={vid_id}"
         
         try:
             subprocess.run(
                 [
                     "yt-dlp",
-                    "-x", "--audio-format", "mp3",
-                    "-o", str(cache_file).replace(".mp3", ""),
+                    "-f", "bestaudio",  # Best audio format (usually webm)
+                    "-o", str(cache_file).replace(".webm", ""),
                     "--extractor-args", "youtube:player_client=android",
                     youtube_url
                 ],
                 check=True,
-                timeout=180
+                timeout=60  # Faster now - no conversion!
             )
             print(f"[music] Download complete!", flush=True)
         except Exception as e:
@@ -115,10 +115,10 @@ def play_music(query: str):
     from .audio_utils import speak
     speak(f"Playing {_clean_query(query)}")
     
-    # 7. Play with mpg123 (PROVEN to work with Bluetooth!)
+    # 7. Play with mpv (handles audio-only webm perfectly!)
     print(f"[music] Starting playback...", flush=True)
     try:
-        current_player = subprocess.Popen(["mpg123", "-q", str(cache_file)])
+        current_player = subprocess.Popen(["mpv", "--no-video", str(cache_file)])
         print(f"[music] Playback started: PID={current_player.pid}", flush=True)
         return current_player
     except Exception as e:
