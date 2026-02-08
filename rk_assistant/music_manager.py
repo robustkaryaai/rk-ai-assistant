@@ -90,7 +90,15 @@ def play_music(query: str):
     from pathlib import Path
     cache_dir = Path.home() / "Downloads" / "rk_music_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"{vid_id}.webm"  # Use webm (no conversion needed)
+    
+    # Check for webm or mp3 (backward compatibility)
+    cache_file = cache_dir / f"{vid_id}.webm"
+    cache_file_mp3 = cache_dir / f"{vid_id}.mp3"
+    
+    if cache_file_mp3.exists() and not cache_file.exists():
+        # Use existing MP3 if we have it
+        cache_file = cache_file_mp3
+        print(f"[music] Using existing MP3 from cache", flush=True)
     
     if not cache_file.exists():
         # 5. Download video file (no MP3 conversion = much faster on Pi!)
@@ -110,7 +118,7 @@ def play_music(query: str):
                     youtube_url
                 ],
                 check=True,
-                timeout=60  # Faster now - no conversion!
+                timeout=120  # Increased to 120s for slow connections
             )
             print(f"[music] Download complete!", flush=True)
         except Exception as e:
