@@ -496,7 +496,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             command_part = ""
                     
                     # Start conversation loop with the command
-                    _handle_conversation(command_part, slug, music_proc_holder)
+                    process_online_command(command_part, slug, music_proc_holder)
     
     # Fallback / Offline path if loop breaks
 
