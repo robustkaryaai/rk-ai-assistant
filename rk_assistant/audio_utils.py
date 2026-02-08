@@ -84,16 +84,21 @@ def speak(text):
 def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> str:
     """
     Restore Google STT (Online).
+    Accepts either a Microphone instance (opens/closes it) or an already open AudioSource.
     """
     if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
         return ""
     
     try:
-        with mic as source:
-            # Short calibration (already done in main, but good to be safe if environment changed)
-            # recognizer.adjust_for_ambient_noise(source, duration=0.5) 
-            # Listen
+        # Check if mic is actually a source (already open)
+        if isinstance(mic, sr.AudioSource):
+            source = mic
+            # Listen without 'with' block (caller manages source)
             audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
+        else:
+            # Traditional usage (opens/closes mic)
+            with mic as source:
+                audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
         
         # Transcribe
         try:
@@ -106,7 +111,7 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
             return ""
             
     except sr.WaitTimeoutError:
-        print("[stt] Timeout: No speech detected.", flush=True)
+        # print("[stt] Timeout: No speech detected.", flush=True) # Silence logging to reduce spam
         return "" # Silence
     except Exception as e:
         print(f"[stt] Live listen error: {e}", flush=True)
