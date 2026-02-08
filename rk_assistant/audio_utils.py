@@ -91,7 +91,12 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
     
     try:
         # Check if mic is actually a source (already open)
-        if isinstance(mic, sr.AudioSource):
+        # MUST check for active stream, otherwise we crash on closed mics
+        is_open_source = False
+        if isinstance(mic, sr.AudioSource) and hasattr(mic, "stream") and mic.stream is not None:
+             is_open_source = True
+             
+        if is_open_source:
             source = mic
             # Listen without 'with' block (caller manages source)
             audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
