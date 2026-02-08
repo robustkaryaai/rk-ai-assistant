@@ -12,11 +12,11 @@ from rk_assistant.config import GEMINI_API_KEY, GEMINI_MODEL_PRIMARY, GEMINI_API
 try:
     import sounddevice as sd
     import numpy as np
-    import google.generativeai as genai
-    from google.generativeai.types import LiveConnectConfig
+    from google import genai
+    from google.genai.types import LiveConnectConfig
 except ImportError as e:
     print(f"❌ Missing dependencies: {e}")
-    print("Please install: pip install sounddevice numpy google-generativeai")
+    print("Please install: pip install sounddevice numpy google-genai")
     print("Also ensure PortAudio is installed: sudo apt-get install libportaudio2")
     sys.exit(1)
 
@@ -50,21 +50,20 @@ async def main():
         print("❌ No API Key found in config.")
         return
 
-    # Configure Gemini SDK
-    genai.configure(api_key=API_KEY)
+    # Create Client (google-genai SDK style)
+    client = genai.Client(api_key=API_KEY, http_options={'api_version': 'v1alpha'}) # Experimental features often need alpha? Or just standard.
 
     print(f"🚀 Connecting to Gemini Live ({MODEL_NAME})...")
     print("Press Ctrl+C to stop.")
 
     try:
         # Create a Live API connection with Native Audio enabled
-        async with genai.live.connect(
+        # The new SDK uses client.aio.live.connect
+        async with client.aio.live.connect(
             model=MODEL_NAME,
             config=LiveConnectConfig(
-                modalities=["audio", "text"],  # Enable audio input + text output
-                # audio_format="pcm16",        # SDK might infer or require specific enum
-                # sample_rate=SAMPLE_RATE
-                response_modalities=["text"]   # Request text response (transcription/dialog)
+                response_modalities=["TEXT"],  # Request text transcription
+                speech_config={"voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}}} # Optional config example
             )
         ) as session:
             print("✅ Connected!")
@@ -73,21 +72,18 @@ async def main():
             # Start sending audio in background
             async def send_audio():
                 for chunk in audio_stream_generator():
-                    await session.send_input(chunk) # send_audio or send_input depending on SDK version
+                    await session.send_input({"mime_type": "audio/pcm;rate=16000", "data": chunk})
 
             # Start receiving transcriptions
             async def receive_transcripts():
-                async for event in session.receive():
+                async for response in session.receive():
                     text = None
-                    # Handle different event types from SDK
-                    if hasattr(event, "text") and event.text:
-                        text = event.text
-                    elif hasattr(event, "server_content") and event.server_content:
-                         # Inspect server_content logic if needed
-                         pass
-                    
-                    if text:
-                        print(f"📝 Transcript: {text}", flush=True)
+                    # Handle different response types from SDK
+                    # Usually response.server_content.model_turn.parts[0].text
+                    if response.server_content and response.server_content.model_turn:
+                        for part in response.server_content.model_turn.parts:
+                            if part.text:
+                                print(f"📝 Transcript: {part.text}", flush=True)
 
             await asyncio.gather(send_audio(), receive_transcripts())
 
