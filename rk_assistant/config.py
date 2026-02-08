@@ -193,7 +193,9 @@ APPWRITE_DB_ID = os.getenv("APPWRITE_DB_ID", "")
 APPWRITE_USERS_COLLECTION = os.getenv("APPWRITE_USERS_COLLECTION", "")
 
 # Self-Diagnosis Configuration
-SELF_DIAGNOSIS_ENABLED = os.getenv("SELF_DIAGNOSIS_ENABLED", "1") == "1"
+# Disabled to stop interruptions during backend outage
+SELF_DIAGNOSIS_ENABLED = False 
+# SELF_DIAGNOSIS_ENABLED = os.getenv("SELF_DIAGNOSIS_ENABLED", "1") == "1"
 DIAGNOSIS_COOLDOWN_SECONDS = int(os.getenv("DIAGNOSIS_COOLDOWN_SECONDS", "300"))  # 5 minutes
 AUTO_APPLY_FIXES = os.getenv("AUTO_APPLY_FIXES", "1") == "1"  # Automatically apply fixes after testing
 ERROR_THRESHOLD_CRITICAL = int(os.getenv("ERROR_THRESHOLD_CRITICAL", "1"))  # 1 critical error triggers diagnosis
