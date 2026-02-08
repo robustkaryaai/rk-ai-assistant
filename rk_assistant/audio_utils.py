@@ -99,14 +99,17 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
         try:
             return recognizer.recognize_google(audio)
         except sr.UnknownValueError:
+            print("[stt] Speech detected but unintelligible.", flush=True)
             return ""
-        except sr.RequestError:
+        except sr.RequestError as e:
+            print(f"[stt] Google STT API Error: {e}", flush=True)
             return ""
             
     except sr.WaitTimeoutError:
+        print("[stt] Timeout: No speech detected.", flush=True)
         return "" # Silence
     except Exception as e:
-        print(f"[stt] Live listen error: {e}")
+        print(f"[stt] Live listen error: {e}", flush=True)
         return ""
 
 def online_stt(audio_path: Path) -> str:
