@@ -16,9 +16,19 @@ MUSIC_CACHE_DIR = Path.home() / "Downloads" / "rk_music_cache"
 MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _get_safe_filename(query):
+def _get_safe_filename(query: str) -> str:
     """Convert query to safe filename."""
     return "".join(c for c in query if c.isalnum() or c in (' ', '-', '_')).strip().replace(' ', '_').lower()
+
+
+def _clean_music_query(query: str) -> str:
+    """Clean up music query by removing filler words."""
+    # Remove common filler words
+    filler_words = ['play', 'from youtube', 'from yt', 'on youtube', 'on yt', 'song', 'music']
+    clean = query.lower()
+    for filler in filler_words:
+        clean = clean.replace(filler, '')
+    return clean.strip()
 
 
 def _download_in_background(url, output_path):
@@ -51,7 +61,9 @@ def play_music(query):
     
     Returns: subprocess.Popen object of the player.
     """
-    safe_name = _get_safe_filename(query)
+    # Clean the query first
+    clean_query = _clean_music_query(query)
+    safe_name = _get_safe_filename(clean_query)
     # Search for existing file (partial match allowed)
     existing_files = list(MUSIC_CACHE_DIR.glob(f"*{safe_name}*.mp3"))
     
@@ -63,12 +75,12 @@ def play_music(query):
     
     else:
         # === CACHE MISS ===
-        print(f"[music] Searching YouTube for: {query}", flush=True)
+        print(f"[music] Searching YouTube for: {clean_query}", flush=True)
         try:
             # Get video webpage URL (not the direct stream URL which expires)
             cmd_search = [
                 "yt-dlp",
-                f"ytsearch1:{query}",
+                f"ytsearch1:{clean_query}",
                 "--get-title",
                 "--get-id",
                 "--no-playlist"
@@ -99,11 +111,11 @@ def play_music(query):
             save_path = MUSIC_CACHE_DIR / f"{safe_name}.mp3"
             _download_in_background(youtube_url, save_path)
             
-            # Stream Immediately using YouTube URL
+            # Stream Immediately using VLC (more reliable than mpg123 for streaming)
             print("[music] Streaming...", flush=True)
-            # Try streaming with verbose output
-            stream_cmd = f"yt-dlp '{youtube_url}' -o - -f bestaudio | mpg123 -o pulse -b 1024 -"
-            proc = subprocess.Popen(stream_cmd, shell=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+            # cvlc = VLC command-line, --play-and-exit stops after song, -I dummy = no GUI
+            stream_cmd = f"yt-dlp '{youtube_url}' -o - -f bestaudio --quiet | cvlc - --play-and-exit -I dummy --aout=pulse 2>&1"
+            proc = subprocess.Popen(stream_cmd, shell=True)
             
             # Log stream process info
             print(f"[music] Stream process started: PID={proc.pid}", flush=True)
