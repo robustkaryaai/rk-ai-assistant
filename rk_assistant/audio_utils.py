@@ -53,17 +53,25 @@ def play_audio_file(file_path: str):
         print(f"[audio] Play error: {e}")
 
 def play_audio_url(url: str):
-    """Play MP3 URL using mpg123 via PulseAudio (Boosted 5x)."""
-    if not url: return None
-    try:
-        # -o pulse specifies PulseAudio output
-        # -f 163840 sets scale factor to 5x (32768 * 5)
-        return subprocess.Popen(
-            ["mpg123", "-o", "pulse", "-b", "1024", "-f", "163840", "-q", url],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-    except:
+    """Play MP3 URL cleanly via PulseAudio (Bluetooth-safe)."""
+    if not url:
         return None
+
+    try:
+        return subprocess.Popen(
+            [
+                "mpg123",
+                "-o", "pulse",     # correct audio backend
+                "-b", "4096",      # bigger buffer → no ticking
+                "-q",
+                url
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except Exception:
+        return None
+
 
 def speak(text):
     """
