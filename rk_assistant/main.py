@@ -392,12 +392,21 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
                     _send_to_backend_and_handle(text, slug, music_proc_holder)
                     return False
                 else:
+                    # Default: Send to backend if not local
                     needs_backend_ack = True
                     _send_to_backend_and_handle(text, slug, music_proc_holder)
                     return False
             else:
+                # No intents found
                 needs_backend_ack = True
                 _send_to_backend_and_handle(text, slug, music_proc_holder)
+                return False
+                
+        except Exception as e:
+            print(f"[gemini] Error in processing: {e}")
+            # Only fallback to backend if it wasn't a chat error
+            speak("Sorry, I had trouble reaching the server.")
+            return False
                 return False
         except Exception:
             needs_backend_ack = True
