@@ -144,6 +144,9 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
                 # Use standard SDK call with 60s timeout (for slower models like Gemma 3)
                 client = genai.Client(api_key=key, http_options={'timeout': 60000})
                 
+                # Build prompt
+                full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
+                
                 response = client.models.generate_content(
                     model=current_model,
                     contents=full_prompt
