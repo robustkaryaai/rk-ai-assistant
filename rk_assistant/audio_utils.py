@@ -152,7 +152,20 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
             with mic as source:
                 audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
         
-        # Transcribe
+        if STT_ENGINE == "gemini":
+            try:
+                wav_data = audio.get_wav_data()
+                text = transcribe_audio(wav_data, api_key=GEMINI_API_KEY or GEMINI_API_KEY_BACKUP)
+                if text:
+                    print(f"[stt] Gemini heard: '{text}'", flush=True)
+                    return text
+                else:
+                    return ""
+            except Exception as e:
+                print(f"[stt] Gemini Error: {e}")
+                return ""
+        
+        # Transcribe (Google Fallback)
         try:
             return recognizer.recognize_google(audio)
         except sr.UnknownValueError:
@@ -187,6 +200,13 @@ def online_stt(audio_path: Path) -> str:
         recognizer = sr.Recognizer()
         with sr.AudioFile(str(audio_path)) as source:
             audio = recognizer.record(source)
+            if STT_ENGINE == "gemini":
+                try:
+                    wav_data = audio.get_wav_data()
+                    return transcribe_audio(wav_data, api_key=GEMINI_API_KEY or GEMINI_API_KEY_BACKUP)
+                except:
+                   return ""
+
             try:
                 return recognizer.recognize_google(audio)
             except sr.UnknownValueError:
