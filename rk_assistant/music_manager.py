@@ -41,8 +41,7 @@ def _download_in_background(url, output_path):
                 "yt-dlp",
                 "-x", "--audio-format", "mp3",
                 "-o", str(output_path).replace(".mp3", ""), # yt-dlp adds extension
-                url,
-                "--quiet"
+                url
             ]
             subprocess.run(cmd, check=True)
             print(f"[music] Download complete: {output_path}", flush=True)
