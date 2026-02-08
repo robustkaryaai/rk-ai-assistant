@@ -120,6 +120,10 @@ echo "[startup] ✓ Pre-flight check complete"
 echo "[startup] Checking for updates..."
 git pull origin main
 
+# Boost Microphone Volume (Software Gain for USB Mic)
+echo "[startup] Boosting microphone volume to 150%..."
+pactl set-source-volume @DEFAULT_SOURCE@ 150% 2>/dev/null || echo "[startup] Warning: Could not set mic volume"
+
 echo "[startup] Starting RK AI Assistant..."
 # Capture stderr too
 python3 -m rk_assistant.main
