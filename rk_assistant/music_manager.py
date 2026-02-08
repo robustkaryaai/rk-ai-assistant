@@ -1,6 +1,6 @@
 """
 Music Manager for RK AI Assistant
-Production-grade YouTube music playback with proper process management.
+Bypasses YouTube 403 errors using Android client extraction.
 """
 import subprocess
 import shutil
@@ -15,23 +15,23 @@ def _clean_query(query: str) -> str:
     fillers = ['play', 'from youtube', 'from yt', 'on youtube', 'song', 'music']
     q = query.lower()
     for f in fillers:
-        # Use regex with word boundaries to replace only whole words
         q = re.sub(rf'\b{re.escape(f)}\b', '', q, flags=re.IGNORECASE)
     return q.strip()
 
 
 def _search_youtube(query: str):
-    """Search YouTube and return (title, video_id) with predictable output format."""
+    """Search YouTube and return (title, video_id) bypassing 403 errors."""
     clean_q = _clean_query(query)
     print(f"[music] Searching: {clean_q}", flush=True)
     
-    # Use --print to ensure predictable, one-line-per-field output
+    # Use Android client to bypass YouTube blocking
     cmd = [
         "yt-dlp",
         f"ytsearch1:{clean_q}",
         "--print", "%(title)s",
         "--print", "%(id)s",
-        "--no-playlist"
+        "--no-playlist",
+        "--extractor-args", "youtube:player_client=android"
     ]
     
     try:
@@ -51,25 +51,25 @@ def _search_youtube(query: str):
 
 def play_music(query: str):
     """
-    Play music using mpv with YouTube URL.
+    Play music by downloading completely first, then playing with mpg123.
     
-    Features:
-    - Stops previous track automatically (no zombie processes)
-    - Uses mpv's internal yt-dlp integration (bypasses 403 errors)
-    - Optimized for audio-only streaming
+    Why download-first:
+    - Streaming always hits 403 errors from YouTube
+    - mpg123 file playback is proven to work (via gTTS)
+    - Builds offline cache for instant replay
     
     Returns:
         subprocess.Popen object or None
     """
     global current_player
     
-    # 1. Check dependencies FIRST (before any other operations)
-    for dep in ["yt-dlp", "mpv"]:
+    # 1. Check dependencies
+    for dep in ["yt-dlp", "mpg123"]:
         if not shutil.which(dep):
             print(f"[music] ERROR: {dep} not installed. Run: sudo apt-get install {dep}", flush=True)
             return None
     
-    # 2. Stop existing music to prevent overlapping playback
+    # 2. Stop existing music
     if current_player and current_player.poll() is None:
         print("[music] Stopping previous track...", flush=True)
         current_player.terminate()
@@ -81,22 +81,44 @@ def play_music(query: str):
         print("[music] No results found", flush=True)
         return None
     
-    # 4. Build YouTube watch URL
-    youtube_url = f"https://www.youtube.com/watch?v={vid_id}"
+    # 4. Check cache
+    from pathlib import Path
+    cache_dir = Path.home() / "Downloads" / "rk_music_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"{vid_id}.mp3"
     
-    # 5. Announce (NOTE: If speak() is blocking, this will delay playback)
+    if not cache_file.exists():
+        # 5. Download with Android client (bypasses 403)
+        print("[music] Downloading... (first time only, ~30-60s)", flush=True)
+        youtube_url = f"https://www.youtube.com/watch?v={vid_id}"
+        
+        try:
+            subprocess.run(
+                [
+                    "yt-dlp",
+                    "-x", "--audio-format", "mp3",
+                    "-o", str(cache_file).replace(".mp3", ""),
+                    "--extractor-args", "youtube:player_client=android",
+                    youtube_url
+                ],
+                check=True,
+                timeout=180
+            )
+            print(f"[music] Download complete!", flush=True)
+        except Exception as e:
+            print(f"[music] Download failed: {e}", flush=True)
+            return None
+    else:
+        print(f"[music] Playing from cache (instant!)", flush=True)
+    
+    # 6. Announce
     from .audio_utils import speak
     speak(f"Playing {_clean_query(query)}")
     
-    # 6. Play with mpv (uses internal yt-dlp integration)
-    # --no-video: audio only
-    # --ytdl-format=bestaudio: faster loading on slow connections
-    print("[music] Starting playback with mpv...", flush=True)
-    
+    # 7. Play with mpg123 (PROVEN to work with Bluetooth!)
+    print(f"[music] Starting playback...", flush=True)
     try:
-        current_player = subprocess.Popen(
-            ["mpv", "--no-video", "--ytdl-format=bestaudio", youtube_url]
-        )
+        current_player = subprocess.Popen(["mpg123", "-q", str(cache_file)])
         print(f"[music] Playback started: PID={current_player.pid}", flush=True)
         return current_player
     except Exception as e:
