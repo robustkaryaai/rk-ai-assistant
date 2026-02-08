@@ -116,9 +116,17 @@ def play_music(query: str):
     speak(f"Playing {_clean_query(query)}")
     
     # 7. Play with mpv (handles audio-only webm perfectly!)
+    # Use nice -n -10 for higher CPU priority (reduces crackling)
+    # --audio-buffer=1 for 1 second buffer (smooth Bluetooth playback)
     print(f"[music] Starting playback...", flush=True)
     try:
-        current_player = subprocess.Popen(["mpv", "--no-video", str(cache_file)])
+        current_player = subprocess.Popen([
+            "nice", "-n", "-10",  # Higher CPU priority
+            "mpv", 
+            "--no-video",
+            "--audio-buffer=1",  # 1 second audio buffer
+            str(cache_file)
+        ])
         print(f"[music] Playback started: PID={current_player.pid}", flush=True)
         return current_player
     except Exception as e:
