@@ -434,14 +434,72 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         # --- ONLINE MODE (Always-on Google STT) ---
         print(f"[stt] Listening continuously (will respond when '{WAKE_WORD}' detected)...", flush=True)
         
-        # This blocks until a phrase is heard and transcribed
-        # We increase phrase limit to allow natural speaking "rk play music"
-        # Timeout increased to 8s for PipeWire audio stream initialization
-        text = live_stt_listen(recognizer, mic, timeout=8, phrase_time_limit=10.0)
-        
-        if not text:
-            # Reduce verbose output - just track silently
-            return
+        # Open microphone ONCE to avoid PyAudio/ALSA initialization overhead every loop
+        with mic as source:
+            # Short calibration
+            recognizer.adjust_for_ambient_noise(source, duration=1)
+            
+            while True:
+                # Check mute status inside loop
+                if settings_sync.is_device_muted():
+                    print("[voice] Device muted, pausing listening...")
+                    time.sleep(2)
+                    continue
+
+                if not is_online():
+                    # Fallback to offline loop if internet lost
+                    break
+
+                # Pass OPEN source to live_stt_listen (zero latency)
+                # Timeout 8s to allow silence detection, phrase limit 10s for commands
+                text = live_stt_listen(recognizer, source, timeout=8, phrase_time_limit=10.0)
+                
+                if not text:
+                    continue
+
+                text_lower = text.lower()
+                print(f"[stt] Heard: '{text}'")
+
+                # Check for any wake word from the list
+                detected_wake_word = None
+                for wake_word in WAKE_WORDS:
+                    if wake_word in text_lower:
+                        detected_wake_word = wake_word
+                        break
+                
+                if detected_wake_word:
+                    print(f"[wake] ✓ Wake word '{detected_wake_word}' detected!")
+                    
+                    # Diagnostic: Check network health immediately
+                    from .networking import check_network_health
+                    threading.Thread(target=check_network_health, daemon=True).start()
+                    
+                    # Duck volume (visual/audio feedback)
+                    if music_proc_holder.get("proc"):
+                        set_volume(20)
+
+                    # Play wake sound
+                    play_audio_url("https://github.com/Starttoaster/rk-voice/raw/main/wake.wav")
+                    
+                    # Strip key word to get command
+                    idx = text_lower.find(detected_wake_word)
+                    command_part = text[idx + len(detected_wake_word):].strip()
+                    
+                    # If user just said wake word only, listen for follow-up
+                    if not command_part:
+                        print("[stt] Wake word heard but no command. Listening for follow-up...")
+                        # Reuse the SAME source for follow-up
+                        try:
+                            audio = recognizer.listen(source, timeout=5.0, phrase_time_limit=10.0)
+                            command_part = recognizer.recognize_google(audio)
+                        except Exception:
+                            command_part = ""
+                    
+                    # Start conversation loop with the command
+                    _handle_conversation(command_part, slug, music_proc_holder)
+    
+    # Fallback / Offline path if loop breaks
+
 
 
         text_lower = text.lower()
