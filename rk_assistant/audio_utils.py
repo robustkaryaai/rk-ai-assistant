@@ -205,14 +205,38 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0) -> Path:
                 # phrase_time_limit ensures we don't record forever if noisy
                 audio = r.listen(source, timeout=10, phrase_time_limit=15)
             
-            # Save to WAV (Boosted 5x)
+            # Save to WAV (Normalized to 75% max volume)
             import audioop
+            import math
             raw_data = audio.get_raw_data()
-            boosted_raw = audioop.mul(raw_data, 2, 5.0) # Boost 5x
-            boosted_audio = sr.AudioData(boosted_raw, audio.sample_rate, audio.sample_width)
             
+            # Find peak
+            max_val = audioop.max(raw_data, 2)
+            if max_val > 0:
+                # Target ~25000 (out of 32767)
+                target = 25000
+                factor = target / max_val
+                
+                # Cap factor at 10.0 to avoid boosting pure noise too much
+                factor = min(factor, 10.0)
+                
+                if factor > 1.0:
+                    try:
+                        boosted_raw = audioop.mul(raw_data, 2, factor)
+                        boosted_audio = sr.AudioData(boosted_raw, audio.sample_rate, audio.sample_width)
+                        
+                        # Only write boosted if successful
+                        with open(out_path, "wb") as f:
+                            f.write(boosted_audio.get_wav_data())
+                            
+                        print(f"[record] Normalized audio (Factor: {factor:.2f}, Peak: {max_val})")
+                        return out_path
+                    except Exception as e:
+                        print(f"[record] Normalization failed: {e}")
+            
+            # Fallback to original
             with open(out_path, "wb") as f:
-                f.write(boosted_audio.get_wav_data())
+                f.write(audio.get_wav_data())
             
             return out_path
             
