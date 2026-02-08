@@ -110,11 +110,11 @@ def play_music(query):
             save_path = MUSIC_CACHE_DIR / f"{safe_name}.mp3"
             _download_in_background(youtube_url, save_path)
             
-            # Stream Immediately using VLC (more reliable than mpg123 for streaming)
+            # Stream using mpv (handles YouTube URLs natively)
             print("[music] Streaming...", flush=True)
-            # cvlc = VLC command-line, --play-and-exit stops after song, -I dummy = no GUI
-            stream_cmd = f"yt-dlp '{youtube_url}' -o - -f bestaudio --quiet | cvlc - --play-and-exit -I dummy --aout=pulse 2>&1"
-            proc = subprocess.Popen(stream_cmd, shell=True)
+            # mpv --no-video plays audio only, --ao=pulse routes to PulseAudio
+            stream_cmd = ["mpv", "--no-video", "--ao=pulse", youtube_url]
+            proc = subprocess.Popen(stream_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             # Log stream process info
             print(f"[music] Stream process started: PID={proc.pid}", flush=True)
