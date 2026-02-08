@@ -81,8 +81,8 @@ def play_music(query: str):
     
     Strategy:
     1. Check cache first (instant playback)
-    2. If not cached, stream via yt-dlp → mpg123 pipe
-    3. Start background download for future use
+    2. If not cached, download synchronously
+    3. Play the downloaded file (guaranteed to work with Bluetooth)
     
     Returns:
         subprocess.Popen object or None
@@ -100,48 +100,35 @@ def play_music(query: str):
     
     # 2. Check cache first
     cache_file = MUSIC_CACHE_DIR / f"{vid_id}.mp3"
+    
     if cache_file.exists():
         print(f"[music] Playing from cache: {cache_file.name}", flush=True)
-        
-        # Announce
-        from .audio_utils import speak
-        speak(f"Playing {_clean_query(query)}")
-        
-        # Play cached file with mpg123 (proven to work with Bluetooth!)
-        return subprocess.Popen(["mpg123", "-q", str(cache_file)])
+    else:
+        # 3. Download first (synchronous)
+        print("[music] Downloading...", flush=True)
+        try:
+            subprocess.run(
+                ["yt-dlp", "-x", "--audio-format", "mp3", "-o", str(cache_file).replace(".mp3", ""), url],
+                check=True,
+                timeout=180,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE
+            )
+            print(f"[music] Download complete", flush=True)
+        except Exception as e:
+            print(f"[music] Download failed: {e}", flush=True)
+            return None
     
-    # 3. Announce what we're playing
+    # 4. Announce
     from .audio_utils import speak
     speak(f"Playing {_clean_query(query)}")
     
-    # 4. Start background download for next time
-    _download_background(url, vid_id)
-    
-    # 5. Stream using proper pipe (no shell=True)
-    print("[music] Streaming via yt-dlp → mpg123...", flush=True)
-    
+    # 5. Play the file (proven to work with Bluetooth!)
+    print(f"[music] Playing: {cache_file.name}", flush=True)
     try:
-        # Start yt-dlp process
-        ytdlp = subprocess.Popen(
-            ["yt-dlp", "-o", "-", "-f", "bestaudio", "--quiet", url],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-        
-        # Start mpg123 with yt-dlp's output as input
-        mpg = subprocess.Popen(
-            ["mpg123", "-q", "-"],
-            stdin=ytdlp.stdout,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        
-        # Allow ytdlp to receive SIGPIPE if mpg exits
-        ytdlp.stdout.close()
-        
-        print(f"[music] Stream started: PID={mpg.pid}", flush=True)
-        return mpg
-        
+        proc = subprocess.Popen(["mpg123", "-q", str(cache_file)])
+        print(f"[music] Playback started: PID={proc.pid}", flush=True)
+        return proc
     except Exception as e:
-        print(f"[music] Stream failed: {e}", flush=True)
+        print(f"[music] Playback failed: {e}", flush=True)
         return None
