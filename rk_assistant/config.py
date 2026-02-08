@@ -93,7 +93,7 @@ REQUEST_TIMEOUT = 30  # seconds (increased for slow backend responses)
 # Gemini API (for direct fast responses)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_API_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP", "")  # Backup key for failover
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # Fast model for low latency
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemma-3-12b-it")  # Fast model for low latency
 USE_GEMINI_DIRECT = os.getenv("USE_GEMINI_DIRECT", "1") == "1"  # Feature flag
 
 # Groq API (for ultra-fast STT)
