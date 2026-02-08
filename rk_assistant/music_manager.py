@@ -112,9 +112,16 @@ def play_music(query):
             
             # Stream using mpv (handles YouTube URLs natively)
             print("[music] Streaming...", flush=True)
+            
+            # Check if mpv is installed
+            import shutil
+            if not shutil.which("mpv"):
+                print("[music] ERROR: mpv not installed. Install with: sudo apt-get install mpv", flush=True)
+                return None
+            
             # mpv --no-video plays audio only, --ao=pulse routes to PulseAudio
             stream_cmd = ["mpv", "--no-video", "--ao=pulse", youtube_url]
-            proc = subprocess.Popen(stream_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc = subprocess.Popen(stream_cmd)
             
             # Log stream process info
             print(f"[music] Stream process started: PID={proc.pid}", flush=True)
