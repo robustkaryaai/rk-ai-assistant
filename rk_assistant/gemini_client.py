@@ -138,41 +138,16 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
     for key_type, key in keys_to_try:
         for current_model in models_to_try:
             try:
-                # Create SDK Client with 15s timeout
-                client = genai.Client(api_key=key, http_options={'timeout': 15000})
-                
-                # Build prompt
-                full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
-                
-                # Generate classification with HARD 15s timeout at process level
+                # Generate classification
                 print(f"[gemini] 🚀 Calling {current_model} ({key_type} key)...", flush=True)
                 
-                # Use threading to enforce hard timeout (SDK may retry internally)
-                import threading
-                result_holder = {"response": None, "error": None}
+                # Use standard SDK call with 60s timeout (for slower models like Gemma 3)
+                client = genai.Client(api_key=key, http_options={'timeout': 60000})
                 
-                def _call_gemini():
-                    try:
-                        result_holder["response"] = client.models.generate_content(
-                            model=current_model,
-                            contents=full_prompt
-                        )
-                    except Exception as e:
-                        result_holder["error"] = e
-                
-                thread = threading.Thread(target=_call_gemini, daemon=True)
-                thread.start()
-                thread.join(timeout=15.0)  # Hard 15s cutoff
-                
-                if thread.is_alive():
-                    print(f"[gemini] ⚠️ {current_model} ({key_type} key) timed out after 15s", flush=True)
-                    last_error = f"{current_model} Timeout"
-                    continue
-                
-                if result_holder["error"]:
-                    raise result_holder["error"]
-                
-                response = result_holder["response"]
+                response = client.models.generate_content(
+                    model=current_model,
+                    contents=full_prompt
+                )
                 
                 if not response or not response.text:
                     print(f"[gemini] Empty response from {key_type} key")
