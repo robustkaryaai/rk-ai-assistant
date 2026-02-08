@@ -102,18 +102,16 @@ User: "set alarm for 8 AM"
 Now only output JSON following the schema and rules."""
 
 
-def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemini-2.5-flash") -> List[Dict[str, Any]]:
+def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemini-2.5-flash", fallback_model: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Classify user intent using Gemini (google-genai SDK 1.0+) with automatic backup key failover.
+    Classify user intent using Gemini (google-genai SDK 1.0+) with automatic backup key and model failover.
     
     Args:
         text: User's query/command
         api_key: Primary Gemini API key
         backup_key: Backup Gemini API key (used if primary fails)
-        model_name: Gemini model to use
-        
-    Returns:
-        List of intent objects with 'intent' and 'parameters' fields
+        model_name: Primary Gemini model to use
+        fallback_model: Fallback Gemini model (used if primary model fails/times out)
     """
     if not GEMINI_AVAILABLE:
         print("[gemini] Library not available, defaulting to chat intent")
@@ -130,89 +128,94 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
         print("[gemini] No API keys provided, defaulting to chat")
         return [{"intent": "chat", "parameters": {"prompt": text}}]
     
+    models_to_try = [model_name]
+    if fallback_model and fallback_model != model_name:
+        models_to_try.append(fallback_model)
+    
     last_error = None
     
+    # Nested loop: Try each KEY, and for each key, try each MODEL
     for key_type, key in keys_to_try:
-        try:
-            # Create SDK Client with 15s timeout
-            # 2.5-flash is ultra-fast but handles complex handshakes
-            client = genai.Client(api_key=key, http_options={'timeout': 15000})
-            
-            # Build prompt
-            full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
-            
-            # Generate classification with HARD 15s timeout at process level
-            print(f"[gemini] 🚀 Calling {model_name} ({key_type} key)...", flush=True)
-            
-            # Use threading to enforce hard timeout (SDK may retry internally)
-            import threading
-            result_holder = {"response": None, "error": None}
-            
-            def _call_gemini():
-                try:
-                    result_holder["response"] = client.models.generate_content(
-                        model=model_name,
-                        contents=full_prompt
-                    )
-                except Exception as e:
-                    result_holder["error"] = e
-            
-            thread = threading.Thread(target=_call_gemini, daemon=True)
-            thread.start()
-            thread.join(timeout=15.0)  # Hard 15s cutoff
-            
-            if thread.is_alive():
-                print(f"[gemini] ⚠️ {key_type} key timed out after 15s (SDK retrying internally)", flush=True)
-                last_error = "Timeout after 15s"
-                continue
-            
-            if result_holder["error"]:
-                raise result_holder["error"]
-            
-            response = result_holder["response"]
-            
-            if not response or not response.text:
-                print(f"[gemini] Empty response from {key_type} key")
-                last_error = "Empty response"
-                continue
-            
-            raw_response = response.text.strip()
-            print(f"[gemini] Raw response ({key_type}): {raw_response[:200]}", flush=True)
-            
-            # Remove markdown code blocks if present
-            if raw_response.startswith("```json"):
-                raw_response = raw_response.replace("```json", "").replace("```", "").strip()
-            elif raw_response.startswith("```"):
-                raw_response = raw_response.replace("```", "").strip()
-            
-            # Parse JSON
+        for current_model in models_to_try:
             try:
-                intents = json.loads(raw_response)
+                # Create SDK Client with 15s timeout
+                client = genai.Client(api_key=key, http_options={'timeout': 15000})
                 
-                if not isinstance(intents, list):
-                    print(f"[gemini] Response not a list, wrapping: {intents}")
-                    intents = [intents]
+                # Build prompt
+                full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
                 
-                # Validate intent objects
-                for intent_obj in intents:
-                    if not isinstance(intent_obj, dict) or "intent" not in intent_obj:
-                        print(f"[gemini] Invalid intent object: {intent_obj}")
-                        last_error = "Invalid intent format"
-                        raise ValueError("Invalid intent object")
+                # Generate classification with HARD 15s timeout at process level
+                print(f"[gemini] 🚀 Calling {current_model} ({key_type} key)...", flush=True)
                 
-                print(f"[gemini] ✓ Successfully classified with {key_type} key: {intents}", flush=True)
-                return intents
+                # Use threading to enforce hard timeout (SDK may retry internally)
+                import threading
+                result_holder = {"response": None, "error": None}
                 
-            except (json.JSONDecodeError, ValueError) as e:
-                print(f"[gemini] Parse error with {key_type} key: {e}")
-                last_error = str(e)
+                def _call_gemini():
+                    try:
+                        result_holder["response"] = client.models.generate_content(
+                            model=current_model,
+                            contents=full_prompt
+                        )
+                    except Exception as e:
+                        result_holder["error"] = e
+                
+                thread = threading.Thread(target=_call_gemini, daemon=True)
+                thread.start()
+                thread.join(timeout=15.0)  # Hard 15s cutoff
+                
+                if thread.is_alive():
+                    print(f"[gemini] ⚠️ {current_model} ({key_type} key) timed out after 15s", flush=True)
+                    last_error = f"{current_model} Timeout"
+                    continue
+                
+                if result_holder["error"]:
+                    raise result_holder["error"]
+                
+                response = result_holder["response"]
+                
+                if not response or not response.text:
+                    print(f"[gemini] Empty response from {key_type} key")
+                    last_error = "Empty response"
+                    continue
+                
+                raw_response = response.text.strip()
+                print(f"[gemini] Raw response ({key_type}): {raw_response[:200]}", flush=True)
+                
+                # Remove markdown code blocks if present
+                if raw_response.startswith("```json"):
+                    raw_response = raw_response.replace("```json", "").replace("```", "").strip()
+                elif raw_response.startswith("```"):
+                    raw_response = raw_response.replace("```", "").strip()
+                
+                # Parse JSON
+                try:
+                    intents = json.loads(raw_response)
+                    
+                    if not isinstance(intents, list):
+                        print(f"[gemini] Response not a list, wrapping: {intents}")
+                        intents = [intents]
+                    
+                    # Validate intent objects
+                    for intent_obj in intents:
+                        if not isinstance(intent_obj, dict) or "intent" not in intent_obj:
+                            print(f"[gemini] Invalid intent object: {intent_obj}")
+                            last_error = "Invalid intent format"
+                            raise ValueError("Invalid intent object")
+                    
+                    print(f"[gemini] ✓ Successfully classified with {current_model} ({key_type} key): {intents}", flush=True)
+                    return intents
+                    
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"[gemini] Parse error with {key_type} key: {e}")
+                    last_error = str(e)
+                    continue
+                
+            except Exception as e:
+                error_msg = str(e)
+                print(f"[gemini] Error with {current_model} ({key_type} key): {error_msg}", flush=True)
+                last_error = error_msg
                 continue
-            
-        except Exception as e:
-            error_msg = str(e)
-            print(f"[gemini] Error with {key_type} key: {error_msg}", flush=True)
-            last_error = error_msg
-            continue
     
     # All keys failed
     print(f"[gemini] All API keys failed. Last error: {last_error}. Defaulting to chat.")

@@ -345,7 +345,14 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
     # Routing
     if USE_GEMINI_DIRECT and GEMINI_API_KEY:
         try:
-            intents = gemini_client.classify_intent(text, api_key=GEMINI_API_KEY, backup_key=GEMINI_API_KEY_BACKUP, model_name=GEMINI_MODEL)
+            from .config import GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK
+            intents = gemini_client.classify_intent(
+                text, 
+                api_key=GEMINI_API_KEY, 
+                backup_key=GEMINI_API_KEY_BACKUP, 
+                model_name=GEMINI_MODEL_PRIMARY,
+                fallback_model=GEMINI_MODEL_FALLBACK
+            )
             local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm", "remember"]
             backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "task", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
             
