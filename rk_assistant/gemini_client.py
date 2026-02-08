@@ -102,86 +102,56 @@ User: "set alarm for 8 AM"
 Now only output JSON following the schema and rules."""
 
 
-
-from .config import GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK
-
-def transcribe_audio(audio_bytes: bytes, api_key: Optional[str] = None) -> str:
-    """Transcribe audio using Gemini Flash (Native Audio) with RK bias."""
-    if not GEMINI_AVAILABLE: return ""
-    
-    # 1. Try Primary Key
-    key = api_key
-    client = genai.Client(api_key=key, http_options={'timeout': 10000})
-
-    try:
-        from google.genai import types
-        response = client.models.generate_content(
-            model=GEMINI_MODEL_PRIMARY,
-            contents=[
-                types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav"),
-                "Transcribe exactly what is said. If no speech, return empty string."
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction="You are RK AI. Expect the user to say 'RK' or 'Arkay' or 'Okay' at the start. Transcribe 'RK' or 'Arkay' as 'RK'.",
-                temperature=0.0
-            )
-        )
-        text = response.text.strip() if response.text else ""
-        # Fix common misinterpretations of RK
-        if text.lower().startswith(("okay", "hi", "hey", "arkay", "arche")):
-             # Simple heuristic: if it's short and starts with misinterpretation
-             if len(text.split()) < 4:
-                 text = text.replace("Okay", "RK").replace("Hi", "RK").replace("Hey", "RK").replace("Arkay", "RK")
-        return text
-    except Exception as e:
-        print(f"[gemini] Transcription failed: {e}")
-        return ""
-
-
-def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = GEMINI_MODEL_PRIMARY) -> List[Dict[str, Any]]:
+def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemini-2.5-flash") -> List[Dict[str, Any]]:
     """
-    Classify user intent using Gemini (google-genai SDK 1.0+) with automatic backup key AND model failover.
+    Classify user intent using Gemini (google-genai SDK 1.0+) with automatic backup key failover.
+    
+    Args:
+        text: User's query/command
+        api_key: Primary Gemini API key
+        backup_key: Backup Gemini API key (used if primary fails)
+        model_name: Gemini model to use
+        
+    Returns:
+        List of intent objects with 'intent' and 'parameters' fields
     """
     if not GEMINI_AVAILABLE:
         print("[gemini] Library not available, defaulting to chat intent")
         return [{"intent": "chat", "parameters": {"prompt": text}}]
     
-    # Strategy: Try Primary Model with all keys, then Fallback Model with all keys
-    attempts = []
+    # Try with primary key first
+    keys_to_try = []
+    if api_key:
+        keys_to_try.append(("primary", api_key))
+    if backup_key:
+        keys_to_try.append(("backup", backup_key))
     
-    # 1. Primary Model (e.g., gemini-2.5-flash)
-    if api_key: attempts.append((model_name, "primary", api_key))
-    if backup_key: attempts.append((model_name, "backup", backup_key))
-    
-    # 2. Fallback Model (e.g., gemma-3-12b-it) - ONLY if default model was requested
-    if model_name == GEMINI_MODEL_PRIMARY and GEMINI_MODEL_FALLBACK:
-        if api_key: attempts.append((GEMINI_MODEL_FALLBACK, "primary_fallback", api_key))
-        if backup_key: attempts.append((GEMINI_MODEL_FALLBACK, "backup_fallback", backup_key))
-    
-    if not attempts:
+    if not keys_to_try:
         print("[gemini] No API keys provided, defaulting to chat")
         return [{"intent": "chat", "parameters": {"prompt": text}}]
     
     last_error = None
     
-    for current_model, key_type, key in attempts:
+    for key_type, key in keys_to_try:
         try:
             # Create SDK Client with 15s timeout
+            # 2.5-flash is ultra-fast but handles complex handshakes
             client = genai.Client(api_key=key, http_options={'timeout': 15000})
             
             # Build prompt
             full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
             
-            # Generate classification with HARD 15s timeout
-            print(f"[gemini] 🚀 Calling {current_model} ({key_type} key)...", flush=True)
+            # Generate classification with HARD 15s timeout at process level
+            print(f"[gemini] 🚀 Calling {model_name} ({key_type} key)...", flush=True)
             
+            # Use threading to enforce hard timeout (SDK may retry internally)
             import threading
             result_holder = {"response": None, "error": None}
             
             def _call_gemini():
                 try:
                     result_holder["response"] = client.models.generate_content(
-                        model=current_model,
+                        model=model_name,
                         contents=full_prompt
                     )
                 except Exception as e:
@@ -192,8 +162,8 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
             thread.join(timeout=15.0)  # Hard 15s cutoff
             
             if thread.is_alive():
-                print(f"[gemini] ⚠️ {key_type} key timed out (SDK retrying internally)", flush=True)
-                last_error = "Timeout"
+                print(f"[gemini] ⚠️ {key_type} key timed out after 15s (SDK retrying internally)", flush=True)
+                last_error = "Timeout after 15s"
                 continue
             
             if result_holder["error"]:
@@ -202,14 +172,14 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
             response = result_holder["response"]
             
             if not response or not response.text:
-                print(f"[gemini] Empty response from {key_type}")
+                print(f"[gemini] Empty response from {key_type} key")
                 last_error = "Empty response"
                 continue
             
             raw_response = response.text.strip()
-            # print(f"[gemini] Raw response: {raw_response[:200]}", flush=True) # Silenced per user request
+            print(f"[gemini] Raw response ({key_type}): {raw_response[:200]}", flush=True)
             
-            # Remove markdown code blocks
+            # Remove markdown code blocks if present
             if raw_response.startswith("```json"):
                 raw_response = raw_response.replace("```json", "").replace("```", "").strip()
             elif raw_response.startswith("```"):
@@ -220,107 +190,100 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
                 intents = json.loads(raw_response)
                 
                 if not isinstance(intents, list):
+                    print(f"[gemini] Response not a list, wrapping: {intents}")
                     intents = [intents]
                 
-                # Simple validation
+                # Validate intent objects
                 for intent_obj in intents:
                     if not isinstance(intent_obj, dict) or "intent" not in intent_obj:
+                        print(f"[gemini] Invalid intent object: {intent_obj}")
+                        last_error = "Invalid intent format"
                         raise ValueError("Invalid intent object")
                 
-                print(f"[gemini] ✓ Success with {current_model} ({key_type})", flush=True)
+                print(f"[gemini] ✓ Successfully classified with {key_type} key: {intents}", flush=True)
                 return intents
                 
             except (json.JSONDecodeError, ValueError) as e:
-                print(f"[gemini] Parse error ({current_model}): {e}")
+                print(f"[gemini] Parse error with {key_type} key: {e}")
                 last_error = str(e)
                 continue
             
         except Exception as e:
             error_msg = str(e)
-            print(f"[gemini] Error ({current_model}): {error_msg}", flush=True)
+            print(f"[gemini] Error with {key_type} key: {error_msg}", flush=True)
             last_error = error_msg
             continue
     
-    # All attempts failed
-    print(f"[gemini] All models/keys failed. Last error: {last_error}. Defaulting to chat.")
+    # All keys failed
+    print(f"[gemini] All API keys failed. Last error: {last_error}. Defaulting to chat.")
     return [{"intent": "chat", "parameters": {"prompt": text}}]
 
 
-def get_conversational_response(text: str, api_key: Optional[str] = None, model_name: str = GEMINI_MODEL_PRIMARY) -> str:
+def get_conversational_response(text: str, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash") -> str:
     """
-    Get conversational response from Gemini with model fallback.
+    Get conversational response from Gemini for chat/general intents.
     """
     if not GEMINI_AVAILABLE:
         return "I'm having trouble connecting right now."
     
-    # Strategy: Try Primary Model, then Fallback Model
-    attempts = []
-    if api_key:
-        attempts.append((model_name, "primary", api_key))
-        if model_name == GEMINI_MODEL_PRIMARY and GEMINI_MODEL_FALLBACK:
-            attempts.append((GEMINI_MODEL_FALLBACK, "fallback", api_key))
+    try:
+        # Create SDK Client with 15s timeout
+        client = genai.Client(api_key=api_key, http_options={'timeout': 15000})
+        
+        # Context-aware prompt for voice responses
+        from .memory_engine import retrieve_memories
+        
+        # Retrieve relevant memories (RAG)
+        memories = retrieve_memories(text)
+        memory_context = ""
+        if memories:
+            memory_list = "\n".join([f"- {m}" for m in memories])
+            memory_context = f"\n\nContext from Memory:\n{memory_list}\nUse this context if relevant to the user's query."
+            print(f"[gemini] Injected {len(memories)} memories into context.", flush=True)
 
-    if not attempts:
-        return "I need an API key to chat."
-
-    for current_model, key_type, key in attempts:
-        try:
-            client = genai.Client(api_key=key, http_options={'timeout': 15000})
-            
-            # Context-aware prompt
-            from .memory_engine import retrieve_memories
-            memories = retrieve_memories(text)
-            memory_context = ""
-            if memories:
-                memory_list = "\n".join([f"- {m}" for m in memories])
-                memory_context = f"\n\nContext from Memory:\n{memory_list}\nUse this context if relevant."
-                print(f"[gemini] Injected {len(memories)} memories.", flush=True)
-
-            system_context = f"""You are RK AI created by RK Innovators, a helpful voice assistant.
+        system_context = f"""You are RK AI created by RK Innovators, a helpful voice assistant.
 Respond conversationally in 1-2 sentences maximum (optimized for voice/speech).
 Be friendly, natural, and concise.{memory_context}"""
-            
-            prompt = f"{system_context}\n\nUser: {text}\n\nAssistant:"
-            
-            # Generate
-            print(f"[gemini] 💬 Chatting with {current_model}...", flush=True)
-            
-            import threading
-            result_holder = {"response": None, "error": None}
-            
-            def _call_gemini():
-                try:
-                    result_holder["response"] = client.models.generate_content(
-                        model=current_model,
-                        contents=prompt
-                    )
-                except Exception as e:
-                    result_holder["error"] = e
-            
-            thread = threading.Thread(target=_call_gemini, daemon=True)
-            thread.start()
-            thread.join(timeout=15.0)
-            
-            if thread.is_alive():
-               continue
-            
-            if result_holder["error"]:
-                raise result_holder["error"]
-            
-            response = result_holder["response"]
-            
-            if not response or not response.text:
-                continue
-            
-            reply = response.text.strip()
-            print(f"[gemini] Chat response: '{reply}'", flush=True)
-            return reply
-            
-        except Exception as e:
-            print(f"[gemini] Chat error ({current_model}): {e}", flush=True)
-            continue
-
-    return "Sorry, I couldn't process that."
+        
+        prompt = f"{system_context}\n\nUser: {text}\n\nAssistant:\
+"
+        
+        # Hard 15s timeout
+        import threading
+        result_holder = {"response": None, "error": None}
+        
+        def _call_gemini():
+            try:
+                result_holder["response"] = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+            except Exception as e:
+                result_holder["error"] = e
+        
+        thread = threading.Thread(target=_call_gemini, daemon=True)
+        thread.start()
+        thread.join(timeout=15.0)
+        
+        if thread.is_alive():
+            print("[gemini] Chat timed out after 15s", flush=True)
+            return "I'm taking too long to respond. Please try again."
+        
+        if result_holder["error"]:
+            raise result_holder["error"]
+        
+        response = result_holder["response"]
+        
+        if not response or not response.text:
+            return "I didn't understand that."
+        
+        reply = response.text.strip()
+        print(f"[gemini] Chat response: '{reply}'", flush=True)
+        return reply
+        
+    except Exception as e:
+        print(f"[gemini] Chat error: {e}", flush=True)
+        return "Sorry, I couldn't process that."
 
 
 def test_gemini_connection(api_key: str) -> bool:
