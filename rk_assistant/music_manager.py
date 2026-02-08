@@ -75,12 +75,7 @@ def play_music(query: str):
         current_player.terminate()
         current_player.wait()
     
-    # 3. Announce searching
-    from .audio_utils import speak
-    clean_q = _clean_query(query)
-    speak(f"Searching for {clean_q}")
-    
-    # 4. Search YouTube  
+    # 3. Search YouTube  
     title, vid_id = _search_youtube(query)
     if not vid_id:
         print("[music] No results found", flush=True)
