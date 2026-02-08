@@ -75,7 +75,11 @@ def play_music(query: str):
         current_player.terminate()
         current_player.wait()
     
+    # 1. Clean query
     # Check JSON cache first to skip search
+    import json
+    from pathlib import Path
+    
     cache_dir = Path.home() / "Downloads" / "rk_music_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     index_file = cache_dir / "music_index.json"
