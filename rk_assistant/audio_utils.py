@@ -60,8 +60,23 @@ def speak(text):
     Ultra-lightweight TTS via PulseAudio.
     """
     print(f"🔊 {text}")
+    
+    # 1. Try Google TTS (Online) if enabled
+    from .networking import is_online
+    from .config import GTTS_ENABLE, GTTS_LANG, GTTS_TLD
+    
+    if GTTS_ENABLE and is_online():
+        try:
+            from gtts import gTTS
+            tts = gTTS(text=text, lang=GTTS_LANG, tld=GTTS_TLD)
+            tts.save("/tmp/tts.mp3")
+            play_audio_url("/tmp/tts.mp3")
+            return
+        except Exception as e:
+            print(f"[tts] GTTS failed, falling back: {e}")
+
     try:
-        # Try Piper first
+        # 2. Try Piper (Offline High Quality)
         piper_binary = "/usr/local/bin/piper"
         model = os.path.expanduser("~/.local/share/piper/voices/en_US-lessac-medium.onnx")
         
@@ -71,7 +86,7 @@ def speak(text):
             subprocess.run(cmd, shell=True)
             return
 
-        # Fallback to espeak
+        # 3. Fallback to espeak
         subprocess.run(
             ["espeak", "-w", "/tmp/tts.wav", text], 
             check=False, stderr=subprocess.DEVNULL
