@@ -75,7 +75,7 @@ def play_music(query):
             ]
             
             print(f"[music] Running: {' '.join(cmd_search)}", flush=True)
-            result = subprocess.run(cmd_search, capture_output=True, text=True, check=True, timeout=30)
+            result = subprocess.run(cmd_search, capture_output=True, text=True, check=True)
             output = result.stdout.strip().split('\n')
             
             print(f"[music] yt-dlp output: {output}", flush=True)
@@ -109,9 +109,6 @@ def play_music(query):
             print(f"[music] Stream process started: PID={proc.pid}", flush=True)
             return proc
             
-        except subprocess.TimeoutExpired:
-            print("[music] Search timed out (30s)", flush=True)
-            return None
         except subprocess.CalledProcessError as e:
             print(f"[music] Search failed with code {e.returncode}", flush=True)
             print(f"[music] stdout: {e.stdout}", flush=True)
