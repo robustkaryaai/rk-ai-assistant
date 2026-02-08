@@ -87,6 +87,10 @@ def play_music(query):
             
             print(f"[music] Found: {title}", flush=True)
             print(f"[music] Video ID: {video_id}", flush=True)
+            
+            # Announce what we're playing
+            from .audio_utils import speak
+            speak(f"Playing {title}")
 
             # Start Background Download using YouTube URL (not direct stream)
             save_path = MUSIC_CACHE_DIR / f"{safe_name}.mp3"

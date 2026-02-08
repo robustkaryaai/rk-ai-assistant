@@ -32,7 +32,7 @@ def handle_music(parameters: Dict[str, Any]) -> Dict[str, Any]:
     
     return {
         "intent": "music_local",
-        "reply": f"Playing {prompt}",
+        "reply": f"Searching for {prompt}",
         "query": prompt
     }
 
