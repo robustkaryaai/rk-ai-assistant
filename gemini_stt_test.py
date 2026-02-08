@@ -63,6 +63,7 @@ async def main():
             model=MODEL_NAME,
             config=LiveConnectConfig(
                 response_modalities=["TEXT"],  # Request text transcription
+                system_instruction=types.Content(parts=[types.Part(text="You are RK AI. The user will address you as 'RK' or 'Arkay'. If you hear something like 'RK' or 'Okay', transcribe it as 'RK'.")]),
                 speech_config={"voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}}} # Optional config example
             )
         ) as session:
