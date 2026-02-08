@@ -1,152 +1,135 @@
 """
-Music Manager for RK Assistant.
-Handles searching, streaming, and caching music locally.
+Music Manager for RK AI Assistant
+Production-ready YouTube music playback with Bluetooth audio support.
 """
-
-import os
 import subprocess
 import threading
-import glob
-import shlex
-import time
+import shutil
 from pathlib import Path
 
-# Directory to store downloaded music
+# Music cache directory
 MUSIC_CACHE_DIR = Path.home() / "Downloads" / "rk_music_cache"
 MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _get_safe_filename(query: str) -> str:
-    """Convert query to safe filename."""
-    return "".join(c for c in query if c.isalnum() or c in (' ', '-', '_')).strip().replace(' ', '_').lower()
+def _clean_query(query: str) -> str:
+    """Remove filler words from music query."""
+    fillers = ['play', 'from youtube', 'from yt', 'on youtube', 'song', 'music']
+    q = query.lower()
+    for f in fillers:
+        q = q.replace(f, '')
+    return q.strip()
 
 
-def _clean_music_query(query: str) -> str:
-    """Clean up music query by removing filler words."""
-    # Remove common filler words
-    filler_words = ['play', 'from youtube', 'from yt', 'on youtube', 'on yt', 'song', 'music']
-    clean = query.lower()
-    for filler in filler_words:
-        clean = clean.replace(filler, '')
-    return clean.strip()
+def _search_youtube(query: str):
+    """Search YouTube and return (title, url, video_id)."""
+    clean_q = _clean_query(query)
+    print(f"[music] Searching: {clean_q}", flush=True)
+    
+    cmd = [
+        "yt-dlp",
+        f"ytsearch1:{clean_q}",
+        "--get-title",
+        "--get-id",
+        "--no-playlist"
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
+        lines = result.stdout.strip().split('\n')
+        
+        if len(lines) >= 2:
+            title = lines[0]
+            vid_id = lines[1]
+            url = f"https://www.youtube.com/watch?v={vid_id}"
+            print(f"[music] Found: {title}", flush=True)
+            return title, url, vid_id
+    except subprocess.TimeoutExpired:
+        print("[music] Search timeout", flush=True)
+    except Exception as e:
+        print(f"[music] Search error: {e}", flush=True)
+    
+    return None, None, None
 
 
-def _download_in_background(url, output_path):
-    """Download audio in background for future offline use."""
-    def _download():
+def _download_background(url: str, vid_id: str):
+    """Download MP3 in background thread for caching."""
+    def download():
+        cache_file = MUSIC_CACHE_DIR / f"{vid_id}.mp3"
+        if cache_file.exists():
+            print(f"[music] Already cached: {cache_file.name}", flush=True)
+            return
+        
+        print(f"[music] Background download started", flush=True)
         try:
-            print(f"[music] Starting background download: {url}", flush=True)
-            # yt-dlp download options for best audio
-            cmd = [
-                "yt-dlp",
-                "-x", "--audio-format", "mp3",
-                "-o", str(output_path).replace(".mp3", ""), # yt-dlp adds extension
-                url
-            ]
-            subprocess.run(cmd, check=True)
-            print(f"[music] Download complete: {output_path}", flush=True)
+            subprocess.run(
+                ["yt-dlp", "-x", "--audio-format", "mp3", "-o", str(cache_file).replace(".mp3", ""), url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=300
+            )
+            print(f"[music] Download complete: {cache_file.name}", flush=True)
         except Exception as e:
             print(f"[music] Download failed: {e}", flush=True)
+    
+    threading.Thread(target=download, daemon=True).start()
 
-    thread = threading.Thread(target=_download, daemon=True)
-    thread.start()
 
-
-def play_music(query):
+def play_music(query: str):
     """
-    Play music by query.
-    1. Check local cache -> Play instant.
-    2. Search YouTube -> Stream + Download background.
+    Main music playback function.
     
-    Returns: subprocess.Popen object of the player.
+    Strategy:
+    1. Check cache first (instant playback)
+    2. If not cached, stream via yt-dlp → mpg123 pipe
+    3. Start background download for future use
+    
+    Returns:
+        subprocess.Popen object or None
     """
-    # Clean the query first
-    clean_query = _clean_music_query(query)
-    safe_name = _get_safe_filename(clean_query)
-    # Search for existing file (partial match allowed)
-    existing_files = list(MUSIC_CACHE_DIR.glob(f"*{safe_name}*.mp3"))
+    # 1. Search YouTube
+    title, url, vid_id = _search_youtube(query)
+    if not url:
+        print("[music] No results found", flush=True)
+        return None
     
-    if existing_files:
-        # === CACHE HIT ===
-        file_path = existing_files[0]
-        print(f"[music] Playing from cache: {file_path}", flush=True)
-        return subprocess.Popen(["mpg123", "-q", str(file_path)])
+    # 2. Check cache first
+    cache_file = MUSIC_CACHE_DIR / f"{vid_id}.mp3"
+    if cache_file.exists():
+        print(f"[music] Playing from cache: {cache_file.name}", flush=True)
+        
+        # Announce
+        from .audio_utils import speak
+        speak(f"Playing {_clean_query(query)}")
+        
+        # Play cached file with mpg123 (proven to work with Bluetooth!)
+        return subprocess.Popen(["mpg123", "-q", str(cache_file)])
     
-    else:
-        # === CACHE MISS ===
-        print(f"[music] Searching YouTube for: {clean_query}", flush=True)
-        try:
-            # Get video webpage URL (not the direct stream URL which expires)
-            cmd_search = [
-                "yt-dlp",
-                f"ytsearch1:{clean_query}",
-                "--get-title",
-                "--get-id",
-                "--no-playlist"
-            ]
-            
-            print(f"[music] Running: {' '.join(cmd_search)}", flush=True)
-            result = subprocess.run(cmd_search, capture_output=True, text=True, check=True)
-            output = result.stdout.strip().split('\n')
-            
-            print(f"[music] yt-dlp output: {output}", flush=True)
-            
-            if len(output) < 2:
-                print(f"[music] No results found. Output was: {output}", flush=True)
-                return None
-                
-            title = output[0]
-            video_id = output[1]
-            youtube_url = f"https://www.youtube.com/watch?v={video_id}"
-            
-            print(f"[music] Found: {title}", flush=True)
-            print(f"[music] Video ID: {video_id}", flush=True)
-            
-            # Announce what we're playing (use cleaned query)
-            from .audio_utils import speak
-            speak(f"Playing {clean_query}")
-
-            # Start Background Download using YouTube URL (not direct stream)
-            save_path = MUSIC_CACHE_DIR / f"{safe_name}.mp3"
-            _download_in_background(youtube_url, save_path)
-            
-            # Stream using mpv (let it auto-detect audio backend, likely ALSA or Pulse)
-            print("[music] Streaming...", flush=True)
-            
-            # Check if mpv is installed
-            import shutil
-            if not shutil.which("mpv"):
-                print("[music] ERROR: mpv not installed. Install with: sudo apt-get install mpv", flush=True)
-                return None
-            
-            # mpv --no-video plays audio only. Removed --ao=pulse to allow auto-detect.
-            # Running as root (systemd) might be an issue for some audio servers.
-            stream_cmd = ["mpv", "--no-video", youtube_url]
-            
-            # Capture output to see errors in logs
-            proc = subprocess.Popen(stream_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            
-            # Log stream process info
-            print(f"[music] Stream process started: PID={proc.pid}", flush=True)
-            
-            # Read first few lines of output in a separate thread to debug startup
-            def log_stream_output(p):
-                try:
-                    outs, errs = p.communicate(timeout=5)
-                    print(f"[music] mpv stdout: {outs}", flush=True)
-                    print(f"[music] mpv stderr: {errs}", flush=True)
-                except subprocess.TimeoutExpired:
-                    pass # Process is running fine
-            
-            threading.Thread(target=log_stream_output, args=(proc,), daemon=True).start()
-            
-            return proc
-            
-        except subprocess.CalledProcessError as e:
-            print(f"[music] Search failed with code {e.returncode}", flush=True)
-            print(f"[music] stdout: {e.stdout}", flush=True)
-            print(f"[music] stderr: {e.stderr}", flush=True)
-            return None
-        except Exception as e:
-            print(f"[music] Error: {e}", flush=True)
-            return None
+    # 3. Announce what we're playing
+    from .audio_utils import speak
+    speak(f"Playing {_clean_query(query)}")
+    
+    # 4. Start background download for next time
+    _download_background(url, vid_id)
+    
+    # 5. Stream using yt-dlp → mpg123 pipe
+    # This works because mpg123 already routes to Bluetooth correctly (proven by gTTS playback)
+    print("[music] Streaming via yt-dlp → mpg123 pipe...", flush=True)
+    
+    # Build the pipe command
+    # yt-dlp extracts best audio and pipes to stdout
+    # mpg123 reads from stdin (-) and plays through PulseAudio → Bluetooth
+    stream_cmd = f"yt-dlp -o - -f bestaudio --quiet '{url}' 2>/dev/null | mpg123 -q -"
+    
+    try:
+        proc = subprocess.Popen(
+            stream_cmd,
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE
+        )
+        print(f"[music] Stream started: PID={proc.pid}", flush=True)
+        return proc
+    except Exception as e:
+        print(f"[music] Stream failed: {e}", flush=True)
+        return None
