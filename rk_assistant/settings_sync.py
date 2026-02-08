@@ -19,11 +19,13 @@ device_settings = {
     'memory_enabled': True
 }
 
-def poll_device_settings():
+def poll_device_settings(slug):
     """Poll Appwrite every 30 seconds for device settings"""
-    if not all([APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_DATABASE_ID, DEVICE_SLUG]):
-        print("[Settings Sync] Missing Appwrite config, skipping sync")
+    if not all([APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_DATABASE_ID, slug]):
+        print(f"[Settings Sync] Missing config (slug={slug}), skipping sync")
         return
+    
+    print(f"[Settings Sync] Starting sync for device: {slug}")
     
     while True:
         try:
@@ -34,7 +36,7 @@ def poll_device_settings():
             
             url = f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}/collections/{APPWRITE_DEVICES_COLLECTION}/documents"
             params = {
-                'queries': [f'equal("slug", {DEVICE_SLUG})']
+                'queries': [f'equal("slug", "{slug}")'] # Quote the slug string!
             }
             
             response = requests.get(url, headers=headers, params=params, timeout=10)
@@ -48,7 +50,7 @@ def poll_device_settings():
                     device_settings['is_muted'] = device.get('is_muted', False)
                     device_settings['memory_enabled'] = device.get('memory_enabled', True)
                     
-                    print(f"[Settings Sync] Updated: muted={device_settings['is_muted']}, memory={device_settings['memory_enabled']}")
+                    # print(f"[Settings Sync] Updated: muted={device_settings['is_muted']}") # noisy
             
         except Exception as e:
             print(f"[Settings Sync] Error polling Appwrite: {e}")
@@ -56,11 +58,11 @@ def poll_device_settings():
         # Poll every 30 seconds
         time.sleep(30)
 
-def start_settings_sync():
+def start_settings_sync(slug):
     """Start background thread to poll device settings"""
-    thread = Thread(target=poll_device_settings, daemon=True)
+    thread = Thread(target=poll_device_settings, args=(slug,), daemon=True)
     thread.start()
-    print("[Settings Sync] Background sync started")
+    print(f"[Settings Sync] Background sync started for {slug}")
 
 def is_device_muted():
     """Check if device is currently muted"""
