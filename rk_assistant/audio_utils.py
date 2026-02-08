@@ -210,6 +210,12 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0) -> Path:
             
             print(f"[record] Listening... (VAD enabled, silence={silence_duration}s)")
             with sr.Microphone(device_index=device_index) as source:
+                # Fast calibration (optional, adds 0.5s latency but improves reliability)
+                print("[record] Calibrating for 1s...", flush=True)
+                r.adjust_for_ambient_noise(source, duration=1.0)
+                
+                # Listen automatically stops when silence is detected
+                # phrase_time_limit ensures we don't record forever if noisy
                 audio = r.listen(source, timeout=10, phrase_time_limit=15)
             
             # Save to WAV (Normalized)
