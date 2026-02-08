@@ -1,16 +1,9 @@
 """
 Music Manager for RK AI Assistant
-Production-ready YouTube music playback with Bluetooth audio support.
+Simple and reliable YouTube music playback using ffplay.
 """
 import subprocess
-import threading
 import shutil
-from pathlib import Path
-
-# Music cache directory
-MUSIC_CACHE_DIR = Path.home() / "Downloads" / "rk_music_cache"
-MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
 
 def _clean_query(query: str) -> str:
     """Remove filler words from music query."""
@@ -22,7 +15,7 @@ def _clean_query(query: str) -> str:
 
 
 def _search_youtube(query: str):
-    """Search YouTube and return (title, url, video_id)."""
+    """Search YouTube and return (title, url)."""
     clean_q = _clean_query(query)
     print(f"[music] Searching: {clean_q}", flush=True)
     
@@ -30,7 +23,8 @@ def _search_youtube(query: str):
         "yt-dlp",
         f"ytsearch1:{clean_q}",
         "--get-title",
-        "--get-id",
+        "--get-url",
+        "-f", "bestaudio",
         "--no-playlist"
     ]
     
@@ -40,93 +34,56 @@ def _search_youtube(query: str):
         
         if len(lines) >= 2:
             title = lines[0]
-            vid_id = lines[1]
-            url = f"https://www.youtube.com/watch?v={vid_id}"
+            url = lines[1]
             print(f"[music] Found: {title}", flush=True)
-            return title, url, vid_id
-    except subprocess.TimeoutExpired:
-        print("[music] Search timeout", flush=True)
+            return title, url
     except Exception as e:
         print(f"[music] Search error: {e}", flush=True)
     
-    return None, None, None
-
-
-def _download_background(url: str, vid_id: str):
-    """Download MP3 in background thread for caching."""
-    def download():
-        cache_file = MUSIC_CACHE_DIR / f"{vid_id}.mp3"
-        if cache_file.exists():
-            print(f"[music] Already cached: {cache_file.name}", flush=True)
-            return
-        
-        print(f"[music] Background download started", flush=True)
-        try:
-            subprocess.run(
-                ["yt-dlp", "-x", "--audio-format", "mp3", "-o", str(cache_file).replace(".mp3", ""), url],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=300
-            )
-            print(f"[music] Download complete: {cache_file.name}", flush=True)
-        except Exception as e:
-            print(f"[music] Download failed: {e}", flush=True)
-    
-    threading.Thread(target=download, daemon=True).start()
+    return None, None
 
 
 def play_music(query: str):
     """
-    Main music playback function.
+    Play music using ffplay (most reliable for audio routing).
     
-    Strategy:
-    1. Check cache first (instant playback)
-    2. If not cached, download synchronously
-    3. Play the downloaded file (guaranteed to work with Bluetooth)
+    ffplay handles PulseAudio/ALSA better than mpg123.
+    Plays YouTube stream directly - no download needed.
     
     Returns:
         subprocess.Popen object or None
     """
-    # Check dependencies first
-    if not shutil.which("yt-dlp") or not shutil.which("mpg123"):
-        print("[music] ERROR: yt-dlp or mpg123 not installed", flush=True)
+    # Check dependencies
+    if not shutil.which("yt-dlp"):
+        print("[music] ERROR: yt-dlp not installed", flush=True)
+        return None
+    
+    if not shutil.which("ffplay"):
+        print("[music] ERROR: ffplay not installed. Run: sudo apt-get install ffmpeg", flush=True)
         return None
     
     # 1. Search YouTube
-    title, url, vid_id = _search_youtube(query)
-    if not url:
+    title, stream_url = _search_youtube(query)
+    if not stream_url:
         print("[music] No results found", flush=True)
         return None
     
-    # 2. Check cache first
-    cache_file = MUSIC_CACHE_DIR / f"{vid_id}.mp3"
-    
-    if cache_file.exists():
-        print(f"[music] Playing from cache: {cache_file.name}", flush=True)
-    else:
-        # 3. Download first (synchronous)
-        print("[music] Downloading...", flush=True)
-        try:
-            subprocess.run(
-                ["yt-dlp", "-x", "--audio-format", "mp3", "-o", str(cache_file).replace(".mp3", ""), url],
-                check=True,
-                timeout=180,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE
-            )
-            print(f"[music] Download complete", flush=True)
-        except Exception as e:
-            print(f"[music] Download failed: {e}", flush=True)
-            return None
-    
-    # 4. Announce
+    # 2. Announce
     from .audio_utils import speak
     speak(f"Playing {_clean_query(query)}")
     
-    # 5. Play the file (proven to work with Bluetooth!)
-    print(f"[music] Playing: {cache_file.name}", flush=True)
+    # 3. Play with ffplay
+    # -nodisp: no video display
+    # -autoexit: close when done
+    # -loglevel quiet: suppress FFmpeg logs
+    print("[music] Starting playback with ffplay...", flush=True)
+    
     try:
-        proc = subprocess.Popen(["mpg123", "-q", str(cache_file)])
+        proc = subprocess.Popen(
+            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", stream_url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
         print(f"[music] Playback started: PID={proc.pid}", flush=True)
         return proc
     except Exception as e:
