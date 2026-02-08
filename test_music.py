@@ -21,7 +21,8 @@ def main():
     
     if proc:
         print("\n✓ Music playback process started!")
-        print("Waiting for music to play... (Press Ctrl+C to stop)")
+        print("Waiting for music to play...")
+        print("(If no audio, check error messages above. Press Ctrl+C to stop)")
         try:
             # Wait for the process to finish or user interrupt
             proc.wait()

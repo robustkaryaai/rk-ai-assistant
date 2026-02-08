@@ -80,9 +80,8 @@ def play_music(query: str):
     
     try:
         proc = subprocess.Popen(
-            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", stream_url],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            ["ffplay", "-nodisp", "-autoexit", stream_url],
+            stdout=subprocess.DEVNULL
         )
         print(f"[music] Playback started: PID={proc.pid}", flush=True)
         return proc
