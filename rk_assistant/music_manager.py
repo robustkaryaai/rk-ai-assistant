@@ -87,6 +87,11 @@ def play_music(query: str):
     Returns:
         subprocess.Popen object or None
     """
+    # Check dependencies first
+    if not shutil.which("yt-dlp") or not shutil.which("mpg123"):
+        print("[music] ERROR: yt-dlp or mpg123 not installed", flush=True)
+        return None
+    
     # 1. Search YouTube
     title, url, vid_id = _search_youtube(query)
     if not url:
@@ -112,24 +117,31 @@ def play_music(query: str):
     # 4. Start background download for next time
     _download_background(url, vid_id)
     
-    # 5. Stream using yt-dlp → mpg123 pipe
-    # This works because mpg123 already routes to Bluetooth correctly (proven by gTTS playback)
-    print("[music] Streaming via yt-dlp → mpg123 pipe...", flush=True)
-    
-    # Build the pipe command
-    # yt-dlp extracts best audio and pipes to stdout
-    # mpg123 reads from stdin (-) and plays through PulseAudio → Bluetooth
-    stream_cmd = f"yt-dlp -o - -f bestaudio --quiet '{url}' 2>/dev/null | mpg123 -q -"
+    # 5. Stream using proper pipe (no shell=True)
+    print("[music] Streaming via yt-dlp → mpg123...", flush=True)
     
     try:
-        proc = subprocess.Popen(
-            stream_cmd,
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE
+        # Start yt-dlp process
+        ytdlp = subprocess.Popen(
+            ["yt-dlp", "-o", "-", "-f", "bestaudio", "--quiet", url],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
         )
-        print(f"[music] Stream started: PID={proc.pid}", flush=True)
-        return proc
+        
+        # Start mpg123 with yt-dlp's output as input
+        mpg = subprocess.Popen(
+            ["mpg123", "-q", "-"],
+            stdin=ytdlp.stdout,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        # Allow ytdlp to receive SIGPIPE if mpg exits
+        ytdlp.stdout.close()
+        
+        print(f"[music] Stream started: PID={mpg.pid}", flush=True)
+        return mpg
+        
     except Exception as e:
         print(f"[music] Stream failed: {e}", flush=True)
         return None
