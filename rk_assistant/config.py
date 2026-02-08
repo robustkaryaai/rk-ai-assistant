@@ -100,8 +100,8 @@ USE_GEMINI_DIRECT = os.getenv("USE_GEMINI_DIRECT", "1") == "1"  # Feature flag
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # Gemini Model Configuration
-GEMINI_MODEL_PRIMARY = os.getenv("GEMINI_MODEL_PRIMARY", "gemma-2-9b-it") # Switched to Gemma per user request
-GEMINI_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-2.0-flash-exp")
+GEMINI_MODEL_PRIMARY = os.getenv("GEMINI_MODEL_PRIMARY", "gemma-3-12b-it") # Switched to Gemma per user request
+GEMINI_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-2.5-flash-lite")
 STT_ENGINE = os.getenv("STT_ENGINE", "google")  # Options: "groq", "google"
 
 
