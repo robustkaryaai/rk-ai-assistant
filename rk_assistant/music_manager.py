@@ -91,9 +91,9 @@ def play_music(query):
             print(f"[music] Found: {title}", flush=True)
             print(f"[music] Video ID: {video_id}", flush=True)
             
-            # Announce what we're playing
+            # Announce what we're playing (use original query, not the long YouTube title)
             from .audio_utils import speak
-            speak(f"Playing {title}")
+            speak(f"Playing {query}")
 
             # Start Background Download using YouTube URL (not direct stream)
             save_path = MUSIC_CACHE_DIR / f"{safe_name}.mp3"
@@ -101,9 +101,13 @@ def play_music(query):
             
             # Stream Immediately using YouTube URL
             print("[music] Streaming...", flush=True)
-            # Use -o pulse for PulseAudio, -b for buffer, remove -q to see errors
-            stream_cmd = f"yt-dlp '{youtube_url}' -o - -f bestaudio 2>&1 | mpg123 -o pulse -b 1024 -"
-            return subprocess.Popen(stream_cmd, shell=True)
+            # Try streaming with verbose output
+            stream_cmd = f"yt-dlp '{youtube_url}' -o - -f bestaudio | mpg123 -o pulse -b 1024 -"
+            proc = subprocess.Popen(stream_cmd, shell=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+            
+            # Log stream process info
+            print(f"[music] Stream process started: PID={proc.pid}", flush=True)
+            return proc
             
         except subprocess.TimeoutExpired:
             print("[music] Search timed out (30s)", flush=True)
