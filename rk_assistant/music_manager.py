@@ -81,39 +81,31 @@ def play_music(query: str):
         print("[music] No results found", flush=True)
         return None
     
-    # 4. Check cache
+    # 4. Check cache for MP3 (we want MP3 for mpg123)
     from pathlib import Path
     cache_dir = Path.home() / "Downloads" / "rk_music_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Check for webm or mp3 (backward compatibility)
-    cache_file = cache_dir / f"{vid_id}.webm"
-    cache_file_mp3 = cache_dir / f"{vid_id}.mp3"
-    
-    if cache_file_mp3.exists() and not cache_file.exists():
-        # Use existing MP3 if we have it
-        cache_file = cache_file_mp3
-        print(f"[music] Using existing MP3 from cache", flush=True)
+    cache_file = cache_dir / f"{vid_id}.mp3"
     
     if not cache_file.exists():
-        # 5. Download video file (no MP3 conversion = much faster on Pi!)
+        # 5. Download MP3 (User specifically requested MPG123 playback)
         from .audio_utils import speak
         speak("Downloading, please wait")
         
-        print("[music] Downloading... (~20-30s)", flush=True)
+        print("[music] Downloading MP3... (may take ~1-2 mins for conversion)", flush=True)
         youtube_url = f"https://www.youtube.com/watch?v={vid_id}"
         
         try:
             subprocess.run(
                 [
                     "yt-dlp",
-                    "-f", "bestaudio",  # Best audio format (usually webm)
-                    "-o", str(cache_file).replace(".webm", ""),
+                    "-x", "--audio-format", "mp3",  # Convert to MP3
+                    "-o", str(cache_dir / f"{vid_id}.%(ext)s"), # Output template
                     "--extractor-args", "youtube:player_client=android",
                     youtube_url
                 ],
                 check=True,
-                timeout=120  # Increased to 120s for slow connections
+                timeout=180  # longer timeout for conversion
             )
             print(f"[music] Download complete!", flush=True)
         except Exception as e:
@@ -122,24 +114,19 @@ def play_music(query: str):
     else:
         print(f"[music] Playing from cache (instant!)", flush=True)
     
-    # 6. Announce
-    from .audio_utils import speak
-    speak(f"Playing {_clean_query(query)}")
+    # 6. Announce (Already handled by download message if needed, but play message is good)
+    # from .audio_utils import speak
+    # speak(f"Playing {_clean_query(query)}")
     
-    # 7. Play with mpv (handles audio-only webm perfectly!)
-    # Use nice -n -10 for higher CPU priority (reduces crackling)
-    # --audio-buffer=1 for 1 second buffer (smooth Bluetooth playback)
-    # --volume=80 to prevent clipping/distortion
-    # --af=loudnorm to normalize audio levels
-    print(f"[music] Starting playback...", flush=True)
+    # 7. Play with mpg123 (User request)
+    print(f"[music] Starting playback with mpg123...", flush=True)
     try:
+        # Use mpg123 with optimized buffer settings
         current_player = subprocess.Popen([
-            "nice", "-n", "-10",  # Higher CPU priority
-            "mpv", 
-            "--no-video",
-            "--audio-buffer=1",  # 1 second audio buffer
-            "--volume=80",  # Reduce volume to prevent distortion
-            "--af=loudnorm",  # Normalize audio levels
+            "mpg123", 
+            "-o", "pulse", 
+            "-b", "1024", 
+            "-f", "32768", # Standard volume (can increase if needed)
             str(cache_file)
         ])
         print(f"[music] Playback started: PID={current_player.pid}", flush=True)
