@@ -129,6 +129,8 @@ def play_music(query: str):
     # 7. Play with mpv (handles audio-only webm perfectly!)
     # Use nice -n -10 for higher CPU priority (reduces crackling)
     # --audio-buffer=1 for 1 second buffer (smooth Bluetooth playback)
+    # --volume=80 to prevent clipping/distortion
+    # --af=loudnorm to normalize audio levels
     print(f"[music] Starting playback...", flush=True)
     try:
         current_player = subprocess.Popen([
@@ -136,6 +138,8 @@ def play_music(query: str):
             "mpv", 
             "--no-video",
             "--audio-buffer=1",  # 1 second audio buffer
+            "--volume=80",  # Reduce volume to prevent distortion
+            "--af=loudnorm",  # Normalize audio levels
             str(cache_file)
         ])
         print(f"[music] Playback started: PID={current_player.pid}", flush=True)
