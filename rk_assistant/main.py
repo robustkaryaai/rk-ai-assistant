@@ -749,22 +749,22 @@ def main():
     #    print("[commands] Background command poller started")
     
     # --- 7. Voice Loop ---
+    # --- 7. Voice Loop ---
     try:
         print("\n" + "="*30)
         print("STARTING VOICE MODE")
         print("="*30 + "\n")
+        
+        # Announce ready right before starting to listen
+        ready_msg = "Radhe Radhe RK AI assistant is ready"
+        print(f"🔊 {ready_msg}")
+        speak(ready_msg)
+        
         voice_flow(decoder_available, music_proc_holder, slug, recognizer, mic)
     except KeyboardInterrupt:
-        pass # This is where the original code had a syntax error, fixed to 'pass'
+        pass
 
-    
-    # Announce ready right before starting to listen
-    ready_msg = "Radhe Radhe RK AI assistant is ready"
-    print(f"\n{ready_msg}")
-    speak(ready_msg)
-    print("")
-
-    # Voice mode: standard wake word loop
+    # Voice mode: standard wake word loop (Fallback if voice_flow returns)
     while True:
         try:
             voice_flow(decoder_available, music_proc_holder, slug, recognizer=recognizer, mic=mic)
