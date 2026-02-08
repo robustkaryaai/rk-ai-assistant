@@ -70,7 +70,9 @@ def speak(text):
             from gtts import gTTS
             tts = gTTS(text=text, lang=GTTS_LANG, tld=GTTS_TLD)
             tts.save("/tmp/tts.mp3")
-            play_audio_url("/tmp/tts.mp3")
+            proc = play_audio_url("/tmp/tts.mp3")
+            if proc:
+                proc.wait() # BLOCK until finished
             return
         except Exception as e:
             print(f"[tts] GTTS failed, falling back: {e}")
@@ -83,7 +85,7 @@ def speak(text):
         if os.path.exists(piper_binary) and os.path.exists(model):
             # Pipe to aplay -D pulse
             cmd = f"{piper_binary} --model {model} --output_raw | aplay -D {ALSA_DEVICE} -r 22050 -f S16_LE -t raw -q"
-            subprocess.run(cmd, shell=True)
+            subprocess.run(cmd, shell=True) # subprocess.run IS blocking by default
             return
 
         # 3. Fallback to espeak
@@ -91,7 +93,7 @@ def speak(text):
             ["espeak", "-w", "/tmp/tts.wav", text], 
             check=False, stderr=subprocess.DEVNULL
         )
-        play_audio_file("/tmp/tts.wav")
+        play_audio_file("/tmp/tts.wav") # aplay is blocking
         
     except Exception as e:
         print(f"[tts] Error: {e}")
