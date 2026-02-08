@@ -65,49 +65,36 @@ def play_music(query):
         # === CACHE MISS ===
         print(f"[music] Searching YouTube for: {query}", flush=True)
         try:
-            # Get video URL and Title
-            # ytsearch1 returns the first result
+            # Get video webpage URL (not the direct stream URL which expires)
             cmd_search = [
                 "yt-dlp",
                 f"ytsearch1:{query}",
-                "--get-url",
                 "--get-title",
-                "--no-playlist",
-                "-f", "bestaudio"
+                "--get-id",
+                "--no-playlist"
             ]
             
             result = subprocess.run(cmd_search, capture_output=True, text=True, check=True)
             output = result.stdout.strip().split('\n')
             
-            if len(output) < 1:
+            if len(output) < 2:
                 print("[music] No results found.")
                 return None
                 
             title = output[0]
-            url = output[1] if len(output) > 1 else output[0] # Sometimes title isn't returned if --get-url is first? 
-            # Actually --get-title --get-url returns Title\nURL
-            
-            if url.startswith("http"):
-                # Correct order check: Title, URL
-                pass
-            else:
-                # Swap if needed (unlikely with this command order but safety check)
-                if title.startswith("http"):
-                    title, url = url, title
+            video_id = output[1]
+            youtube_url = f"https://www.youtube.com/watch?v={video_id}"
             
             print(f"[music] Found: {title}", flush=True)
-            print(f"[music] URL: {url}", flush=True)
+            print(f"[music] Video ID: {video_id}", flush=True)
 
-            # Start Background Download
+            # Start Background Download using YouTube URL (not direct stream)
             save_path = MUSIC_CACHE_DIR / f"{safe_name}.mp3"
-            _download_in_background(url, save_path)
+            _download_in_background(youtube_url, save_path)
             
-            # Stream Immediately
+            # Stream Immediately using YouTube URL
             print("[music] Streaming...", flush=True)
-            # mpg123 can play URLs directly, but sometimes fails with complex YouTube URLs.
-            # Using yt-dlp -o - | mpg123 - is more robust for streams.
-            
-            stream_cmd = f"yt-dlp '{url}' -o - -f bestaudio --quiet | mpg123 -q -"
+            stream_cmd = f"yt-dlp '{youtube_url}' -o - -f bestaudio --quiet | mpg123 -q -"
             return subprocess.Popen(stream_cmd, shell=True)
             
         except subprocess.CalledProcessError as e:
