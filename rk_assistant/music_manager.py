@@ -15,7 +15,7 @@ def _clean_query(query: str) -> str:
 
 
 def _search_youtube(query: str):
-    """Search YouTube and return (title, url)."""
+    """Search YouTube and return (title, video_id)."""
     clean_q = _clean_query(query)
     print(f"[music] Searching: {clean_q}", flush=True)
     
@@ -23,8 +23,7 @@ def _search_youtube(query: str):
         "yt-dlp",
         f"ytsearch1:{clean_q}",
         "--get-title",
-        "--get-url",
-        "-f", "bestaudio",
+        "--get-id",
         "--no-playlist"
     ]
     
@@ -34,9 +33,9 @@ def _search_youtube(query: str):
         
         if len(lines) >= 2:
             title = lines[0]
-            url = lines[1]
+            vid_id = lines[1]
             print(f"[music] Found: {title}", flush=True)
-            return title, url
+            return title, vid_id
     except Exception as e:
         print(f"[music] Search error: {e}", flush=True)
     
@@ -45,10 +44,10 @@ def _search_youtube(query: str):
 
 def play_music(query: str):
     """
-    Play music using ffplay (most reliable for audio routing).
+    Play music using mpv with YouTube URL.
     
-    ffplay handles PulseAudio/ALSA better than mpg123.
-    Plays YouTube stream directly - no download needed.
+    mpv has built-in yt-dlp integration that bypasses YouTube's 403 errors.
+    We pass the YouTube watch URL directly (not extracted stream URL).
     
     Returns:
         subprocess.Popen object or None
@@ -58,30 +57,31 @@ def play_music(query: str):
         print("[music] ERROR: yt-dlp not installed", flush=True)
         return None
     
-    if not shutil.which("ffplay"):
-        print("[music] ERROR: ffplay not installed. Run: sudo apt-get install ffmpeg", flush=True)
+    if not shutil.which("mpv"):
+        print("[music] ERROR: mpv not installed. Run: sudo apt-get install mpv", flush=True)
         return None
     
-    # 1. Search YouTube
-    title, stream_url = _search_youtube(query)
-    if not stream_url:
+    # 1. Search YouTube  
+    title, vid_id = _search_youtube(query)
+    if not vid_id:
         print("[music] No results found", flush=True)
         return None
     
-    # 2. Announce
+    # 2. Build YouTube watch URL
+    youtube_url = f"https://www.youtube.com/watch?v={vid_id}"
+    
+    # 3. Announce
     from .audio_utils import speak
     speak(f"Playing {_clean_query(query)}")
     
-    # 3. Play with ffplay
-    # -nodisp: no video display
-    # -autoexit: close when done
-    # -loglevel quiet: suppress FFmpeg logs
-    print("[music] Starting playback with ffplay...", flush=True)
+    # 4. Play with mpv (uses internal yt-dlp integration)
+    # --no-video: audio only
+    # --really-quiet: suppress most output but show errors
+    print("[music] Starting playback with mpv...", flush=True)
     
     try:
         proc = subprocess.Popen(
-            ["ffplay", "-nodisp", "-autoexit", stream_url],
-            stdout=subprocess.DEVNULL
+            ["mpv", "--no-video", "--really-quiet", youtube_url]
         )
         print(f"[music] Playback started: PID={proc.pid}", flush=True)
         return proc
