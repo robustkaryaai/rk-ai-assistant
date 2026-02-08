@@ -8,8 +8,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent
 sys.path.append(str(SCRIPT_DIR))
 
-# Load config
-from rk_assistant.config import GEMINI_API_KEY, GEMINI_MODEL_PRIMARY, BACKUP_GEMINI_API_KEY
+from rk_assistant.config import GEMINI_API_KEY, GEMINI_MODEL_PRIMARY, GEMINI_API_KEY_BACKUP
 from rk_assistant.audio_utils import record_until_silence
 
 try:
@@ -35,7 +34,7 @@ def main():
 
     print(f"🚀 Sending to Gemini ({GEMINI_MODEL_PRIMARY})...")
     
-    client = genai.Client(api_key=GEMINI_API_KEY or BACKUP_GEMINI_API_KEY)
+    client = genai.Client(api_key=GEMINI_API_KEY or GEMINI_API_KEY_BACKUP)
     
     try:
         response = client.models.generate_content(
