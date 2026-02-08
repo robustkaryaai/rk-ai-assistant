@@ -110,7 +110,7 @@ def play_music(query):
             save_path = MUSIC_CACHE_DIR / f"{safe_name}.mp3"
             _download_in_background(youtube_url, save_path)
             
-            # Stream using mpv (handles YouTube URLs natively)
+            # Stream using mpv (let it auto-detect audio backend, likely ALSA or Pulse)
             print("[music] Streaming...", flush=True)
             
             # Check if mpv is installed
@@ -119,12 +119,27 @@ def play_music(query):
                 print("[music] ERROR: mpv not installed. Install with: sudo apt-get install mpv", flush=True)
                 return None
             
-            # mpv --no-video plays audio only, --ao=pulse routes to PulseAudio
-            stream_cmd = ["mpv", "--no-video", "--ao=pulse", youtube_url]
-            proc = subprocess.Popen(stream_cmd)
+            # mpv --no-video plays audio only. Removed --ao=pulse to allow auto-detect.
+            # Running as root (systemd) might be an issue for some audio servers.
+            stream_cmd = ["mpv", "--no-video", youtube_url]
+            
+            # Capture output to see errors in logs
+            proc = subprocess.Popen(stream_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             
             # Log stream process info
             print(f"[music] Stream process started: PID={proc.pid}", flush=True)
+            
+            # Read first few lines of output in a separate thread to debug startup
+            def log_stream_output(p):
+                try:
+                    outs, errs = p.communicate(timeout=5)
+                    print(f"[music] mpv stdout: {outs}", flush=True)
+                    print(f"[music] mpv stderr: {errs}", flush=True)
+                except subprocess.TimeoutExpired:
+                    pass # Process is running fine
+            
+            threading.Thread(target=log_stream_output, args=(proc,), daemon=True).start()
+            
             return proc
             
         except subprocess.CalledProcessError as e:
