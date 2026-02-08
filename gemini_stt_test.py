@@ -13,7 +13,7 @@ try:
     import sounddevice as sd
     import numpy as np
     from google import genai
-    from google.genai.types import LiveConnectConfig
+    from google.genai import types
 except ImportError as e:
     print(f"❌ Missing dependencies: {e}")
     print("Please install: pip install sounddevice numpy google-genai")
@@ -61,7 +61,7 @@ async def main():
         # The new SDK uses client.aio.live.connect
         async with client.aio.live.connect(
             model=MODEL_NAME,
-            config=LiveConnectConfig(
+            config=types.LiveConnectConfig(
                 response_modalities=["TEXT"],  # Request text transcription
                 system_instruction=types.Content(parts=[types.Part(text="You are RK AI. The user will address you as 'RK' or 'Arkay'. If you hear something like 'RK' or 'Okay', transcribe it as 'RK'.")]),
                 speech_config={"voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}}} # Optional config example
