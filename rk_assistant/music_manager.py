@@ -102,7 +102,8 @@ def play_music(query):
             print(f"[music] Found: {title}", flush=True)
             print(f"[music] Video ID: {video_id}", flush=True)
             
-            # Announce what we're playing (use cleaned query)\n            from .audio_utils import speak
+            # Announce what we're playing (use cleaned query)
+            from .audio_utils import speak
             speak(f"Playing {clean_query}")
 
             # Start Background Download using YouTube URL (not direct stream)
