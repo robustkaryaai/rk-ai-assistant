@@ -712,6 +712,23 @@ def main():
     print("RK AI ASSISTANT STARTUP")
     print(f"Device Slug: {slug}")
     print("="*60)
+
+    # Initialize variables needed for voice_flow
+    decoder_available = load_pocketsphinx_decoder()
+    music_proc_holder = {"proc": None}
+    
+    # Start background sync for mute/memory settings from Appwrite
+    try:
+        settings_sync.start_settings_sync()
+    except Exception as e:
+        print(f"[sync] Failed to start settings sync: {e}")
+    
+    # Start command poller for mobile app commands (Optional, separate thread)
+    try:
+        command_poller.start_command_poller(slug)
+    except Exception as e:
+        print(f"[commands] Failed to start command poller: {e}")
+
     # --- 6. Start Backend Command Polling (Background) ---
     # Disabled to stop 500 error spam while debugging voice
     # if online:
@@ -721,23 +738,13 @@ def main():
     
     # --- 7. Voice Loop ---
     try:
+        print("\n" + "="*30)
+        print("STARTING VOICE MODE")
+        print("="*30 + "\n")
         voice_flow(decoder_available, music_proc_holder, slug, recognizer, mic)
     except KeyboardInterrupt:
         pass # This is where the original code had a syntax error, fixed to 'pass'
-    
-    # Default to Voice Mode
-    print("\n" + "="*30)
-    print("STARTING VOICE MODE")
-    print("="*30 + "\n")
-    
-    decoder_available = load_pocketsphinx_decoder()
-    music_proc_holder = {"proc": None}
-    
-    # Start background sync for mute/memory settings from Appwrite
-    settings_sync.start_settings_sync()
-    
-    # Start command poller for mobile app commands
-    command_poller.start_command_poller(slug)
+
     
     # Announce ready right before starting to listen
     ready_msg = "Radhe Radhe RK AI assistant is ready"
