@@ -36,7 +36,6 @@ from .config import (
     GEMINI_API_KEY, # Added by user instruction
     GEMINI_API_KEY_BACKUP # Added by user instruction
 )
-from .gemini_client import transcribe_audio # Added by user instruction
 
 # Hardcoded settings for PulseAudio
 ALSA_DEVICE = "pulse" 
