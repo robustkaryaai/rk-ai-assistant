@@ -91,12 +91,11 @@ def play_music(query: str):
     # 6. Play with mpv (uses internal yt-dlp integration)
     # --no-video: audio only
     # --ytdl-format=bestaudio: faster loading on slow connections
-    # --really-quiet: suppress most output but show critical errors
     print("[music] Starting playback with mpv...", flush=True)
     
     try:
         current_player = subprocess.Popen(
-            ["mpv", "--no-video", "--ytdl-format=bestaudio", "--really-quiet", youtube_url]
+            ["mpv", "--no-video", "--ytdl-format=bestaudio", youtube_url]
         )
         print(f"[music] Playback started: PID={current_player.pid}", flush=True)
         return current_player
