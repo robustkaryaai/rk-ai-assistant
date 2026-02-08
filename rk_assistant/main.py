@@ -724,10 +724,10 @@ def main():
         print(f"[sync] Failed to start settings sync: {e}")
     
     # Start command poller for mobile app commands (Optional, separate thread)
-    try:
-        command_poller.start_command_poller(slug)
-    except Exception as e:
-        print(f"[commands] Failed to start command poller: {e}")
+    # try:
+    #     command_poller.start_command_poller(slug)
+    # except Exception as e:
+    #     print(f"[commands] Failed to start command poller: {e}")
 
     # --- 6. Start Backend Command Polling (Background) ---
     # Disabled to stop 500 error spam while debugging voice
