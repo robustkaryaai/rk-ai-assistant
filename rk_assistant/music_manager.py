@@ -74,11 +74,14 @@ def play_music(query):
                 "--no-playlist"
             ]
             
-            result = subprocess.run(cmd_search, capture_output=True, text=True, check=True)
+            print(f"[music] Running: {' '.join(cmd_search)}", flush=True)
+            result = subprocess.run(cmd_search, capture_output=True, text=True, check=True, timeout=30)
             output = result.stdout.strip().split('\n')
             
+            print(f"[music] yt-dlp output: {output}", flush=True)
+            
             if len(output) < 2:
-                print("[music] No results found.")
+                print(f"[music] No results found. Output was: {output}", flush=True)
                 return None
                 
             title = output[0]
@@ -102,8 +105,13 @@ def play_music(query):
             stream_cmd = f"yt-dlp '{youtube_url}' -o - -f bestaudio 2>&1 | mpg123 -o pulse -b 1024 -"
             return subprocess.Popen(stream_cmd, shell=True)
             
+        except subprocess.TimeoutExpired:
+            print("[music] Search timed out (30s)", flush=True)
+            return None
         except subprocess.CalledProcessError as e:
-            print(f"[music] Search failed: {e}", flush=True)
+            print(f"[music] Search failed with code {e.returncode}", flush=True)
+            print(f"[music] stdout: {e.stdout}", flush=True)
+            print(f"[music] stderr: {e.stderr}", flush=True)
             return None
         except Exception as e:
             print(f"[music] Error: {e}", flush=True)
