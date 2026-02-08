@@ -21,14 +21,22 @@ except ImportError:
 
 # Configuration
 from .config import (
-    SAMPLE_RATE, 
-    CHANNELS, 
+    SAMPLE_RATE,
+    CHANNELS,
     POCKETSPHINX_MODEL_DIR,
     WAKE_WORD,
     LAST_AUDIO,
     BLUETOOTH_SPEAKER_MAC,
-    MIC_DEVICE_INDEX
+    MIC_DEVICE_INDEX,
+    BLUETOOTH_HCI, # Added by user instruction
+    PIPER_EXECUTABLE, # Added by user instruction
+    PIPER_VOICE_MODEL, # Added by user instruction
+    MUTE_MODE, # Added by user instruction
+    STT_ENGINE, # Added by user instruction
+    GEMINI_API_KEY, # Added by user instruction
+    GEMINI_API_KEY_BACKUP # Added by user instruction
 )
+from .gemini_client import transcribe_audio # Added by user instruction
 
 # Hardcoded settings for PulseAudio
 ALSA_DEVICE = "pulse" 
