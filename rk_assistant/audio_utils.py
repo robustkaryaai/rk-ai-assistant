@@ -166,7 +166,18 @@ def online_stt(audio_path: Path) -> str:
         recognizer = sr.Recognizer()
         with sr.AudioFile(str(audio_path)) as source:
             audio = recognizer.record(source)
-        return recognizer.recognize_google(audio)
+            try:
+                return recognizer.recognize_google(audio)
+            except sr.UnknownValueError:
+                # RETRY ONCE WITH 5x BOOST
+                import audioop
+                raw_data = audio.get_raw_data()
+                boosted_raw = audioop.mul(raw_data, 2, 5.0)
+                boosted_audio = sr.AudioData(boosted_raw, audio.sample_rate, audio.sample_width)
+                text = recognizer.recognize_google(boosted_audio)
+                print(f"[stt] (Boosted 5x) Heard: '{text}'", flush=True)
+                return text
+                
     except Exception:
         return ""
 
