@@ -126,8 +126,24 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
         try:
             return recognizer.recognize_google(audio)
         except sr.UnknownValueError:
-            print("[stt] Speech detected but unintelligible.", flush=True)
-            return ""
+            # RETRY ONCE WITH 5x BOOST
+            try:
+                # print("[stt] Speech too quiet, boosting 5x and retrying...", flush=True)
+                raw_data = audio.get_raw_data()
+                # Multiply 16-bit samples by 5
+                # Note: This might clip, but helps with distant speech
+                boosted_raw = audioop.mul(raw_data, 2, 5.0) 
+                
+                boosted_audio = sr.AudioData(boosted_raw, audio.sample_rate, audio.sample_width)
+                
+                text = recognizer.recognize_google(boosted_audio)
+                print(f"[stt] (Boosted 5x) Heard: '{text}'", flush=True)
+                return text
+            except Exception:
+                # Still failed
+                print("[stt] Speech detected but unintelligible (even after boost).", flush=True)
+                return ""
+                
         except sr.RequestError as e:
             print(f"[stt] Google STT API Error: {e}", flush=True)
             return ""
