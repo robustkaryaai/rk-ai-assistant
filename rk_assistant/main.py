@@ -712,15 +712,19 @@ def main():
     print("RK AI ASSISTANT STARTUP")
     print(f"Device Slug: {slug}")
     print("="*60)
+    # --- 6. Start Backend Command Polling (Background) ---
+    # Disabled to stop 500 error spam while debugging voice
+    # if online:
+    #    check_thread = threading.Thread(target=check_commands_loop, args=(slug, music_proc_holder), daemon=True)
+    #    check_thread.start()
+    #    print("[commands] Background command poller started")
     
-    # Start BLE Provisioning Service (Daemon Thread)
+    # --- 7. Voice Loop ---
     try:
-        ble_thread = threading.Thread(target=start_ble_service, args=(slug,), daemon=True)
-        ble_thread.start()
-        print(f"[ble] Provisioning service started for {slug}")
-    except Exception as e:
-        print(f"[ble] Failed to start service: {e}", file=sys.stderr)
-
+        voice_flow(decoder_available, music_proc_holder, slug, recognizer, mic)
+    except KeyboardInterrupt:
+        pass # This is where the original code had a syntax error, fixed to 'pass'
+    
     # Default to Voice Mode
     print("\n" + "="*30)
     print("STARTING VOICE MODE")
