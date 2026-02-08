@@ -673,10 +673,10 @@ def main():
             
             print("[stt] Initializing microphone...", flush=True)
             recognizer = audio_utils.sr.Recognizer()
-            recognizer.dynamic_energy_threshold = False  # Use fixed threshold
-            recognizer.energy_threshold = 50  # Ultra-sensitive for sealed cases
-            recognizer.pause_threshold = 1.2   # Wait longer before ending
-            recognizer.phrase_threshold = 0.05 # Start INSTANTLY
+            recognizer.dynamic_energy_threshold = True  # Use dynamic threshold (like dev mode)
+            recognizer.energy_threshold = 300  # Default starting point (adjusted dynamically)
+            recognizer.pause_threshold = 0.8   # Standard pause
+            recognizer.phrase_threshold = 0.3 # Standard phrase threshold
             recognizer.non_speaking_duration = 0.5  # Long pre-buffer to catch "rk"
             
             from .config import MIC_DEVICE_INDEX
