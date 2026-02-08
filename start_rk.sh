@@ -30,10 +30,7 @@ export PYTHONPATH=$SCRIPT_DIR:$PYTHONPATH
 # ============================================================
 echo "[startup] Running pre-flight Bluetooth check..."
 
-# Restart bluetooth service first
-echo "[startup] Restarting bluetooth service..."
-sudo systemctl restart bluetooth 2>/dev/null || true
-sleep 5
+
 
 # 1. Wait for hci1 to be initialized (can take up to 60 seconds after boot)
 echo "[startup] Waiting for Bluetooth adapter hci1 to initialize..."
