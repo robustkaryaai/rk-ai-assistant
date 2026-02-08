@@ -105,6 +105,39 @@ Now only output JSON following the schema and rules."""
 
 from .config import GEMINI_MODEL_PRIMARY, GEMINI_MODEL_FALLBACK
 
+def transcribe_audio(audio_bytes: bytes, api_key: Optional[str] = None) -> str:
+    """Transcribe audio using Gemini Flash (Native Audio) with RK bias."""
+    if not GEMINI_AVAILABLE: return ""
+    
+    # 1. Try Primary Key
+    key = api_key
+    client = genai.Client(api_key=key, http_options={'timeout': 10000})
+
+    try:
+        from google.genai import types
+        response = client.models.generate_content(
+            model=GEMINI_MODEL_PRIMARY,
+            contents=[
+                types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav"),
+                "Transcribe exactly what is said. If no speech, return empty string."
+            ],
+            config=types.GenerateContentConfig(
+                system_instruction="You are RK AI. Expect the user to say 'RK' or 'Arkay' or 'Okay' at the start. Transcribe 'RK' or 'Arkay' as 'RK'.",
+                temperature=0.0
+            )
+        )
+        text = response.text.strip() if response.text else ""
+        # Fix common misinterpretations of RK
+        if text.lower().startswith(("okay", "hi", "hey", "arkay", "arche")):
+             # Simple heuristic: if it's short and starts with misinterpretation
+             if len(text.split()) < 4:
+                 text = text.replace("Okay", "RK").replace("Hi", "RK").replace("Hey", "RK").replace("Arkay", "RK")
+        return text
+    except Exception as e:
+        print(f"[gemini] Transcription failed: {e}")
+        return ""
+
+
 def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = GEMINI_MODEL_PRIMARY) -> List[Dict[str, Any]]:
     """
     Classify user intent using Gemini (google-genai SDK 1.0+) with automatic backup key AND model failover.
