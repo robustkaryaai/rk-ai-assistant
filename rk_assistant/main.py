@@ -731,7 +731,7 @@ def main():
     
     # Start background sync for mute/memory settings from Appwrite
     try:
-        settings_sync.start_settings_sync()
+        settings_sync.start_settings_sync(slug)
     except Exception as e:
         print(f"[sync] Failed to start settings sync: {e}")
     
