@@ -111,7 +111,7 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
             return ""
             
     except sr.WaitTimeoutError:
-        # print("[stt] Timeout: No speech detected.", flush=True) # Silence logging to reduce spam
+        # print("[stt] Timeout: No speech detected.", flush=True) # Silenced per user request
         return "" # Silence
     except Exception as e:
         print(f"[stt] Live listen error: {e}", flush=True)
