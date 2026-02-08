@@ -98,7 +98,8 @@ def play_music(query):
             
             # Stream Immediately using YouTube URL
             print("[music] Streaming...", flush=True)
-            stream_cmd = f"yt-dlp '{youtube_url}' -o - -f bestaudio --quiet | mpg123 -q -"
+            # Use -o pulse for PulseAudio, -b for buffer, remove -q to see errors
+            stream_cmd = f"yt-dlp '{youtube_url}' -o - -f bestaudio 2>&1 | mpg123 -o pulse -b 1024 -"
             return subprocess.Popen(stream_cmd, shell=True)
             
         except subprocess.CalledProcessError as e:
