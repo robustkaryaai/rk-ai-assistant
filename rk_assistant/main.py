@@ -446,9 +446,9 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         
         # Open microphone ONCE to avoid PyAudio/ALSA initialization overhead every loop
         with mic as source:
-            print("[stt] 🎙️ Calibrating microphone for ambient noise (10 seconds)... Please be quiet.")
-            # Longer calibration for better background noise modeling (User Request)
-            recognizer.adjust_for_ambient_noise(source, duration=10)
+            # Fast calibration at startup (1s)
+            print("[stt] 🎙️ Calibrating microphone for ambient noise (1s)... Please be quiet.", flush=True)
+            recognizer.adjust_for_ambient_noise(source, duration=1.0)
             
             # Boost sensitivity for distance (Lower threshold = more sensitive)
             # Default is 300-400, dynamic adjustment will fine-tune from here

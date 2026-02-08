@@ -75,16 +75,52 @@ def play_music(query: str):
         current_player.terminate()
         current_player.wait()
     
-    # 3. Search YouTube  
-    title, vid_id = _search_youtube(query)
-    if not vid_id:
-        print("[music] No results found", flush=True)
-        return None
-    
-    # 4. Check cache for MP3 (we want MP3 for mpg123)
-    from pathlib import Path
+    # Check JSON cache first to skip search
     cache_dir = Path.home() / "Downloads" / "rk_music_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    index_file = cache_dir / "music_index.json"
+    
+    music_cache = {}
+    if index_file.exists():
+        try:
+            with open(index_file, "r") as f:
+                music_cache = json.load(f)
+        except Exception:
+            pass
+            
+    # Normalize query for cache lookup
+    clean_q = _clean_query(query).lower().strip()
+    vid_id = music_cache.get(clean_q)
+    title = None # Initialize title
+    
+    if vid_id:
+        print(f"[music] Found in cache index: '{clean_q}' -> {vid_id}", flush=True)
+        title = clean_q # We don't have title from cache, but vid_id is enough
+    else:
+        # Announce searching
+        from .audio_utils import speak
+        speak(f"Searching for {clean_q}")
+        
+        # Search YouTube  
+        title, vid_id = _search_youtube(query)
+        if not vid_id:
+            print("[music] No results found", flush=True)
+            return None
+            
+        # Save to cache index
+        music_cache[clean_q] = vid_id
+        # Also map title if different
+        if title:
+             music_cache[title.lower().strip()] = vid_id
+             
+        try:
+            with open(index_file, "w") as f:
+                json.dump(music_cache, f)
+        except Exception as e:
+            print(f"[music] Failed to save cache index: {e}")
+    
+    # 4. Check cache for MP3 (we want MP3 for mpg123)
+    # cache_dir is already defined above
     cache_file = cache_dir / f"{vid_id}.mp3"
     
     if not cache_file.exists():
