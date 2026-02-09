@@ -553,9 +553,9 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     from .networking import check_network_health
                     threading.Thread(target=check_network_health, daemon=True).start()
                     
-                    # Duck volume (visual/audio feedback)
-                    if music_proc_holder.get("proc"):
-                        set_volume(20)
+                    # User request: Disable ducking during listening to avoid confusion/lag
+                    # if music_proc_holder.get("proc"):
+                    #    set_volume(20)
                     
                     # Strip key word to get command
                     idx = text_lower.find(detected_wake_word)
@@ -765,16 +765,32 @@ def main():
             
             print("[stt] Initializing microphone...", flush=True)
             recognizer = audio_utils.sr.Recognizer()
-            recognizer.dynamic_energy_threshold = True  # Use dynamic threshold (like dev mode)
-            recognizer.energy_threshold = 300  # Default starting point (adjusted dynamically)
-            recognizer.pause_threshold = 0.8   # Standard pause
-            recognizer.phrase_threshold = 0.3 # Standard phrase threshold
-            recognizer.non_speaking_duration = 0.5  # Long pre-buffer to catch "rk"
+            recognizer.dynamic_energy_threshold = True  
+            # User optimization: lower threshold for clean audio
+            recognizer.energy_threshold = 120 
+            recognizer.pause_threshold = 0.8   
+            recognizer.phrase_threshold = 0.3 
+            recognizer.non_speaking_duration = 0.5 
             
-            from .config import MIC_DEVICE_INDEX
+            from .config import MIC_DEVICE_INDEX, MIC_DEVICE_NAME
             device_idx = MIC_DEVICE_INDEX
+            
+            # Find clean_mic index if configured
+            if MIC_DEVICE_NAME:
+                print(f"[stt] Searching for microphone: {MIC_DEVICE_NAME}")
+                try:
+                    for i, name in enumerate(audio_utils.sr.Microphone.list_microphone_names()):
+                        if MIC_DEVICE_NAME in name:
+                            print(f"[stt] Found '{name}' at index {i}")
+                            device_idx = i
+                            break
+                except Exception as e:
+                    print(f"[stt] Error listing microphones: {e}")
+
             if device_idx is not None and device_idx < 0:
                 device_idx = None
+                
+            print(f"[stt] Using Microphone Index: {device_idx}")
             mic = audio_utils.sr.Microphone(device_index=device_idx)
             
             if mic is not None:
@@ -782,12 +798,12 @@ def main():
                 try:
                     with mic as source:
                         recognizer.adjust_for_ambient_noise(source, duration=10.0)
-                        print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
-                except AttributeError as e:
-                     if "'NoneType' object has no attribute 'close'" in str(e):
-                         print("[stt] Warning: Microphone close error during calibration (ignored).", flush=True)
-                     else:
-                         raise e
+                        # Re-force threshold if calibration drifted too high
+                        if recognizer.energy_threshold > 300:
+                            print(f"[stt] Calibration result too high ({recognizer.energy_threshold}), clamping to 300 for clean_mic.")
+                            recognizer.energy_threshold = 300
+                        else:
+                            print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
                 except Exception as e:
                      print(f"[stt] Warning: Ambient calibration failed: {e}", flush=True)
 

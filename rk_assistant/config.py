@@ -58,19 +58,37 @@ CHANNELS = 1
 MAX_RECORD_SECONDS = 15  # safety cap to avoid memory use
 WAKE_WORD = "rk"
 WAKE_WORDS = [
-    "rk", "arky", "arkey", "arkie", "archi", "archai", "archana", "arke", 
-    "aarti", "arti", "arty", "artie", "aarty", "earthy", "arty",
-    "arctic", "arctic", "arcade", "ark", "arc", "arkay", "arkey",
-    "are key", "arr key", "r k", "r.k.", "our key", "our k",
-    "archi", "archie", "archie", "aarav", "aari", "aarti",
-    "rocket", "rocky", "rocky", "ruby", "rishi", "rushi",
-    "hey rk", "okay rk", "hi rk", "hello rk",
-    "park", "mark", "dark", "ark", "arc", "arise", "arya", "aryan"
+    # Core RK forms
+    "rk", "r k", "r.k.", "ark", "arc",
+
+    # Direct phonetic variations
+    "arky", "arkey", "arkie", "arkay", "arke", "arki",
+    "archi", "archie", "archai",
+
+    # Vowel-expanded helpers (improves STT capture)
+    "arika", "aarika", "arka", "aar key", "are key", "arr key",
+    "ar kee", "aar kee", "our key", "our k",
+
+    # Indian-accent realistic matches
+    "aarki", "aarky", "aari", "aarav",
+    "aarti", "arti", "arty", "artie", "aarty",
+
+    # Close sound-alike names/words
+    "archana", "arya", "aryan", "rishi", "rushi", "ruby",
+
+    # RK-style alternate assistant names
+    "rocky", "rocket",
+
+    # Rare but possible STT confusions
+    "earthy", "arctic", "arcade", "arise", "aapke"
 ]
+
 
 # Microphone configuration for live STT
 _mic_env = os.getenv("MIC_DEVICE_INDEX")
-MIC_DEVICE_INDEX = int(_mic_env) if _mic_env and _mic_env != "-1" else None
+# Use clean_mic if available (Index None = default)
+MIC_DEVICE_INDEX = None
+MIC_DEVICE_NAME = "clean_mic"
 MIC_SAMPLE_RATE = int(os.getenv("MIC_SAMPLE_RATE", str(SAMPLE_RATE)))
 GTTS_ENABLE = os.getenv("GTTS_ENABLE", "1") == "1"
 GTTS_PLAYBACK_TIMEOUT = int(os.getenv("GTTS_PLAYBACK_TIMEOUT", "120"))
