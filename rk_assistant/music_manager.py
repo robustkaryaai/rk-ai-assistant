@@ -70,10 +70,20 @@ def play_music(query: str):
             return None
     
     # 2. Stop existing music
-    if current_player and current_player.poll() is None:
-        print("[music] Stopping previous track...", flush=True)
-        current_player.terminate()
-        current_player.wait()
+    # 2. Stop existing music
+    try:
+        if current_player and current_player.poll() is None:
+            print("[music] Stopping previous track...", flush=True)
+            current_player.terminate()
+            current_player.wait(timeout=2)
+    except Exception:
+        pass
+        
+    # FORCE KILL any lingering mpg123
+    try:
+        subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
     
     # 1. Clean query
     # Check JSON cache first to skip search
