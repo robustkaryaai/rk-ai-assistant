@@ -86,9 +86,9 @@ WAKE_WORDS = [
 
 # Microphone configuration for live STT
 _mic_env = os.getenv("MIC_DEVICE_INDEX")
-# Use clean_mic if available (Index None = default)
+# Temporarily use default mic (clean_mic not available until PulseAudio echo-cancel is loaded)
 MIC_DEVICE_INDEX = None
-MIC_DEVICE_NAME = "clean_mic"
+MIC_DEVICE_NAME = None  # Use system default instead of clean_mic
 MIC_SAMPLE_RATE = int(os.getenv("MIC_SAMPLE_RATE", str(SAMPLE_RATE)))
 GTTS_ENABLE = os.getenv("GTTS_ENABLE", "1") == "1"
 GTTS_PLAYBACK_TIMEOUT = int(os.getenv("GTTS_PLAYBACK_TIMEOUT", "120"))
