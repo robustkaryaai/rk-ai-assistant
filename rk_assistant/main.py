@@ -366,7 +366,7 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
                     
                     # Special handling for local music
                     if response.get("intent") == "music_local":
-                        speak(response.get("reply", "Playing music"))
+                        # speak(response.get("reply", "Playing music")) # Suppress duplicate speak (handled by music_manager)
                         query = response.get("query")
                         
                         from .music_manager import play_music
@@ -446,17 +446,14 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         
         # Open microphone ONCE to avoid PyAudio/ALSA initialization overhead every loop
         with mic as source:
-            # Fast calibration at startup (1s)
-            print("[stt] 🎙️ Calibrating microphone for ambient noise (1s)... Please be quiet.", flush=True)
-            recognizer.adjust_for_ambient_noise(source, duration=1.0)
+            # Calibration is now done ONCE at startup (in main)
+            # We assume recognizer is already calibrated
             
             # Boost sensitivity for distance (Lower threshold = more sensitive)
             # Default is 300-400, dynamic adjustment will fine-tune from here
             recognizer.energy_threshold = 200  # Start very sensitive
             recognizer.dynamic_energy_threshold = True
             recognizer.pause_threshold = 0.8   # Shorter pause to detect end of speech
-            
-            print(f"[stt] Calibration done! Energy Threshold: {recognizer.energy_threshold}")
             
             while True:
                 # Check mute status inside loop
@@ -514,90 +511,25 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                         except Exception:
                             command_part = ""
                     
-                    # Start conversation loop with the command
-                    process_online_command(command_part, slug, music_proc_holder)
-    
-    # Fallback / Offline path if loop breaks
-
-
-
-        text_lower = text.lower()
-        print(f"[stt] Heard: '{text}'")
-
-        # Check for any wake word from the list
-        detected_wake_word = None
-        for wake_word in WAKE_WORDS:
-            if wake_word in text_lower:
-                detected_wake_word = wake_word
-                break
-        
-        if detected_wake_word:
-            print(f"[wake] ✓ Wake word '{detected_wake_word}' detected!")
-            
-            # Diagnostic: Check network health immediately
-            from .networking import check_network_health
-            threading.Thread(target=check_network_health, daemon=True).start()
-            
-            # Duck volume (visual/audio feedback)
-            if music_proc_holder.get("proc"):
-                set_volume(20)
-
-            # Play wake sound
-            play_audio_url("https://github.com/Starttoaster/rk-voice/raw/main/wake.wav")
-            
-            # Strip key word to get command
-            # Find detection index
-            idx = text_lower.find(detected_wake_word)
-            # Take everything AFTER the wake word
-            command_part = text[idx + len(detected_wake_word):].strip()
-            
-            # If user just said wake word only, listen for follow-up
-            if not command_part:
-                print("[stt] Wake word heard but no command. Listening for follow-up...")
-                command_part = live_stt_listen(recognizer, mic, timeout=5.0)
-            
-            # --- CONVERSATION LOOP ---
-            # If we enter conversation mode, we keep listening until silence/exit
-            
-            current_command = command_part
-            in_conversation = True
-            
-            while in_conversation:
-                in_conversation = False # Default to exit unless renewed
-                
-                if current_command:
-                    print(f"[stt] Processing command: '{current_command}'")
+                    # --- CONVERSATION LOOP ---
+                    # If we enter conversation mode, we keep listening until silence/exit
                     
-                    # Execute logic
-                    expect_followup = False
+                    current_command = command_part
+                    in_conversation = True
                     
-                    if match_offline_command(current_command):
-                         # Offline command (lights etc)
-                         handle_offline_command(current_command, slug)
-                         # Note: handle_offline_command already calls speak(), no need to call again
-                    else:
-                         # Online AI
-                         expect_followup = process_online_command(current_command, slug, music_proc_holder)
-                    
-                    # Restore volume
-                    if music_proc_holder.get("proc"):
-                        set_volume(80)
+                    while in_conversation:
+                        in_conversation = False # Default to exit unless renewed
                         
-                    # If this was a chat/question, keep listening!
-                    if expect_followup and is_online():
-                        print("[stt] 🗣️ Follow-up mode active. Listening (5s)...")
-                        # Visual cue could be added here (e.g. LED blink)
-                        
-                        # Short listen window
-                        follow_up_text = live_stt_listen(recognizer, mic, timeout=5.0, phrase_time_limit=8.0)
-                        
-                        if follow_up_text:
-                            # User said something! Loop again.
-                            # Check to avoid looping on "thank you" or "stop"
-                            lower_f = follow_up_text.lower()
-                            if any(x in lower_f for x in ["stop", "cancel", "thank you", "thanks", "bye", "goodbye"]):
-                                print(f"[stt] Conversation ended by user: {follow_up_text}")
-                                speak("You're welcome.")
+                        if current_command:
+                            print(f"[stt] Processing command: '{current_command}'")
+                            
+                            # Execute logic
+                            expect_followup = False
+                            
+                            if match_offline_command(current_command):
+                                 # Offline command (lights etc)
+                                 handle_offline_command(current_command, slug)
+                                 # Note: handle_offline_command already calls speak(), no need to call again
                             else:
                                 print(f"[stt] Follow-up heard: '{follow_up_text}'")
                                 current_command = follow_up_text
@@ -613,9 +545,9 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     if music_proc_holder.get("proc"):
                         set_volume(80)
             
-        else:
+            else:
             # print(f"[stt] Ignored (no wake word): {text}")
-            pass
+                pass
 
             
     else:
