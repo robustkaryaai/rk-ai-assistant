@@ -158,17 +158,19 @@ def play_music(query: str):
     # from .audio_utils import speak
     # speak(f"Playing {_clean_query(query)}")
     
-    # 7. Play with mpg123 (User request)
-    print(f"[music] Starting playback with mpg123...", flush=True)
+    # 7. Play with mpv (More robust buffering/bluetooth support)
+    print(f"[music] Starting playback with mpv...", flush=True)
     try:
-        # Use mpg123 with optimized buffer settings
+        # Use mpv (handles buffering and audio sinks automatically)
+        # --no-video: Audio only
+        # --volume=100: Ensure full volume
         current_player = subprocess.Popen([
-            "mpg123", 
-            "-o", "pulse", 
-            "-b", "1024", 
-            "-f", "32768", # Standard volume (can increase if needed)
+            "mpv", 
+            "--no-video", 
+            "--volume=100", 
             str(cache_file)
-        ])
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
         print(f"[music] Playback started: PID={current_player.pid}", flush=True)
         return current_player
     except Exception as e:

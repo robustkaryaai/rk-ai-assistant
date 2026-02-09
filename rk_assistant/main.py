@@ -511,9 +511,87 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                         except Exception:
                             command_part = ""
                     
-                    # --- CONVERSATION LOOP ---
-                    # If we enter conversation mode, we keep listening until silence/exit
+def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:
+    """
+    Unified voice flow.
+    ONLINE: Uses Google STT continuously to listen. If 'rk' is in text, executes command.
+    OFFLINE: Falls back to PocketSphinx for wake word.
+    """
+    # Check if device is muted (synced from Appwrite via mobile app)
+    if settings_sync.is_device_muted():
+        print("[voice] Device is muted, skipping listening...")
+        time.sleep(2)  # Check again in 2 seconds
+        return
+    
+    # 1. Determine mode
+    online = is_online()
+    
+    if online and recognizer and mic:
+        # --- ONLINE MODE (Always-on Google STT) ---
+        print(f"[stt] Listening continuously (will respond when '{WAKE_WORD}' detected)...", flush=True)
+        
+        # Open microphone ONCE to avoid PyAudio/ALSA initialization overhead every loop
+        with mic as source:
+            # Calibration is now done ONCE at startup (in main)
+            # We assume recognizer is already calibrated
+            
+            while True:
+                # Check mute status inside loop
+                if settings_sync.is_device_muted():
+                    print("[voice] Device muted, pausing listening...")
+                    time.sleep(2)
+                    continue
+
+                if not is_online():
+                    # Fallback to offline loop if internet lost
+                    break
+
+                # Pass OPEN source to live_stt_listen (zero latency)
+                # Timeout 8s to allow silence detection, phrase limit 10s for commands
+                text = live_stt_listen(recognizer, source, timeout=8, phrase_time_limit=10.0)
+                
+                if not text:
+                    continue
+
+                text_lower = text.lower()
+                print(f"[stt] Heard: '{text}'")
+
+                # Check for any wake word from the list
+                detected_wake_word = None
+                for wake_word in WAKE_WORDS:
+                    if wake_word in text_lower:
+                        detected_wake_word = wake_word
+                        break
+                
+                if detected_wake_word:
+                    print(f"[wake] ✓ Wake word '{detected_wake_word}' detected!")
                     
+                    # Diagnostic: Check network health immediately
+                    from .networking import check_network_health
+                    threading.Thread(target=check_network_health, daemon=True).start()
+                    
+                    # Duck volume (visual/audio feedback)
+                    if music_proc_holder.get("proc"):
+                        set_volume(20)
+
+                    # Play wake sound
+                    play_audio_url("https://github.com/Starttoaster/rk-voice/raw/main/wake.wav")
+                    
+                    # Strip key word to get command
+                    idx = text_lower.find(detected_wake_word)
+                    command_part = text[idx + len(detected_wake_word):].strip()
+                    
+                    # If user just said wake word only, listen for follow-up
+                    if not command_part:
+                        print("[stt] Wake word heard but no command. Listening for follow-up...")
+                        # Reuse the SAME source for follow-up
+                        try:
+                            audio = recognizer.listen(source, timeout=5.0, phrase_time_limit=10.0)
+                            command_part = recognizer.recognize_google(audio)
+                        except Exception:
+                            command_part = ""
+                    
+                    # --- CONVERSATION LOOP ---
                     current_command = command_part
                     in_conversation = True
                     
@@ -527,29 +605,39 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             expect_followup = False
                             
                             if match_offline_command(current_command):
-                                 # Offline command (lights etc)
                                  handle_offline_command(current_command, slug)
-                                 # Note: handle_offline_command already calls speak(), no need to call again
                             else:
-                                print(f"[stt] Follow-up heard: '{follow_up_text}'")
-                                current_command = follow_up_text
-                                in_conversation = True
+                                 expect_followup = process_online_command(current_command, slug, music_proc_holder)
+                            
+                            # Restore volume
+                            if music_proc_holder.get("proc"):
+                                set_volume(80)
                                 
-                                # Duck volume again if music playing
-                                if music_proc_holder.get("proc"):
-                                    set_volume(20)
+                            # If this was a chat/question, keep listening!
+                            if expect_followup and is_online():
+                                print("[stt] 🗣️ Follow-up mode active. Listening (5s)...")
+                                follow_up_text = live_stt_listen(recognizer, mic, timeout=5.0, phrase_time_limit=8.0)
+                                
+                                if follow_up_text:
+                                    lower_f = follow_up_text.lower()
+                                    if any(x in lower_f for x in ["stop", "cancel", "thank you", "thanks", "bye", "goodbye"]):
+                                        print(f"[stt] Conversation ended by user: {follow_up_text}")
+                                        speak("You're welcome.")
+                                    else:
+                                        print(f"[stt] Follow-up heard: '{follow_up_text}'")
+                                        current_command = follow_up_text
+                                        in_conversation = True
+                                        if music_proc_holder.get("proc"):
+                                            set_volume(20)
+                                else:
+                                    print("[stt] No follow-up heard.")
                         else:
-                            print("[stt] No follow-up heard. Conversation ended.")
+                            print("[stt] No command heard after wake word.")
+                            if music_proc_holder.get("proc"):
+                                set_volume(80)
                 else:
-                    print("[stt] No command heard after wake word.")
-                    if music_proc_holder.get("proc"):
-                        set_volume(80)
-            
-            else:
-            # print(f"[stt] Ignored (no wake word): {text}")
-                pass
+                    pass
 
-            
     else:
         # --- OFFLINE MODE (PocketSphinx Fallback) ---
         print(f"[wake] Waiting for wake word '{WAKE_WORD}' (Offline/Pocketsphinx)...", flush=True)
@@ -564,11 +652,9 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
             
         play_audio_url("https://github.com/Starttoaster/rk-voice/raw/main/wake.wav")
         
-        # Record & Transcribe
         audio_path = record_until_silence(LAST_AUDIO)
         
         text = ""
-        # If we coincidentally have net now (flaky connection)
         if is_online():
              text = online_stt(audio_path)
         
@@ -590,6 +676,9 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 speak("I am offline.")
 
         if music_proc_holder.get("proc"):
+            set_volume(80)
+            
+
             set_volume(80)
 
 
