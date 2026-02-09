@@ -42,15 +42,26 @@ ALSA_DEVICE = "pulse"
 BUFFER_TIME = "500000" # 0.5s buffer
 
 def play_audio_file(file_path: str):
-    """Play WAV file using aplay via PulseAudio."""
-    if not os.path.exists(file_path): return
+    """Ultra-smooth WAV playback using ffplay (Bluetooth-safe)."""
+    if not os.path.exists(file_path):
+        return
+
     try:
         subprocess.run(
-            ["aplay", "-D", ALSA_DEVICE, "-q", file_path],
-            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            [
+                "ffplay",
+                "-nodisp",          # no window
+                "-autoexit",        # exit after playback
+                "-loglevel", "quiet",
+                file_path
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
         )
     except Exception as e:
         print(f"[audio] Play error: {e}")
+
 
 def play_audio_url(url: str):
     """Play MP3 URL cleanly via PulseAudio (Bluetooth-safe)."""
@@ -61,9 +72,19 @@ def play_audio_url(url: str):
         return subprocess.Popen(
             [
                 "mpg123",
-                "-o", "pulse",     # correct audio backend
-                "-b", "4096",      # bigger buffer → no ticking
+
+                # Force stable PulseAudio output
+                "-o", "pulse",
+
+                # BIG buffer = removes tick sound
+                "-b", "8192",
+
+                # Disable internal resync glitches
+                "--no-resync",
+
+                # Quiet mode
                 "-q",
+
                 url
             ],
             stdout=subprocess.DEVNULL,

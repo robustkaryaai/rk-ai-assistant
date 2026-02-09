@@ -81,6 +81,24 @@ from . import settings_sync  # Sync mute/memory from Appwrite
 from . import command_poller  # Poll and execute commands from mobile app
 from .error_monitor import register_error, get_monitor
 from . import self_diagnosis
+from difflib import SequenceMatcher
+
+def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.72):
+    """Fuzzy match spoken text against wake words."""
+    text = text.lower().strip()
+
+    for w in wake_words:
+        ratio = SequenceMatcher(None, text, w).ratio()
+        if ratio >= threshold:
+            return w
+
+        # also check per-word matching
+        for token in text.split():
+            if SequenceMatcher(None, token, w).ratio() >= threshold:
+                return w
+
+    return None
+
 
 
 
@@ -170,15 +188,63 @@ def ensure_valid_slug() -> Optional[str]:
 
 
 def _monitor_music_for_wake(decoder_available: bool, music_proc_holder: dict) -> None:
-    """Listen for wake word during playback; if heard, lower volume to hear user."""
+    """
+    Continuously listen for wake word while music is playing.
+    Ducks volume, captures command, then restores volume.
+    """
+
     if not decoder_available:
         return
+
     proc = music_proc_holder.get("proc")
-    if proc is None or proc.poll() is not None:
+    if proc is None:
         return
-    if wait_for_wake_word(decoder_available, WAKE_WORD, max_seconds=8):
-        set_volume(-10)
-        speak("Listening.")
+
+    print("[wake] Music wake monitor started", flush=True)
+
+    while proc.poll() is None:  # run while music playing
+        try:
+            # Listen briefly for wake word
+            heard = wait_for_wake_word(decoder_available, WAKE_WORD, max_seconds=3)
+
+            if not heard:
+                continue
+
+            print("[wake] Wake word detected during music!", flush=True)
+
+            # 1️⃣ Duck music volume
+            set_volume(20)
+
+            # 3️⃣ Tell user we're listening
+            speak("Listening")
+
+            # 4️⃣ Capture command using STT
+            if recognizer and mic:
+                with mic as source:
+                    audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+
+                try:
+                    command = recognizer.recognize_google(audio).lower()
+                except Exception:
+                    command = ""
+
+                if command:
+                    print(f"[command] {command}", flush=True)
+
+                    # 👉 send command to main handler
+                    from .brain import handle_command
+                    threading.Thread(target=handle_command, args=(command,), daemon=True).start()
+
+            # 5️⃣ Restore music volume smoothly
+            time.sleep(0.5)
+            set_volume(100)
+
+        except Exception as e:
+            print(f"[wake] Monitor error: {e}", flush=True)
+            time.sleep(1)
+
+    print("[wake] Music ended → stopping wake monitor", flush=True)
+
 
 
 def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, decoder_available: bool = False, original_text: str = "") -> None:
@@ -477,11 +543,8 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 print(f"[stt] Heard: '{text}'")
 
                 # Check for any wake word from the list
-                detected_wake_word = None
-                for wake_word in WAKE_WORDS:
-                    if wake_word in text_lower:
-                        detected_wake_word = wake_word
-                        break
+                detected_wake_word = _is_wake_word_heard(text_lower, WAKE_WORDS)
+
                 
                 if detected_wake_word:
                     print(f"[wake] ✓ Wake word '{detected_wake_word}' detected!")
@@ -493,9 +556,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     # Duck volume (visual/audio feedback)
                     if music_proc_holder.get("proc"):
                         set_volume(20)
-
-                    # Play wake sound
-                    play_audio_url("https://github.com/Starttoaster/rk-voice/raw/main/wake.wav")
                     
                     # Strip key word to get command
                     idx = text_lower.find(detected_wake_word)
@@ -557,11 +617,8 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 print(f"[stt] Heard: '{text}'")
 
                 # Check for any wake word from the list
-                detected_wake_word = None
-                for wake_word in WAKE_WORDS:
-                    if wake_word in text_lower:
-                        detected_wake_word = wake_word
-                        break
+                detected_wake_word = _is_wake_word_heard(text_lower, WAKE_WORDS)
+
                 
                 if detected_wake_word:
                     print(f"[wake] ✓ Wake word '{detected_wake_word}' detected!")
@@ -573,9 +630,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     # Duck volume (visual/audio feedback)
                     if music_proc_holder.get("proc"):
                         set_volume(20)
-
-                    # Play wake sound
-                    play_audio_url("https://github.com/Starttoaster/rk-voice/raw/main/wake.wav")
                     
                     # Strip key word to get command
                     idx = text_lower.find(detected_wake_word)
@@ -649,8 +703,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         
         if music_proc_holder.get("proc"):
             set_volume(20)
-            
-        play_audio_url("https://github.com/Starttoaster/rk-voice/raw/main/wake.wav")
         
         audio_path = record_until_silence(LAST_AUDIO)
         
@@ -726,10 +778,10 @@ def main():
             mic = audio_utils.sr.Microphone(device_index=device_idx)
             
             if mic is not None:
-                print("[stt] Calibrating microphone for ambient noise (2 seconds)...", flush=True)
+                print("[stt] Calibrating microphone for ambient noise (10 seconds)...", flush=True)
                 try:
                     with mic as source:
-                        recognizer.adjust_for_ambient_noise(source, duration=2.0)
+                        recognizer.adjust_for_ambient_noise(source, duration=10.0)
                         print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
                 except AttributeError as e:
                      if "'NoneType' object has no attribute 'close'" in str(e):
