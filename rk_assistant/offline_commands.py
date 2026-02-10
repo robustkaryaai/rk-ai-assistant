@@ -64,10 +64,10 @@ def process_offline_command(cmd: str, music_proc=None) -> str:
     # Music controls
     if cmd in {"play music", "resume music"}:
         return "No cached music URL. Please ask online."
-    elif cmd in {"pause music", "stop music"}:
+    elif cmd in {"pause music", "stop music", "stop", "pause", "quiet", "shut up", "silence", "exit"}:
         if music_proc:
             stop_process(music_proc)
-            return "Paused."
+            return "Stopped."
         return "Nothing playing."
     elif cmd == "volume up" or cmd == "increase volume":
         set_volume(+10)

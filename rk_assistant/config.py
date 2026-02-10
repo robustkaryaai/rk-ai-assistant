@@ -159,9 +159,10 @@ OFFLINE_COMMANDS = [
     "nice", "great", "awesome", "cool", "wonderful", "excellent", "perfect",
     "sorry", "excuse me", "pardon me", "my bad",
     
-    # Music and media controls
-    "play music", "pause music", "resume music", "stop music",
-    "next song", "previous song", "skip", "replay",
+    # Music    # Music controls
+    "play music", "stop music", "pause music", "resume music",
+    "volume up", "volume down", "mute", "unmute",
+    "stop", "pause", "quiet", "shut up", "silence", "exit",
     "volume up", "volume down", "mute", "unmute", "increase volume", "decrease volume",
     
     # Information queries

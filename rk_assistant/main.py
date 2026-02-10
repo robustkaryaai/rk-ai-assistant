@@ -456,7 +456,10 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
                     
                     # Special handling for local music
                     if response.get("intent") == "music_local":
-                        # speak(response.get("reply", "Playing music")) # Suppress duplicate speak (handled by music_manager)
+                        # Speak immediately so user knows we are working on it
+                        reply = response.get("reply", "Playing music")
+                        speak(reply)
+                        
                         query = response.get("query")
                         
                         from .music_manager import play_music
