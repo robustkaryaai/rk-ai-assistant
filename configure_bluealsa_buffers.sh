@@ -9,7 +9,7 @@ echo "Configuring bluealsa-aplay buffers"
 echo "======================================"
 echo ""
 
-SPEAKER_MAC="E0:C8:22:85:F8:32"
+SPEAKER_MAC="D0:78:1D:4F:F4:1E"
 
 echo "1. Stopping existing bluealsa-aplay..."
 sudo systemctl stop bluealsa-aplay 2>/dev/null || sudo pkill bluealsa-aplay 2>/dev/null || true

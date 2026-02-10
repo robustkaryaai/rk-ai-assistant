@@ -138,7 +138,7 @@ NEWS_COUNTRY_DEFAULT = os.getenv("NEWS_COUNTRY_DEFAULT", "in")
 BT_CHANNEL = int(os.getenv("BT_CHANNEL", "3"))
 
 # Bluetooth Speaker MAC (for auto-connect)
-BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "E0:C8:22:85:F8:32")
+BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "D0:78:1D:4F:F4:1E")
 
 # Preferred BlueZ adapter (default hci0 on Raspberry Pi)
 BLUETOOTH_HCI = os.getenv("BLUETOOTH_HCI", "hci1")

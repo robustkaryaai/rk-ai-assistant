@@ -10,7 +10,7 @@ echo "======================================"
 echo ""
 
 # Get speaker MAC from environment or use default
-SPEAKER_MAC="${BLUETOOTH_SPEAKER_MAC:-E0:C8:22:85:F8:32}"
+SPEAKER_MAC="${BLUETOOTH_SPEAKER_MAC:-D0:78:1D:4F:F4:1E}"
 SPEAKER_MAC_UNDERSCORE=$(echo "$SPEAKER_MAC" | tr ':' '_')
 
 echo "Creating /etc/asound.conf for bluez-alsa output..."
