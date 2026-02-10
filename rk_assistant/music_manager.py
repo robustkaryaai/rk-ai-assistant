@@ -93,8 +93,16 @@ def play_music(query: str):
         data = index[best_match]
         file_path = os.path.join(cache_dir, f"{best_match}.mp3")
         if os.path.exists(file_path):
+            # Shorten title for speaking
+            speak_title = data['title']
+            if "|" in speak_title:
+                speak_title = speak_title.split("|")[0]
+            words = speak_title.split()
+            if len(words) > 5:
+                speak_title = " ".join(words[:5])
+                
             print(f"[music] ⚡ Instant Hit: {data['title']} (Score: {best_score:.2f})", flush=True)
-            speak(f"Playing {data['title']}")
+            speak(f"Playing {speak_title}")
             
             # Update queries list if new
             if norm_query not in data.get("queries", []):
@@ -144,8 +152,16 @@ def play_music(query: str):
             }
             with open(index_path, "w") as f:
                 json.dump(index, f, indent=2)
+            
+            # Shorten title
+            speak_title = title
+            if "|" in speak_title:
+                speak_title = speak_title.split("|")[0]
+            words = speak_title.split()
+            if len(words) > 5:
+                speak_title = " ".join(words[:5])
                 
-            speak(f"Playing {title}")
+            speak(f"Playing {speak_title}")
         else:
             # Download
             speak(f"Downloading the song, please wait.")
@@ -173,8 +189,16 @@ def play_music(query: str):
             }
             with open(index_path, "w") as f:
                 json.dump(index, f, indent=2)
+             
+            # Shorten title   
+            speak_title = title
+            if "|" in speak_title:
+                speak_title = speak_title.split("|")[0]
+            words = speak_title.split()
+            if len(words) > 5:
+                speak_title = " ".join(words[:5])
                 
-            speak(f"Playing {title}")
+            speak(f"Playing {speak_title}")
             print(f"[music] ▶️  Playing new download...", flush=True)
 
         # User requested mpg123 ONLY
