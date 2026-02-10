@@ -71,7 +71,7 @@ from .networking import (
     setup_microphone_volume,
     wait_for_internet,
 )
-from .offline_commands import handle_offline_command, match_offline_command, offline_ai_reply
+from .offline_commands import match_offline_command, process_offline_command
 from .weather_news import fetch_news, fetch_weather
 from .provisioning_service import start_ble_service
 from .intent_classifier import guess_fallback_intent, start_pending_request_msg, needs_backend
@@ -600,7 +600,9 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             expect_followup = False
                             
                             if match_offline_command(current_command):
-                                 handle_offline_command(current_command, slug)
+                                 resp = process_offline_command(current_command, music_proc_holder.get("proc"))
+                                 if resp:
+                                     speak(resp)
                             else:
                                  expect_followup = process_online_command(current_command, slug, music_proc_holder)
                             
