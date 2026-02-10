@@ -157,6 +157,25 @@ def handle_memory(parameters: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+def handle_task(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle task/reminder intent locally.
+    Simple acknowledgment for now - can be extended to actually set reminders.
+    """
+    prompt = parameters.get("prompt", "reminder")
+    time = parameters.get("time", "")
+    
+    if time:
+        reply = f"Got it, I'll remind you about {prompt} in {time}"
+    else:
+        reply = f"Okay, noted: {prompt}"
+    
+    return {
+        "intent": "task",
+        "reply": reply
+    }
+
+
 def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = "") -> Dict[str, Any]:
     """
     Main router for local intent handling.
@@ -168,6 +187,9 @@ def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = 
     
     elif intent == "alarm":
         return handle_alarm(parameters)
+    
+    elif intent == "task":
+        return handle_task(parameters)
     
     elif intent == "remember":
         return handle_memory(parameters)
