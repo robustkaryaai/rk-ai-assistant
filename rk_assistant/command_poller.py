@@ -38,13 +38,27 @@ def get_mute_state() -> bool:
     """Get current mute state"""
     return _muted
 
+# Callback function to handle voice commands (set by main.py)
+_voice_command_callback = None
+
+def register_voice_callback(callback):
+    """Register callback function to execute voice commands"""
+    global _voice_command_callback
+    _voice_command_callback = callback
+
 def execute_voice_command(text: str) -> str:
     """Execute a voice command (send to backend for processing)"""
     try:
-        # For now, just speak the command acknowledgment
-        # In future, this will integrate with the main command processing
-        audio_utils_simple.speak(f"Executing command: {text}")
-        return f"Command '{text}' queued for execution"
+        if _voice_command_callback:
+            # Execute via callback (non-blocking thread ideally, but fine for now)
+            # We return immediately to acknowledge receipt
+            # The callback handles speaking/processing
+            Thread(target=_voice_command_callback, args=(text,), daemon=True).start()
+            return f"Command '{text}' executing..."
+        else:
+            # Fallback
+            audio_utils_simple.speak(f"Executing command: {text}")
+            return f"Command '{text}' queued (no handler)"
     except Exception as e:
         return f"Error: {str(e)}"
 

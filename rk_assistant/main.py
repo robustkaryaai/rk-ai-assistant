@@ -839,11 +839,24 @@ def main():
     except Exception as e:
         print(f"[sync] Failed to start settings sync: {e}")
     
-    # Start command poller for mobile app commands (Optional, separate thread)
-    # try:
-    #     command_poller.start_command_poller(slug)
-    # except Exception as e:
-    #     print(f"[commands] Failed to start command poller: {e}")
+    # Start command poller for mobile app commands
+    try:
+        def on_app_command(text):
+             print(f"[app] Received command: {text}")
+             # Check for offline commands first (e.g. stop music, volume)
+             if match_offline_command(text):
+                 from .offline_commands import process_offline_command
+                 resp = process_offline_command(text, music_proc_holder.get("proc"))
+                 if resp:
+                     speak(resp)
+             else:
+                 # Online processing
+                 process_online_command(text, slug, music_proc_holder)
+
+        command_poller.register_voice_callback(on_app_command)
+        command_poller.start_command_poller(slug)
+    except Exception as e:
+        print(f"[commands] Failed to start command poller: {e}")
 
     # --- 6. Start Backend Command Polling (Background) ---
     # Disabled to stop 500 error spam while debugging voice
