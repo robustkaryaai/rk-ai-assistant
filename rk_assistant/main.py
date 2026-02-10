@@ -333,7 +333,8 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
     
     # Local quick commands (instant, no acknowledgment needed)
     if "pause" in low and "music" in low:
-        stop_process(music_proc_holder.get("proc"))
+        from . import music_manager
+        music_manager.pause_music()
         speak("Paused.")
         return False
     elif "volume up" in low:
@@ -374,8 +375,8 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
                     # Special handling for local music
                     if response.get("intent") == "music_local":
                         # Speak immediately so user knows we are working on it
-                        reply = response.get("reply", "Playing music")
-                        speak(reply)
+                        # music_manager handles "searching" feedback, so do not speak(reply) here
+                        pass
                         
                         query = response.get("query")
                         
