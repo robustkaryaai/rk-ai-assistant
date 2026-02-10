@@ -315,6 +315,37 @@ record_audio = record_until_silence
 def load_pocketsphinx_decoder(*args, **kwargs): return False
 def wait_for_wake_word(*args, **kwargs): return False
 def stop_process(*args, **kwargs): pass
-def set_volume(*args, **kwargs): pass
+def set_volume(change=0):
+    """
+    Adjust system volume.
+    change: int (positive for up, negative for down).
+    """
+    try:
+        # Use pactl (PulseAudio) first as we use -o pulse for mpg123
+        if shutil.which("pactl"):
+            # Format: +10% or -10%
+            sign = "+" if change >= 0 else "-"
+            # Ensure at least 5% change to be noticeable, but handle 0
+            if change == 0: return
+            
+            # Limit volume max to 150%? pactl allows >100%.
+            # Using relative change
+            subprocess.run(
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{sign}{abs(change)}%"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        elif shutil.which("amixer"):
+            # Fallback to ALSA
+            sign = "+" if change >= 0 else "-"
+            subprocess.run(
+                ["amixer", "sset", "Master", f"{abs(change)}%{sign}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        else:
+             print("[audio] No volume control tool found (pactl/amixer).")
+    except Exception as e:
+        print(f"[audio] Error setting volume: {e}")
 def quick_stt(*args, **kwargs): return ""
 def synthesize_to_wav(*args, **kwargs): return None

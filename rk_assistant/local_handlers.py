@@ -262,6 +262,10 @@ def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = 
     elif intent == "stop_alarm":
         return handle_stop_alarm(parameters)
     
+    elif intent in ["replay", "restart_song", "previous_song"]:
+        # Map to music handler with special prompt
+        return handle_music({"prompt": "last song"})
+    
     elif intent in ["emergency_alarm", "fire_alarm"]:
         return handle_emergency_alarm(parameters)
     

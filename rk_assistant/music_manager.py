@@ -8,6 +8,7 @@ from .audio_utils import speak
 import signal
 
 current_player = None
+last_played_query = None
 
 
 def stop_music():
