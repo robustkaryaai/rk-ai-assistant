@@ -185,12 +185,24 @@ def handle_weather(parameters: Dict[str, Any]) -> Dict[str, Any]:
     """
     Handle weather intent locally using weather API.
     """
-    location = parameters.get("location", "Delhi, India")
+    from .weather_news import fetch_weather
     
-    # Simple response for now - can be enhanced with actual API call
+    location = parameters.get("location", "")
+    # Note: fetch_weather currently auto-detects location or uses config defaults
+    # We could extend it to accept location arg if needed
+    
+    weather = fetch_weather()
+    if weather:
+        current = weather.get("current", {})
+        temp = current.get("temp_c")
+        desc = current.get("condition", {}).get("text", "")
+        reply = f"Current weather is {desc}, {temp} degrees Celsius."
+    else:
+        reply = "Sorry, I couldn't get the weather info right now."
+
     return {
         "intent": "weather",
-        "reply": f"Fetching weather for {location}..."
+        "reply": reply
     }
 
 
@@ -198,9 +210,18 @@ def handle_news(parameters: Dict[str, Any]) -> Dict[str, Any]:
     """
     Handle news intent locally.
     """
+    from .weather_news import fetch_news
+    
+    news = fetch_news()
+    if news and news.get("articles"):
+        titles = [a.get("title", "") for a in news["articles"][:3]]
+        reply = "Here are the top headlines: " + ". ".join(titles)
+    else:
+        reply = "Sorry, I couldn't get the latest news."
+
     return {
         "intent": "news",
-        "reply": "Fetching latest news..."
+        "reply": reply
     }
 
 
