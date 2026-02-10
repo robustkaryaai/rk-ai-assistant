@@ -419,8 +419,8 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
                 model_name=GEMINI_MODEL_PRIMARY,
                 fallback_model=GEMINI_MODEL_FALLBACK
             )
-            local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm", "remember"]
-            backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "task", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
+            local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm", "remember", "task", "weather", "news"]
+            backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
             
             if intents and len(intents) > 0:
                 first_intent = intents[0]
