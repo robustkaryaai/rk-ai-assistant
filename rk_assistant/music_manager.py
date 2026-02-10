@@ -67,58 +67,40 @@ def play_music(query: str):
 
         # Try players in order of quality/reliability
         
-        # 1. VLC (cvlc) - Best quality
+        # 1. VLC (cvlc) - Best quality and streaming support
         try:
             print(f"[music] 🎵 Streaming with VLC...", flush=True)
-            player = subprocess.Popen(
+            # --no-video: audio only
+            # --play-and-exit: quit when done
+            # -q: quiet
+            return subprocess.Popen(
                 ["cvlc", "--no-video", "--play-and-exit", "-q", stream_url],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
-            current_player = player
-            return player
         except FileNotFoundError:
             pass
 
         # 2. mpv - Good quality
         try:
             print(f"[music] 🎵 Streaming with mpv...", flush=True)
-            player = subprocess.Popen(
+            return subprocess.Popen(
                 ["mpv", "--no-video", "--really-quiet", stream_url],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
-            current_player = player
-            return player
         except FileNotFoundError:
             pass
 
-        # 3. ffplay - Fallback (Force 48kHz stereo for better quality)
-        try:
-            print(f"[music] 🎵 Streaming with ffplay...", flush=True)
-            env = os.environ.copy()
-            env["SDL_AUDIODRIVER"] = "pulse"
-            player = subprocess.Popen(
-                ["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "quiet", 
-                 "-ar", "48000", "-ac", "2", stream_url],
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            current_player = player
-            return player
-        except FileNotFoundError:
-            pass
-            
-        # 4. mpg123 - Last resort
+        # 3. mpg123 - Reliable fallback
+        # Added --preload 0.1 to try to start faster? No, standard settings usually work if network is good.
+        # The --force-ipv4 on yt-dlp should fix the main delay.
         print(f"[music] 🎵 Streaming with mpg123...", flush=True)
-        player = subprocess.Popen(
+        return subprocess.Popen(
             ["mpg123", "-o", "pulse", "-q", stream_url],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        current_player = player
-        return player
         
     except Exception as e:
         print(f"[music] ❌ Error: {e}", flush=True)
