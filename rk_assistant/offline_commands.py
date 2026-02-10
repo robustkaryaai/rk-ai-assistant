@@ -48,95 +48,87 @@ def match_offline_command(text: str) -> Optional[str]:
     return None
 
 
-def handle_offline_command(cmd: str, music_proc) -> None:
-    """Execute lightweight actions."""
-    # ... (handlers remain the same, just falling through logic is changed) ...
+
+def process_offline_command(cmd: str, music_proc=None) -> str:
+    """Execute offline actions and return response text."""
+    cmd = (cmd or "").lower()
+    
     # Greeting commands
     if cmd in GREETING_RESPONSES:
-        response = random.choice(GREETING_RESPONSES[cmd])
-        speak(response)
-        return
+        return random.choice(GREETING_RESPONSES[cmd])
     
     # Conversational commands
     if cmd in CONVERSATIONAL_RESPONSES:
-        response = random.choice(CONVERSATIONAL_RESPONSES[cmd])
-        speak(response)
-        return
+        return random.choice(CONVERSATIONAL_RESPONSES[cmd])
     
     # Music controls
     if cmd in {"play music", "resume music"}:
-        speak("No cached music URL. Please ask online.")
+        return "No cached music URL. Please ask online."
     elif cmd in {"pause music", "stop music"}:
-        stop_process(music_proc)
-        speak("Paused.")
+        if music_proc:
+            stop_process(music_proc)
+            return "Paused."
+        return "Nothing playing."
     elif cmd == "volume up" or cmd == "increase volume":
-        set_volume(+5)
-        speak("Volume up.")
+        set_volume(+10)
+        return "Volume up."
     elif cmd == "volume down" or cmd == "decrease volume":
-        set_volume(-5)
-        speak("Volume down.")
+        set_volume(-10)
+        return "Volume down."
     elif cmd in {"mute"}:
         set_volume(-50)
-        speak("Muted.")
+        return "Muted."
     elif cmd in {"unmute"}:
         set_volume(+20)
-        speak("Unmuted.")
+        return "Unmuted."
     
     # Time and date
-    elif cmd in {"time", "what time is it", "current time"}:
+    elif any(x in cmd for x in ["time", "what time"]):
         now = dt.datetime.now()
-        speak(now.strftime("It is %I:%M %p."))
-    elif cmd in {"date", "what's the date", "today's date"}:
+        return now.strftime("It is %I:%M %p.")
+    elif any(x in cmd for x in ["date", "what's the date", "today's date"]):
         now = dt.datetime.now()
-        speak(now.strftime("Today is %A, %B %d, %Y."))
+        return now.strftime("Today is %A, %B %d, %Y.")
     
     # Announcements
     elif cmd in {"announcement", "announce", "make announcement"}:
-        speak("Ready for your announcement.")
+        return "Ready for your announcement."
     
     # Alarms (basic offline support)
     elif cmd in {"set alarm"}:
         from .alarm_manager import prompt_for_alarm_time, set_alarm
         time_str = prompt_for_alarm_time()
         if time_str and set_alarm(time_str):
-            speak(f"Alarm set for {time_str}.")
+            return f"Alarm set for {time_str}."
         else:
-            speak("Could not set alarm. Please try again.")
+            return "Could not set alarm. Please try again."
     elif cmd in {"cancel alarm", "delete alarm", "stop alarm"}:
         from .alarm_manager import cancel_all_alarms
         count = cancel_all_alarms()
         if count > 0:
-            speak(f"Canceled {count} alarm{'s' if count != 1 else ''}.")
+            return f"Canceled {count} alarm{'s' if count != 1 else ''}."
         else:
-            speak("No alarms to cancel.")
+            return "No alarms to cancel."
     
     # System info
     elif cmd in {"battery", "battery level", "battery status"}:
-        speak("Battery information not available in offline mode.")
+        return "Battery information not available in offline mode."
     elif cmd in {"status", "system status"}:
-        speak("System is running in offline mode.")
+        return "System is running in offline mode."
     
     # Assistant info
     elif cmd in {"who are you", "what's your name", "introduce yourself"}:
-        speak("I am RK AI, your personal assistant created by RK Innovators.")
+        return "I am RK AI, your personal assistant created by RK Innovators."
     elif cmd in {"help", "help me", "what can you do"}:
-        speak("I can help with music playback, alarms, time, date, and basic commands. For more features, connect to the internet.")
+        return "I can help with music playback, alarms, time, date, and basic commands. For more features, connect to the internet."
     elif cmd in {"commands", "list commands", "available commands"}:
-        speak("I support greetings, music controls, time and date queries, alarms, and system commands. Ask me anything!")
+        return "I support greetings, music controls, time and date queries, alarms, and system commands. Ask me anything!"
     
     # Nice responses
     elif cmd in {"nice", "great", "awesome", "cool", "wonderful", "excellent", "perfect"}:
         responses = ["Thank you!", "Glad you liked it!", "Great to hear!", "Awesome!"]
-        speak(random.choice(responses))
+        return random.choice(responses)
     
-    else:
-        speak("I am currently offline and cannot process that command.")
-
-
-def _offline_response(text: Optional[str]) -> str:
     return "I am currently offline and cannot process that command."
 
-
-def offline_ai_reply(text: str) -> str:
-    return _offline_response(text)
 
