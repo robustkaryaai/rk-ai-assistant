@@ -36,17 +36,21 @@ CONVERSATIONAL_RESPONSES = {
 }
 
 
+import re
+
 def match_offline_command(text: str) -> Optional[str]:
-    """Return matched command keyword if present."""
+    """Return matched command keyword if present as a WHOLE WORD."""
     text = (text or "").lower()
     for cmd in OFFLINE_COMMANDS:
-        if cmd in text:
+        # Use regex to match whole words only (e.g. "hi" won't match "something")
+        if re.search(rf"\b{re.escape(cmd)}\b", text):
             return cmd
     return None
 
 
 def handle_offline_command(cmd: str, music_proc) -> None:
     """Execute lightweight actions."""
+    # ... (handlers remain the same, just falling through logic is changed) ...
     # Greeting commands
     if cmd in GREETING_RESPONSES:
         response = random.choice(GREETING_RESPONSES[cmd])
@@ -126,12 +130,11 @@ def handle_offline_command(cmd: str, music_proc) -> None:
         speak(random.choice(responses))
     
     else:
-        speak(_offline_response(None))
+        speak("I am currently offline and cannot process that command.")
 
 
 def _offline_response(text: Optional[str]) -> str:
-    idx = int(time.time()) % len(OFFLINE_AI_RESPONSES)
-    return OFFLINE_AI_RESPONSES[idx]
+    return "I am currently offline and cannot process that command."
 
 
 def offline_ai_reply(text: str) -> str:
