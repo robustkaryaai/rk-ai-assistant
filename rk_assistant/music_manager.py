@@ -1,21 +1,27 @@
-"""Dead-simple music streaming with mpv."""
+"""Music streaming - using mpg123 for reliable Bluetooth playback."""
 
 import subprocess
 import shutil
+import tempfile
+import os
 
 current_player = None
 
 
 def play_music(query: str):
     """
-    Stream music from YouTube using mpv.
-    Ultra simple - just search and stream.
+    Download audio and play with mpg123 (proven to work with Bluetooth).
+    mpv doesn't reliably output to Bluetooth on Pi.
     """
     global current_player
     
-    # Check mpv
-    if not shutil.which("mpv"):
-        print("[music] Install mpv: sudo apt-get install -y mpv", flush=True)
+    # Check dependencies
+    if not shutil.which("mpg123"):
+        print("[music] Install mpg123: sudo apt-get install -y mpg123", flush=True)
+        return None
+    
+    if not shutil.which("yt-dlp"):
+        print("[music] Install yt-dlp: sudo apt-get install -y yt-dlp", flush=True)
         return None
     
     # Kill any existing player
@@ -25,7 +31,7 @@ def play_music(query: str):
     print(f"[music] 🔍 Searching: {query}", flush=True)
     
     try:
-        # Get video URL directly
+        # Get video URL
         search = subprocess.run(
             ["yt-dlp", "--force-ipv4", f"ytsearch1:{query}", "--get-id", "--get-title"],
             capture_output=True,
@@ -46,28 +52,46 @@ def play_music(query: str):
         url = f"https://www.youtube.com/watch?v={video_id}"
         
         print(f"[music] ✓ Found: {title}", flush=True)
-        print(f"[music] ▶️  Streaming...", flush=True)
+        print(f"[music] 📥 Downloading audio...", flush=True)
         
-        # Stream with mpv
-        player = subprocess.Popen(
+        # Download to temp file (small, fast)
+        temp_file = f"/tmp/rk_music_{video_id}.mp3"
+        
+        # Quick download with yt-dlp (best audio, fast)
+        dl = subprocess.run(
             [
-                "mpv",
-                "--no-video",
-                "--really-quiet",
-                "--audio-device=pulse",
-                "--ytdl-format=bestaudio/best",
-                "--cache=yes",
-                "--demuxer-max-bytes=5M",
+                "yt-dlp",
+                "--force-ipv4",
+                "-x", "--audio-format", "mp3",
+                "--audio-quality", "5",  # Medium quality for speed
+                "-o", temp_file,
+                "--no-part",
                 url
             ],
+            capture_output=True,
+            timeout=120  # 2 min max
+        )
+        
+        if dl.returncode != 0 or not os.path.exists(temp_file):
+            print(f"[music] ❌ Download failed", flush=True)
+            return None
+        
+        print(f"[music] ▶️  Playing...", flush=True)
+        
+        # Play with mpg123 (works with Bluetooth!)
+        player = subprocess.Popen(
+            ["mpg123", "-o", "pulse", "-q", temp_file],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
         
         current_player = player
-        print("[music] 🎵 Playing!", flush=True)
+        print("[music] 🎵 Now playing!", flush=True)
         return player
         
+    except subprocess.TimeoutExpired:
+        print("[music] ❌ Download timed out", flush=True)
+        return None
     except Exception as e:
         print(f"[music] ❌ Error: {e}", flush=True)
         return None
@@ -85,7 +109,10 @@ def stop_music():
         pass
     
     # Force kill
-    subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
     subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
+    
+    # Cleanup temp files
+    subprocess.run(["rm", "-f", "/tmp/rk_music_*.mp3"], stderr=subprocess.DEVNULL)
     
     print("[music] ⏹️  Stopped", flush=True)
