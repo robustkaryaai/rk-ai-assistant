@@ -92,6 +92,19 @@ def process_offline_command(cmd: str, music_proc=None) -> str:
     # Announcements
     elif cmd in {"announcement", "announce", "make announcement"}:
         return "Ready for your announcement."
+
+    # Weather (Works if internet is available, even if backend is down)
+    elif cmd in {"weather", "what's the weather", "weather today"}:
+        from .weather_news import fetch_weather
+        w = fetch_weather()
+        if w:
+            current = w.get("current", {})
+            temp = current.get("temp_c")
+            desc = current.get("condition", {}).get("text", "")
+            place = current.get("city", "")
+            return f"Current weather in {place} is {desc}, {temp} degrees Celsius."
+        else:
+            return "Sorry, I couldn't get the weather info."
     
     # Alarms (basic offline support)
     elif cmd in {"set alarm"}:
