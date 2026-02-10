@@ -187,88 +187,7 @@ def ensure_valid_slug() -> Optional[str]:
         return slug
 
 
-def _monitor_music_for_wake(decoder_available: bool, music_proc_holder: dict, slug: str) -> None:
-    """
-    Continuously listen for wake word while music is playing.
-    Ducks volume, captures command, then restores volume.
-    """
 
-    if not decoder_available:
-        return
-
-    proc = music_proc_holder.get("proc")
-    if proc is None:
-        return
-
-    print("[wake] Music wake monitor started", flush=True)
-
-    # Need recognizer/mic here for accurate capture if possible, 
-    # but we might only have generic ones if we aren't passing them in.
-    # For now, we'll try to use a fresh ephemeral recognizer/mic 
-    # OR better yet, rely on the main loop if we can (but this is a separate thread).
-    # Since this is a separate thread, we need our own audio setup if we want to capture *after* wake word.
-    
-    # Actually, the original code used global recognizer/mic which might not be visible here 
-    # if they were local to main() or voice_flow().
-    # Let's import audio_utils to get a fresh one if needed, or assume they are available.
-    # The original code at line 222 used 'recognizer' and 'mic' which were likely GLOBALS 
-    # but in my view of main.py they are local to voice_flow? 
-    # Wait, in main(), recognizer/mic are created. 
-    # But _monitor_music_for_wake is defined at module level.
-    # It cannot access recognizer/mic unless passed in or global.
-    
-    # FIX: We will just use quick_stt() or similar from audio_utils 
-    # which manages its own resources for a short command.
-    
-    while proc.poll() is None:  # run while music playing
-        try:
-            # Listen briefly for wake word
-            heard = wait_for_wake_word(decoder_available, WAKE_WORD, max_seconds=3)
-
-            if not heard:
-                continue
-
-            print("[wake] Wake word detected during music!", flush=True)
-
-            # 1️⃣ Duck music volume
-            set_volume(20)
-
-            # 3️⃣ Tell user we're listening
-            speak("Listening")
-
-            # 4️⃣ Capture command using STT
-            # Use quick_stt which is self-contained
-            command = quick_stt()
-
-            if command:
-                print(f"[command] {command}", flush=True)
-
-                # 👉 Execute command using process_online_command
-                # We need to run this in a thread or just call it directly.
-                # Since we are already in a thread, calling directly is fine 
-                # BUT process_online_command might take time.
-                # Let's spawn a thread to keep monitoring? 
-                # No, we want to capture, execute, then restore volume.
-                # process_online_command returns 'True' if follow up needed.
-                
-                # We check for offline commands first
-                if match_offline_command(command):
-                    from .offline_commands import process_offline_command
-                    resp = process_offline_command(command, music_proc_holder.get("proc"))
-                    if resp:
-                        speak(resp)
-                else:
-                    process_online_command(command, slug, music_proc_holder)
-
-            # 5️⃣ Restore music volume smoothly
-            time.sleep(0.5)
-            set_volume(100)
-
-        except Exception as e:
-            print(f"[wake] Monitor error: {e}", flush=True)
-            time.sleep(1)
-
-    print("[wake] Music ended → stopping wake monitor", flush=True)
 
 
 def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, slug: str, decoder_available: bool = False, original_text: str = "") -> None:
@@ -320,8 +239,6 @@ def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, slug: str, de
                 speak(reply_text)
             stop_process(music_proc_holder.get("proc"))
             music_proc_holder["proc"] = play_audio_url(song_url)
-            # Monitor for wake word during playback
-            threading.Thread(target=_monitor_music_for_wake, args=(decoder_available, music_proc_holder, slug), daemon=True).start()
         else:
             # Music intent but no link provided
             speak(reply_text or "Could not find the music.")
@@ -376,7 +293,6 @@ def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, slug: str, de
     if song_url and not has_intent:
         stop_process(music_proc_holder.get("proc"))
         music_proc_holder["proc"] = play_audio_url(song_url)
-        threading.Thread(target=_monitor_music_for_wake, args=(decoder_available, music_proc_holder, slug), daemon=True).start()
 
 
 def _send_to_backend_and_handle(text: str, slug: str, music_proc_holder: dict) -> None:
@@ -468,8 +384,6 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
                         if proc:
                             stop_process(music_proc_holder.get("proc"))
                             music_proc_holder["proc"] = proc
-                            # Monitor for wake word while music plays
-                            threading.Thread(target=_monitor_music_for_wake, args=(True, music_proc_holder, slug), daemon=True).start()
                             return False # Music playing, don't follow up immediately
                         else:
                             speak("I couldn't find that song.")
