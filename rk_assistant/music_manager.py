@@ -1,17 +1,14 @@
-"""Music streaming - using mpg123 for reliable Bluetooth playback."""
+"""Music streaming - instant playback with mpg123."""
 
 import subprocess
 import shutil
-import tempfile
-import os
 
 current_player = None
 
 
 def play_music(query: str):
     """
-    Download audio and play with mpg123 (proven to work with Bluetooth).
-    mpv doesn't reliably output to Bluetooth on Pi.
+    Stream music directly to mpg123 (works with Bluetooth, instant playback).
     """
     global current_player
     
@@ -31,7 +28,7 @@ def play_music(query: str):
     print(f"[music] 🔍 Searching: {query}", flush=True)
     
     try:
-        # Get video URL
+        # Get video ID and title
         search = subprocess.run(
             ["yt-dlp", "--force-ipv4", f"ytsearch1:{query}", "--get-id", "--get-title"],
             capture_output=True,
@@ -52,46 +49,38 @@ def play_music(query: str):
         url = f"https://www.youtube.com/watch?v={video_id}"
         
         print(f"[music] ✓ Found: {title}", flush=True)
-        print(f"[music] 📥 Downloading audio...", flush=True)
+        print(f"[music] ▶️  Streaming...", flush=True)
         
-        # Download to temp file (small, fast)
-        temp_file = f"/tmp/rk_music_{video_id}.mp3"
-        
-        # Quick download with yt-dlp (best audio, fast)
-        dl = subprocess.run(
+        # Get DIRECT audio stream URL from yt-dlp
+        stream_url_result = subprocess.run(
             [
                 "yt-dlp",
                 "--force-ipv4",
-                "-x", "--audio-format", "mp3",
-                "--audio-quality", "5",  # Medium quality for speed
-                "-o", temp_file,
-                "--no-part",
+                "-f", "bestaudio",
+                "-g",  # Get direct URL
                 url
             ],
             capture_output=True,
-            timeout=120  # 2 min max
+            text=True
         )
         
-        if dl.returncode != 0 or not os.path.exists(temp_file):
-            print(f"[music] ❌ Download failed", flush=True)
+        if stream_url_result.returncode != 0 or not stream_url_result.stdout.strip():
+            print("[music] ❌ Failed to get stream URL", flush=True)
             return None
         
-        print(f"[music] ▶️  Playing...", flush=True)
+        stream_url = stream_url_result.stdout.strip()
         
-        # Play with mpg123 (works with Bluetooth!)
+        # Stream directly to mpg123 (instant playback!)
         player = subprocess.Popen(
-            ["mpg123", "-o", "pulse", "-q", temp_file],
+            ["mpg123", "-o", "pulse", "-q", stream_url],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
         
         current_player = player
-        print("[music] 🎵 Now playing!", flush=True)
+        print("[music] 🎵 Now streaming!", flush=True)
         return player
         
-    except subprocess.TimeoutExpired:
-        print("[music] ❌ Download timed out", flush=True)
-        return None
     except Exception as e:
         print(f"[music] ❌ Error: {e}", flush=True)
         return None
@@ -110,9 +99,5 @@ def stop_music():
     
     # Force kill
     subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
-    
-    # Cleanup temp files
-    subprocess.run(["rm", "-f", "/tmp/rk_music_*.mp3"], stderr=subprocess.DEVNULL)
     
     print("[music] ⏹️  Stopped", flush=True)
