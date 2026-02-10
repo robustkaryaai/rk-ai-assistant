@@ -56,26 +56,20 @@ def play_music(query: str):
             [
                 "yt-dlp",
                 "--force-ipv4",
-                "-f", "bestaudio",
-                "-g",  # Get direct URL
-                url
-            ],
-            capture_output=True,
-            text=True
-        )
-        
-        if stream_url_result.returncode != 0 or not stream_url_result.stdout.strip():
-            print("[music] ❌ Failed to get stream URL", flush=True)
-            return None
-        
+        # Get direct stream URL (fastest) - Force IPv4 to avoid timeouts
+        cmd = ["yt-dlp", "--force-ipv4", "-f", "bestaudio", "-g", url]
+        stream_url_result = subprocess.run(cmd, capture_output=True, text=True)
         stream_url = stream_url_result.stdout.strip()
         
-        # 1. Try cvlc (VLC) - Most robust for streaming
-        if shutil.which("cvlc"):
+        if not stream_url:
+            print("[music] Could not extract stream URL", flush=True)
+            return None
+
+        # Try players in order of quality/reliability
+        
+        # 1. VLC (cvlc) - Best quality
+        try:
             print(f"[music] 🎵 Streaming with VLC...", flush=True)
-            # --no-video: audio only
-            # --play-and-exit: quit when done
-            # -q: quiet
             player = subprocess.Popen(
                 ["cvlc", "--no-video", "--play-and-exit", "-q", stream_url],
                 stdout=subprocess.DEVNULL,
@@ -83,9 +77,11 @@ def play_music(query: str):
             )
             current_player = player
             return player
+        except FileNotFoundError:
+            pass
 
-        # 2. Try mpv - Good alternative
-        elif shutil.which("mpv"):
+        # 2. mpv - Good quality
+        try:
             print(f"[music] 🎵 Streaming with mpv...", flush=True)
             player = subprocess.Popen(
                 ["mpv", "--no-video", "--really-quiet", stream_url],
@@ -94,31 +90,35 @@ def play_music(query: str):
             )
             current_player = player
             return player
+        except FileNotFoundError:
+            pass
 
-        # 3. Try ffplay (FFmpeg)
-        elif shutil.which("ffplay"):
+        # 3. ffplay - Fallback (Force 48kHz stereo for better quality)
+        try:
             print(f"[music] 🎵 Streaming with ffplay...", flush=True)
             env = os.environ.copy()
             env["SDL_AUDIODRIVER"] = "pulse"
             player = subprocess.Popen(
-                ["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "quiet", stream_url],
+                ["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "quiet", 
+                 "-ar", "48000", "-ac", "2", stream_url],
                 env=env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
             current_player = player
             return player
+        except FileNotFoundError:
+            pass
             
-        # 4. Fallback to mpg123 (slow buffering but works)
-        else:
-            print(f"[music] 🎵 Streaming with mpg123...", flush=True)
-            player = subprocess.Popen(
-                ["mpg123", "-o", "pulse", "-q", stream_url],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            current_player = player
-            return player
+        # 4. mpg123 - Last resort
+        print(f"[music] 🎵 Streaming with mpg123...", flush=True)
+        player = subprocess.Popen(
+            ["mpg123", "-o", "pulse", "-q", stream_url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        current_player = player
+        return player
         
     except Exception as e:
         print(f"[music] ❌ Error: {e}", flush=True)
