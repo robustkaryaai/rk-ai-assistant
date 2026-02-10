@@ -666,17 +666,17 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         # Only use offline commands if actually offline
         if is_online():
             process_online_command(text, slug, music_proc_holder)
-        elif match_offline_command(text):
-            # Offline and matches a known pattern
-            
-            # Note: process_offline_command now returns the response string instead of speaking
-            # and we pass music_proc correctly
-            response = process_offline_command(text, music_proc_holder.get("proc"))
-            if response:
-                speak(response)
         else:
-            # Offline and no known pattern
-            speak("I am offline and cannot process that command.")
+            matched_cmd = match_offline_command(text)
+            if matched_cmd:
+                # Offline and matches a known pattern
+                # Pass the MATCHED command (e.g. "stop") not the raw text
+                response = process_offline_command(matched_cmd, music_proc_holder.get("proc"))
+                if response:
+                    speak(response)
+            else:
+                # Offline and no known pattern
+                speak("I am currently offline and cannot process that command.")
 
         if music_proc_holder.get("proc"):
             music_manager.unpause_music()
