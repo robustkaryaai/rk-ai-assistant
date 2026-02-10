@@ -70,29 +70,46 @@ def play_music(query: str):
         
         stream_url = stream_url_result.stdout.strip()
         
-        # Try ffplay first (fastest streaming, good buffering)
-        if shutil.which("ffplay"):
-            print(f"[music] 🎵 Streaming with ffplay...", flush=True)
+        # 1. Try cvlc (VLC) - Most robust for streaming
+        if shutil.which("cvlc"):
+            print(f"[music] 🎵 Streaming with VLC...", flush=True)
+            # --no-video: audio only
+            # --play-and-exit: quit when done
+            # -q: quiet
             player = subprocess.Popen(
-                ["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "quiet", stream_url],
+                ["cvlc", "--no-video", "--play-and-exit", "-q", stream_url],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
             current_player = player
             return player
-            
-        # Fallback to mpv
+
+        # 2. Try mpv - Good alternative
         elif shutil.which("mpv"):
             print(f"[music] 🎵 Streaming with mpv...", flush=True)
             player = subprocess.Popen(
-                ["mpv", "--no-video", "--really-quiet", "--audio-device=pulse", stream_url],
+                ["mpv", "--no-video", "--really-quiet", stream_url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            current_player = player
+            return player
+
+        # 3. Try ffplay (FFmpeg)
+        elif shutil.which("ffplay"):
+            print(f"[music] 🎵 Streaming with ffplay...", flush=True)
+            env = os.environ.copy()
+            env["SDL_AUDIODRIVER"] = "pulse"
+            player = subprocess.Popen(
+                ["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "quiet", stream_url],
+                env=env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
             current_player = player
             return player
             
-        # Fallback to mpg123 (slow buffering but works)
+        # 4. Fallback to mpg123 (slow buffering but works)
         else:
             print(f"[music] 🎵 Streaming with mpg123...", flush=True)
             player = subprocess.Popen(
@@ -120,6 +137,8 @@ def stop_music():
         pass
     
     # Force kill
+    subprocess.run(["pkill", "-9", "vlc"], stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "cvlc"], stderr=subprocess.DEVNULL)
     subprocess.run(["pkill", "-9", "ffplay"], stderr=subprocess.DEVNULL)
     subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
     subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
