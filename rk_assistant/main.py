@@ -667,7 +667,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
             process_online_command(text, slug, music_proc_holder)
         elif match_offline_command(text):
             # Offline and matches a known pattern
-            from .offline_commands import process_offline_command
             
             # Note: process_offline_command now returns the response string instead of speaking
             # and we pass music_proc correctly
@@ -788,7 +787,6 @@ def main():
              print(f"[app] Received command: {text}")
              # Check for offline commands first (e.g. stop music, volume)
              if match_offline_command(text):
-                 from .offline_commands import process_offline_command
                  resp = process_offline_command(text, music_proc_holder.get("proc"))
                  if resp:
                      speak(resp)
