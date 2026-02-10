@@ -7,7 +7,10 @@ import sys
 import time
 import subprocess
 import threading
-import audioop
+try:
+    import audioop
+except ModuleNotFoundError:
+    import audioop_lts as audioop
 import math
 from pathlib import Path
 
