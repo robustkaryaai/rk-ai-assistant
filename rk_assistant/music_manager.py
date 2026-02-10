@@ -64,39 +64,42 @@ def play_music(query: str):
         vid_id = lines[1]
         
         print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
-        speak(f"Found {title}. Downloading, please wait.")
         
-        # 2. Download to local file (MP3)
-        # Use -x --audio-format mp3 to ensure mpg123 compatibility
-        # Output to fixed temp path
-        output_path = "/tmp/current_song.mp3"
-        if os.path.exists(output_path):
-            os.remove(output_path)
+        # Cache directory
+        cache_dir = os.path.join(os.getcwd(), "songs")
+        os.makedirs(cache_dir, exist_ok=True)
+        file_path = os.path.join(cache_dir, f"{vid_id}.mp3")
+        
+        # Check cache
+        if os.path.exists(file_path):
+            print(f"[music] 📂 Playing from cache: {file_path}", flush=True)
+            speak(f"Playing {title}")
+        else:
+            # Not in cache, download
+            speak(f"Downloading the song, please wait.")
+            print(f"[music] ⬇️ Downloading...", flush=True)
             
-        print(f"[music] ⬇️ Downloading...", flush=True)
-        dl_cmd = [
-            "yt-dlp", 
-            "--force-ipv4", 
-            "-x", "--audio-format", "mp3", 
-            "-o", output_path, 
-            f"https://www.youtube.com/watch?v={vid_id}"
-        ]
-        
-        dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
-        
-        if dl_res.returncode != 0:
-            print(f"[music] Download failed: {dl_res.stderr}", flush=True)
-            speak("I couldn't download the song. Please make sure ffmpeg is installed.")
-            return None
+            dl_cmd = [
+                "yt-dlp", 
+                "--force-ipv4", 
+                "-x", "--audio-format", "mp3", 
+                "-o", file_path, 
+                f"https://www.youtube.com/watch?v={vid_id}"
+            ]
             
-        # 3. Play local file
-        speak(f"Playing {title}")
-        print(f"[music] ▶️  Playing local file...", flush=True)
+            dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
+            
+            if dl_res.returncode != 0:
+                print(f"[music] Download failed: {dl_res.stderr}", flush=True)
+                speak("I couldn't download the song. Please make sure ffmpeg is installed.")
+                return None
+                
+            speak(f"Playing {title}")
+            print(f"[music] ▶️  Playing new download...", flush=True)
 
         # User requested mpg123 ONLY
-        # Now playing from local file /tmp/current_song.mp3
         return subprocess.Popen(
-            ["mpg123", "-o", "pulse", "-q", output_path],
+            ["mpg123", "-o", "pulse", "-q", file_path],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
