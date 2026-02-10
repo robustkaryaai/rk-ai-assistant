@@ -146,17 +146,19 @@ def play_music(query: str):
         youtube_url = f"https://www.youtube.com/watch?v={vid_id}"
         
         try:
-            subprocess.run(
-                [
-                    "yt-dlp",
-                    "-x", "--audio-format", "mp3",  # Convert to MP3
-                    "-o", str(cache_dir / f"{vid_id}.%(ext)s"), # Output template
-                    "--extractor-args", "youtube:player_client=android",
-                    youtube_url
-                ],
-                check=True,
-                timeout=180  # longer timeout for conversion
-            )
+            # Construct command to download and convert to MP3
+            cmd = [
+                "yt-dlp",
+                "-x", "--audio-format", "mp3", 
+                "--audio-quality", "0", # Best quality
+                "-o", str(cache_dir / f"{vid_id}.%(ext)s"),
+                "--extractor-args", "youtube:player_client=android",
+                "--force-overwrites",
+                youtube_url
+            ]
+            
+            print(f"[music] Running: {' '.join(cmd)}", flush=True)
+            subprocess.run(cmd, check=True, timeout=300)
             print(f"[music] Download complete!", flush=True)
         except Exception as e:
             print(f"[music] Download failed: {e}", flush=True)
