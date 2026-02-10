@@ -45,9 +45,10 @@ if [ -d "$VENV_DIR" ]; then
     source "$VENV_DIR/bin/activate"
     
     # Check/Install critical dependencies
-    if ! python3 -c "import audioop_lts" &> /dev/null; then
-        echo "[startup] Installing missing audioop-lts..."
-        pip install audioop-lts
+    if ! python3 -c "import audioop_lts, dbus, gi" &> /dev/null; then
+        echo "[startup] Missing critical dependencies (audioop_lts, dbus, or gi)."
+        echo "[startup] Installing from requirements.txt..."
+        pip install -r requirements.txt
     fi
 else
     echo "[startup] WARNING: rk-env not found. Creating one..."
