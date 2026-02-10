@@ -135,7 +135,7 @@ def speak(text, use_gtts=True):
                 # Check if WAV is already cached (fastest path)
                 if cache_path_wav.exists():
                     subprocess.run(['aplay', '-D', alsa_device, '-q', str(cache_path_wav)], 
-                                 check=False, stderr=subprocess.DEVNULL, timeout=10)
+                                 check=False, stderr=subprocess.DEVNULL, timeout=30)
                     return
                 
                 # If MP3 exists but WAV doesn't, just convert it
@@ -144,7 +144,7 @@ def speak(text, use_gtts=True):
                                  check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     if cache_path_wav.exists():
                         subprocess.run(['aplay', '-D', alsa_device, '-q', str(cache_path_wav)], 
-                                     check=False, stderr=subprocess.DEVNULL, timeout=10)
+                                     check=False, stderr=subprocess.DEVNULL, timeout=30)
                         return
                 
                 # Neither exists - generate new audio
@@ -170,7 +170,7 @@ def speak(text, use_gtts=True):
                 # Play the WAV
                 if cache_path_wav.exists():
                     subprocess.run(['aplay', '-D', alsa_device, '-q', str(cache_path_wav)], 
-                                 check=False, stderr=subprocess.DEVNULL, timeout=10)
+                                 check=False, stderr=subprocess.DEVNULL, timeout=30)
                 return
                 
             except Exception as e:
