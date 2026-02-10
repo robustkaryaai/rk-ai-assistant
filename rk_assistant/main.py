@@ -83,7 +83,7 @@ from .error_monitor import register_error, get_monitor
 from . import self_diagnosis
 from difflib import SequenceMatcher
 
-def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.72):
+def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.88):
     """Fuzzy match spoken text against wake words."""
     text = text.lower().strip()
 
