@@ -70,6 +70,22 @@ def parse_time(time_str: str) -> Optional[str]:
         if 0 <= hour < 24 and 0 <= minute < 60:
             return f"{hour:02d}:{minute:02d}"
     
+    # Relative time: "in 5 minutes", "10 mins", "1 hour"
+    match = re.search(r'(\d+)\s*(?:m|min|minute|minutes|h|hr|hour|hours)', time_str)
+    if match:
+        val = int(match.group(1))
+        # Check unit
+        now = dt.datetime.now()
+        delta = dt.timedelta(minutes=0)
+        
+        if 'h' in time_str or 'hour' in time_str:
+            delta = dt.timedelta(hours=val)
+        else:
+            delta = dt.timedelta(minutes=val)
+            
+        future = now + delta
+        return future.strftime("%H:%M")
+
     return None
 
 

@@ -39,7 +39,7 @@ def get_ip_address():
         return "127.0.0.1"
 
 
-def is_online(host: str = "1.1.1.1", port: int = 53, timeout: float = 1.5) -> bool:
+def is_online(host: str = "8.8.8.8", port: int = 53, timeout: float = 3.0) -> bool:
     """Cheap online check using UDP socket."""
     try:
         socket.setdefaulttimeout(timeout)

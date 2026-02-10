@@ -160,13 +160,18 @@ def handle_memory(parameters: Dict[str, Any]) -> Dict[str, Any]:
 def handle_task(parameters: Dict[str, Any]) -> Dict[str, Any]:
     """
     Handle task/reminder intent locally.
-    Simple acknowledgment for now - can be extended to actually set reminders.
+    If time is provided, set an alarm/timer.
     """
     prompt = parameters.get("prompt", "reminder")
-    time = parameters.get("time", "")
+    time_str = parameters.get("time", "")
     
-    if time:
-        reply = f"Got it, I'll remind you about {prompt} in {time}"
+    if time_str:
+        from .alarm_manager import set_alarm
+        success = set_alarm(time_str, label=prompt)
+        if success:
+            reply = f"Got it, I've set a reminder for {prompt} at {time_str}"
+        else:
+            reply = f"I couldn't understand the time '{time_str}'. Please say something like 'in 5 minutes'."
     else:
         reply = f"Okay, noted: {prompt}"
     
