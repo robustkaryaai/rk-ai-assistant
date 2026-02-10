@@ -50,6 +50,7 @@ def play_music(query: str):
         
         if full_result.returncode != 0:
              print("[music] Error finding song", flush=True)
+             print(f"[music] yt-dlp stderr: {full_result.stderr}", flush=True)
              speak("I couldn't find that song.")
              return None
              
