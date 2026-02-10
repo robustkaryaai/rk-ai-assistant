@@ -176,6 +176,29 @@ def handle_task(parameters: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def handle_weather(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle weather intent locally using weather API.
+    """
+    location = parameters.get("location", "Delhi, India")
+    
+    # Simple response for now - can be enhanced with actual API call
+    return {
+        "intent": "weather",
+        "reply": f"Fetching weather for {location}..."
+    }
+
+
+def handle_news(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle news intent locally.
+    """
+    return {
+        "intent": "news",
+        "reply": "Fetching latest news..."
+    }
+
+
 def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = "") -> Dict[str, Any]:
     """
     Main router for local intent handling.
@@ -203,6 +226,12 @@ def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = 
     
     elif intent in ["chat", "general"]:
         return handle_chat(original_text, parameters)
+    
+    elif intent == "weather":
+        return handle_weather(parameters)
+    
+    elif intent == "news":
+        return handle_news(parameters)
     
     elif intent == "stop_alarm":
         return handle_stop_alarm(parameters)
