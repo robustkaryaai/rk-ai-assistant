@@ -193,8 +193,11 @@ def poll_commands(slug: str) -> None:
                 _consecutive_failures += 1
                 
         except requests.exceptions.Timeout:
-            print("[commands] Poll timeout (continuing...)")
+            # Silent timeout log if frequent
+            if _consecutive_failures % 5 == 0:
+                print("[commands] Poll timeout (retrying in 5s...)")
             _consecutive_failures += 1
+            time.sleep(5) # Force sleep
         except requests.exceptions.ConnectionError:
             print("[commands] No backend connection (continuing...)")
             _consecutive_failures += 1
