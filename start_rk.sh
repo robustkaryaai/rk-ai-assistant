@@ -44,17 +44,18 @@ if [ -d "$VENV_DIR" ]; then
     echo "[startup] Activating virtual environment: $VENV_DIR"
     source "$VENV_DIR/bin/activate"
     
+    # Dependency check skipped by user request
     # Check/Install critical dependencies
-    if ! python3 -c "import audioop_lts, dbus, gi" &> /dev/null; then
-        echo "[startup] Missing critical dependencies (audioop_lts, dbus, or gi)."
-        echo "[startup] Installing from requirements.txt..."
-        pip install -r requirements.txt
-    fi
+    # if ! python3 -c "import audioop_lts, dbus, gi" &> /dev/null; then
+    #     echo "[startup] Missing critical dependencies (audioop_lts, dbus, or gi)."
+    #     echo "[startup] Installing from requirements.txt..."
+    #     pip install -r requirements.txt
+    # fi
 else
     echo "[startup] WARNING: rk-env not found. Creating one..."
     python3 -m venv rk-env
     source rk-env/bin/activate
-    pip install -r requirements.txt
+    # pip install -r requirements.txt
 fi
 
 exec python3 -m rk_assistant.main
