@@ -2,8 +2,27 @@
 
 import subprocess
 import shutil
+import os
+from .audio_utils import speak
 
 current_player = None
+
+
+def stop_music():
+    """Stop any currently playing music."""
+    global current_player
+    if current_player:
+        current_player.terminate()
+        current_player = None
+    
+    # Force kill
+    subprocess.run(["pkill", "-9", "vlc"], stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "cvlc"], stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "ffplay"], stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
+    
+    print("[music] ⏹️  Stopped", flush=True)
 
 
 def play_music(query: str):
@@ -13,52 +32,49 @@ def play_music(query: str):
     global current_player
     
     # Check dependencies
-    if not shutil.which("mpg123"):
-        print("[music] Install mpg123: sudo apt-get install -y mpg123", flush=True)
-        return None
-    
     if not shutil.which("yt-dlp"):
-        print("[music] Install yt-dlp: sudo apt-get install -y yt-dlp", flush=True)
+        print("[music] Install yt-dlp: sudo wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && sudo chmod a+rx /usr/local/bin/yt-dlp", flush=True)
         return None
     
-    # Kill any existing player
     stop_music()
     
-    # Search YouTube
     print(f"[music] 🔍 Searching: {query}", flush=True)
+    speak(f"Searching for {query}")
     
     try:
-        # Get video ID and title
-        search = subprocess.run(
-            ["yt-dlp", "--force-ipv4", f"ytsearch1:{query}", "--get-id", "--get-title"],
-            capture_output=True,
-            text=True
-        )
+        # Get title and URL in one go
+        # --get-url returns the direct stream URL if -f is specified, otherwise the video URL.
+        # We want the direct stream URL for mpg123/vlc/mpv.
+        full_cmd = ["yt-dlp", "--force-ipv4", "-f", "bestaudio", "--get-title", "--get-url", "--default-search", f"ytsearch1:{query}"]
+        full_result = subprocess.run(full_cmd, capture_output=True, text=True)
         
-        if search.returncode != 0 or not search.stdout.strip():
-            print("[music] ❌ Search failed", flush=True)
+        if full_result.returncode != 0:
+             print("[music] Error finding song", flush=True)
+             speak("I couldn't find that song.")
+             return None
+             
+        lines = full_result.stdout.strip().split('\n')
+        
+        title = None
+        stream_url = None
+
+        if len(lines) >= 2:
+            # yt-dlp --get-title --get-url outputs title first, then url
+            title = lines[0]
+            stream_url = lines[1]
+        else:
+            print("[music] ❌ No results or malformed output", flush=True)
+            speak("I couldn't find that song.")
             return None
-        
-        lines = search.stdout.strip().split('\n')
-        if len(lines) < 2:
-            print("[music] ❌ No results", flush=True)
+
+        if not title or not stream_url:
+            print("[music] Could not extract title or stream URL", flush=True)
+            speak("I couldn't find that song.")
             return None
-        
-        title = lines[0]
-        video_id = lines[1]
-        url = f"https://www.youtube.com/watch?v={video_id}"
-        
+            
         print(f"[music] ✓ Found: {title}", flush=True)
+        speak(f"Playing {title}")
         print(f"[music] ▶️  Streaming...", flush=True)
-        
-        # Get direct stream URL (fastest) - Force IPv4 to avoid timeouts
-        cmd = ["yt-dlp", "--force-ipv4", "-f", "bestaudio", "-g", url]
-        stream_url_result = subprocess.run(cmd, capture_output=True, text=True)
-        stream_url = stream_url_result.stdout.strip()
-        
-        if not stream_url:
-            print("[music] Could not extract stream URL", flush=True)
-            return None
 
         # Try players in order of quality/reliability
         
