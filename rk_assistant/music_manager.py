@@ -45,7 +45,7 @@ def play_music(query: str):
         # Get title and URL in one go
         # --get-url returns the direct stream URL if -f is specified, otherwise the video URL.
         # We want the direct stream URL for mpg123/vlc/mpv.
-        full_cmd = ["yt-dlp", "--force-ipv4", "-f", "bestaudio", "--get-title", "--get-url", "--default-search", f"ytsearch1:{query}"]
+        full_cmd = ["yt-dlp", "--force-ipv4", "-f", "bestaudio", "--get-title", "--get-url", f"ytsearch1:{query}"]
         full_result = subprocess.run(full_cmd, capture_output=True, text=True)
         
         if full_result.returncode != 0:
