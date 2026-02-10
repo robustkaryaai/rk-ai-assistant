@@ -718,14 +718,17 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
              
         print(f"[stt] Transcription: {text}")
         
-        if match_offline_command(text):
+        # Check if online FIRST (then route to Gemini/backend)
+        # Only use offline commands if actually offline
+        if is_online():
+            process_online_command(text, slug, music_proc_holder)
+        elif match_offline_command(text):
+            # Offline and matches a known pattern
             handle_offline_command(text, slug)
             speak(offline_ai_reply(text))
         else:
-            if is_online():
-                process_online_command(text, slug, music_proc_holder)
-            else:
-                speak("I am offline.")
+            # Offline and no known pattern
+            speak("I am offline and cannot process that command.")
 
         if music_proc_holder.get("proc"):
             set_volume(80)
