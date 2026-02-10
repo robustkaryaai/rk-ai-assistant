@@ -154,6 +154,9 @@ def play_music(query: str):
                 "-o", str(cache_dir / f"{vid_id}.%(ext)s"),
                 "--extractor-args", "youtube:player_client=android",
                 "--force-overwrites",
+                "--force-ipv4",   # Fix for Pi network issues
+                "--retries", "10",
+                "--fragment-retries", "10",
                 youtube_url
             ]
             
