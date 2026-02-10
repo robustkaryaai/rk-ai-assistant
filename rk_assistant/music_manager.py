@@ -70,16 +70,38 @@ def play_music(query: str):
         
         stream_url = stream_url_result.stdout.strip()
         
-        # Stream directly to mpg123 (instant playback!)
-        player = subprocess.Popen(
-            ["mpg123", "-o", "pulse", "-q", stream_url],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        
-        current_player = player
-        print("[music] 🎵 Now streaming!", flush=True)
-        return player
+        # Try ffplay first (fastest streaming, good buffering)
+        if shutil.which("ffplay"):
+            print(f"[music] 🎵 Streaming with ffplay...", flush=True)
+            player = subprocess.Popen(
+                ["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "quiet", stream_url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            current_player = player
+            return player
+            
+        # Fallback to mpv
+        elif shutil.which("mpv"):
+            print(f"[music] 🎵 Streaming with mpv...", flush=True)
+            player = subprocess.Popen(
+                ["mpv", "--no-video", "--really-quiet", "--audio-device=pulse", stream_url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            current_player = player
+            return player
+            
+        # Fallback to mpg123 (slow buffering but works)
+        else:
+            print(f"[music] 🎵 Streaming with mpg123...", flush=True)
+            player = subprocess.Popen(
+                ["mpg123", "-o", "pulse", "-q", stream_url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            current_player = player
+            return player
         
     except Exception as e:
         print(f"[music] ❌ Error: {e}", flush=True)
@@ -98,6 +120,8 @@ def stop_music():
         pass
     
     # Force kill
+    subprocess.run(["pkill", "-9", "ffplay"], stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
     subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
     
     print("[music] ⏹️  Stopped", flush=True)
