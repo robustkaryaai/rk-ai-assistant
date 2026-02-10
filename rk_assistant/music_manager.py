@@ -59,8 +59,7 @@ def play_music(query: str):
         result = subprocess.run(
             search_cmd,
             capture_output=True,
-            text=True,
-            timeout=30
+            text=True
         )
         
         if result.returncode != 0:

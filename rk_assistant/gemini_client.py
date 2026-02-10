@@ -142,7 +142,7 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
                 print(f"[gemini] 🚀 Calling {current_model} ({key_type} key)...", flush=True)
                 
                 # Use standard SDK call with 60s timeout (for slower models like Gemma 3)
-                client = genai.Client(api_key=key, http_options={'timeout': 60000})
+                client = genai.Client(api_key=key, http_options={'timeout': 180000})
                 
                 # Build prompt
                 full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
@@ -209,7 +209,7 @@ def get_conversational_response(text: str, api_key: Optional[str] = None, model_
     
     try:
         # Create SDK Client with 15s timeout
-        client = genai.Client(api_key=api_key, http_options={'timeout': 15000})
+        client = genai.Client(api_key=api_key, http_options={'timeout': 180000})
         
         # Context-aware prompt for voice responses
         from .memory_engine import retrieve_memories
@@ -244,7 +244,7 @@ Be friendly, natural, and concise.{memory_context}"""
         
         thread = threading.Thread(target=_call_gemini, daemon=True)
         thread.start()
-        thread.join(timeout=15.0)
+        thread.join(timeout=180.0)
         
         if thread.is_alive():
             print("[gemini] Chat timed out after 15s", flush=True)
@@ -275,7 +275,7 @@ def test_gemini_connection(api_key: str) -> bool:
     
     try:
         # Add 15s timeout to prevent massive hangs if network/key is broken
-        client = genai.Client(api_key=api_key, http_options={'timeout': 15000})
+        client = genai.Client(api_key=api_key, http_options={'timeout': 180000})
         
         # Hard 15s process-level timeout
         import threading
@@ -292,7 +292,7 @@ def test_gemini_connection(api_key: str) -> bool:
         
         thread = threading.Thread(target=_test, daemon=True)
         thread.start()
-        thread.join(timeout=15.0)
+        thread.join(timeout=180.0)
         
         if thread.is_alive():
             print("[gemini] Connection test timed out after 15s")
