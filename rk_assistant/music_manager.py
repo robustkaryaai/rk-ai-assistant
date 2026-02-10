@@ -51,11 +51,6 @@ def play_music(query: str):
         print(f"[music] ✓ Found: {title}", flush=True)
         print(f"[music] ▶️  Streaming...", flush=True)
         
-        # Get DIRECT audio stream URL from yt-dlp
-        stream_url_result = subprocess.run(
-            [
-                "yt-dlp",
-                "--force-ipv4",
         # Get direct stream URL (fastest) - Force IPv4 to avoid timeouts
         cmd = ["yt-dlp", "--force-ipv4", "-f", "bestaudio", "-g", url]
         stream_url_result = subprocess.run(cmd, capture_output=True, text=True)
