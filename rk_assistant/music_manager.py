@@ -43,45 +43,60 @@ def play_music(query: str):
     speak(f"Searching for {query}")
     
     try:
-        # Get title and URL in one go
-        # --get-url returns the direct stream URL if -f is specified, otherwise the video URL.
-        # We want the direct stream URL for mpg123/vlc/mpv.
-        full_cmd = ["yt-dlp", "--force-ipv4", "-f", "bestaudio", "--get-title", "--get-url", f"ytsearch1:{query}"]
-        full_result = subprocess.run(full_cmd, capture_output=True, text=True)
+        # 1. Get Video ID and Title
+        # We need the ID to download reliably
+        search_cmd = ["yt-dlp", "--force-ipv4", "--get-title", "--get-id", f"ytsearch1:{query}"]
+        search_res = subprocess.run(search_cmd, capture_output=True, text=True)
         
-        if full_result.returncode != 0:
+        if search_res.returncode != 0:
              print("[music] Error finding song", flush=True)
-             print(f"[music] yt-dlp stderr: {full_result.stderr}", flush=True)
+             print(f"[music] yt-dlp stderr: {search_res.stderr}", flush=True)
              speak("I couldn't find that song.")
              return None
              
-        lines = full_result.stdout.strip().split('\n')
-        
-        title = None
-        stream_url = None
-
-        if len(lines) >= 2:
-            # yt-dlp --get-title --get-url outputs title first, then url
-            title = lines[0]
-            stream_url = lines[1]
-        else:
+        lines = search_res.stdout.strip().split('\n')
+        if len(lines) < 2:
             print("[music] ❌ No results or malformed output", flush=True)
             speak("I couldn't find that song.")
             return None
-
-        if not title or not stream_url:
-            print("[music] Could not extract title or stream URL", flush=True)
-            speak("I couldn't find that song.")
+            
+        title = lines[0]
+        vid_id = lines[1]
+        
+        print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
+        speak(f"Found {title}. Downloading, please wait.")
+        
+        # 2. Download to local file (MP3)
+        # Use -x --audio-format mp3 to ensure mpg123 compatibility
+        # Output to fixed temp path
+        output_path = "/tmp/current_song.mp3"
+        if os.path.exists(output_path):
+            os.remove(output_path)
+            
+        print(f"[music] ⬇️ Downloading...", flush=True)
+        dl_cmd = [
+            "yt-dlp", 
+            "--force-ipv4", 
+            "-x", "--audio-format", "mp3", 
+            "-o", output_path, 
+            f"https://www.youtube.com/watch?v={vid_id}"
+        ]
+        
+        dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
+        
+        if dl_res.returncode != 0:
+            print(f"[music] Download failed: {dl_res.stderr}", flush=True)
+            speak("I couldn't download the song. Please make sure ffmpeg is installed.")
             return None
             
-        print(f"[music] ✓ Found: {title}", flush=True)
+        # 3. Play local file
         speak(f"Playing {title}")
-        print(f"[music] ▶️  Streaming...", flush=True)
+        print(f"[music] ▶️  Playing local file...", flush=True)
 
         # User requested mpg123 ONLY
-        print(f"[music] 🎵 Streaming with mpg123...", flush=True)
+        # Now playing from local file /tmp/current_song.mp3
         return subprocess.Popen(
-            ["mpg123", "-o", "pulse", "-q", stream_url],
+            ["mpg123", "-o", "pulse", "-q", output_path],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
