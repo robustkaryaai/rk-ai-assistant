@@ -3,6 +3,7 @@
 import subprocess
 import shutil
 import os
+import json
 from .audio_utils import speak
 import signal
 
@@ -42,9 +43,74 @@ def play_music(query: str):
     print(f"[music] 🔍 Searching: {query}", flush=True)
     speak(f"Searching for {query}")
     
+    # --- 1. Check Local JSON Index (Instant Playback) ---
+    cache_dir = os.path.join(os.getcwd(), "songs")
+    index_path = os.path.join(cache_dir, "index.json")
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    index = {}
+    if os.path.exists(index_path):
+        try:
+            with open(index_path, "r") as f:
+                index = json.load(f)
+        except Exception as e:
+            print(f"[music] Error loading index: {e}", flush=True)
+
+    # Fuzzy match query against titles or stored queries
+    best_match = None
+    best_score = 0.0
+    
+    # Simple normalization
+    norm_query = query.lower().strip()
+    
+    for vid_id, data in index.items():
+        # Check against title
+        title = data.get("title", "").lower()
+        if not title: continue
+        
+        # Check exact previous queries
+        previous_queries = data.get("queries", [])
+        if norm_query in previous_queries:
+             best_match = vid_id
+             best_score = 1.0 # Perfect match
+             break
+             
+        # Fuzzy title match
+        from difflib import SequenceMatcher
+        score = SequenceMatcher(None, norm_query, title).ratio()
+        
+        # Also check if query is substring of title or vice versa
+        if norm_query in title or title in norm_query:
+            if score < 0.7: score = 0.7
+            
+        if score > best_score:
+            best_score = score
+            best_match = vid_id
+            
+    # Threshold for fuzzy match
+    if best_score > 0.6 and best_match:
+        data = index[best_match]
+        file_path = os.path.join(cache_dir, f"{best_match}.mp3")
+        if os.path.exists(file_path):
+            print(f"[music] ⚡ Instant Hit: {data['title']} (Score: {best_score:.2f})", flush=True)
+            speak(f"Playing {data['title']}")
+            
+            # Update queries list if new
+            if norm_query not in data.get("queries", []):
+                data.setdefault("queries", []).append(norm_query)
+                with open(index_path, "w") as f:
+                    json.dump(index, f, indent=2)
+
+            return subprocess.Popen(
+                ["mpg123", "-o", "pulse", "-q", file_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            
+    # --- 2. Not found locally, proceed to Network Search ---
+    
     try:
-        # 1. Get Video ID and Title
-        # We need the ID to download reliably
+        # Get Video ID and Title
         search_cmd = ["yt-dlp", "--force-ipv4", "--get-title", "--get-id", f"ytsearch1:{query}"]
         search_res = subprocess.run(search_cmd, capture_output=True, text=True)
         
@@ -65,17 +131,22 @@ def play_music(query: str):
         
         print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
         
-        # Cache directory
-        cache_dir = os.path.join(os.getcwd(), "songs")
-        os.makedirs(cache_dir, exist_ok=True)
         file_path = os.path.join(cache_dir, f"{vid_id}.mp3")
         
-        # Check cache
+        # Check if file exists (maybe from old cache without index)
         if os.path.exists(file_path):
-            print(f"[music] 📂 Playing from cache: {file_path}", flush=True)
+            print(f"[music] 📂 Playing from file cache (re-indexing): {file_path}", flush=True)
+            # Add to index
+            index[vid_id] = {
+                "title": title,
+                "queries": [norm_query]
+            }
+            with open(index_path, "w") as f:
+                json.dump(index, f, indent=2)
+                
             speak(f"Playing {title}")
         else:
-            # Not in cache, download
+            # Download
             speak(f"Downloading the song, please wait.")
             print(f"[music] ⬇️ Downloading...", flush=True)
             
@@ -91,8 +162,16 @@ def play_music(query: str):
             
             if dl_res.returncode != 0:
                 print(f"[music] Download failed: {dl_res.stderr}", flush=True)
-                speak("I couldn't download the song. Please make sure ffmpeg is installed.")
+                speak("I couldn't download the song.")
                 return None
+                
+            # Add to index
+            index[vid_id] = {
+                "title": title,
+                "queries": [norm_query]
+            }
+            with open(index_path, "w") as f:
+                json.dump(index, f, indent=2)
                 
             speak(f"Playing {title}")
             print(f"[music] ▶️  Playing new download...", flush=True)
