@@ -93,6 +93,10 @@ def process_offline_command(cmd: str, music_proc=None) -> str:
     elif cmd in {"announcement", "announce", "make announcement"}:
         return "Ready for your announcement."
 
+    # News
+    elif cmd in {"news", "headlines"}:
+        from .weather_news import fetch_news
+        return fetch_news()
     # Weather (Works if internet is available, even if backend is down)
     elif cmd in {"weather", "what's the weather", "weather today"}:
         from .weather_news import fetch_weather

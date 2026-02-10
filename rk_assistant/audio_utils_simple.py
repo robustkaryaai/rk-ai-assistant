@@ -104,9 +104,14 @@ def _speak_with_piper(text):
         return False
 
 
+def sanitize_text(text):
+    """Remove emojis and non-standard symbols."""
+    if not text: return ""
+    return re.sub(r'[^\w\s,!.?\'"-]', '', text)
+
 def speak(text, use_gtts=True):
     """
-    Convert text toto speech with intelligent cascading fallback.
+    Convert text to speech with intelligent cascading fallback.
     
     Priority:
     1. Piper TTS (natural voice, ~200-800ms, offline)
@@ -114,6 +119,8 @@ def speak(text, use_gtts=True):
     3. espeak (robotic voice, ~50ms, always works)
     """
     try:
+        # Sanitize
+        text = sanitize_text(text)
         print(f"🔊 {text}", flush=True)
         
         # Use PulseAudio output

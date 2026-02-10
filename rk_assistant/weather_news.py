@@ -93,22 +93,30 @@ def fetch_weather(city: str = WEATHER_CITY_DEFAULT) -> Optional[Dict]:
         return None
 
 
-def fetch_news(country: str = NEWS_COUNTRY_DEFAULT) -> Optional[Dict]:
-    cached = _load_cache(NEWS_CACHE)
-    if cached:
-        return cached
-    if not NEWS_API_KEY:
-        return None
-    url = f"https://newsapi.org/v2/top-headlines?country={country}&pageSize=5&apiKey={NEWS_API_KEY}"
+def fetch_news():
+    """Fetch Top Headlines from Google News RSS (No API Key)"""
     try:
-        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
-        if resp.ok:
-            data = resp.json()
-            data["_ts"] = time.time()
-            NEWS_CACHE.write_text(json.dumps(data))
-            return data
-    except Exception:
-        return None
-    return None
-
-
+        # Google News RSS (India Edition)
+        url = "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
+        resp = requests.get(url, timeout=5)
+        
+        if resp.status_code == 200:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(resp.content)
+            items = root.findall('.//item')
+            headlines = []
+            
+            for item in items[:5]: # Top 5 headlines
+                title = item.find('title').text
+                # Remove source suffix (e.g. " - Times of India")
+                if " - " in title:
+                    title = title.rsplit(" - ", 1)[0]
+                headlines.append(title)
+            
+            if headlines:
+                return "Here are the top headlines:\n" + "\n".join(f"- {h}" for h in headlines)
+                
+    except Exception as e:
+        print(f"[news] Error fetching news: {e}")
+        
+    return "Sorry, I couldn't get the latest news right now."

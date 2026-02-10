@@ -97,11 +97,22 @@ def play_audio_url(url: str):
         return None
 
 
+import re
+
+def sanitize_text(text):
+    """Remove emojis and non-standard symbols but keep basic punctuation and alphanumeric chars."""
+    if not text: return ""
+    # Keep alphanumeric (including unicode for Hindi etc), spaces, and basic punctuation
+    # This regex removes most emojis/symbols
+    return re.sub(r'[^\w\s,!.?\'"-]', '', text)
+
 def speak(text):
     """
     Ultra-lightweight TTS via PulseAudio.
     """
-    print(f"🔊 {text}")
+    # Sanitize text (remove emojis)
+    clean_text = sanitize_text(text)
+    print(f"🔊 {text}") # Log original text with emoji for debugging
     
     # 1. Try Google TTS (Online) if enabled
     from .networking import is_online
@@ -110,7 +121,7 @@ def speak(text):
     if GTTS_ENABLE and is_online():
         try:
             from gtts import gTTS
-            tts = gTTS(text=text, lang=GTTS_LANG, tld=GTTS_TLD)
+            tts = gTTS(text=clean_text, lang=GTTS_LANG, tld=GTTS_TLD)
             tts.save("/tmp/tts.mp3")
             proc = play_audio_url("/tmp/tts.mp3")
             if proc:
@@ -126,13 +137,15 @@ def speak(text):
         
         if os.path.exists(piper_binary) and os.path.exists(model):
             # Pipe to aplay -D pulse
-            cmd = f"{piper_binary} --model {model} --output_raw | aplay -D {ALSA_DEVICE} -r 22050 -f S16_LE -t raw -q"
+            # Escape quotes for shell
+            safe_text = clean_text.replace('"', '\\"')
+            cmd = f'echo "{safe_text}" | {piper_binary} --model {model} --output_raw | aplay -D {ALSA_DEVICE} -r 22050 -f S16_LE -t raw -q'
             subprocess.run(cmd, shell=True) # subprocess.run IS blocking by default
             return
 
         # 3. Fallback to espeak
         subprocess.run(
-            ["espeak", "-w", "/tmp/tts.wav", text], 
+            ["espeak", "-w", "/tmp/tts.wav", clean_text], 
             check=False, stderr=subprocess.DEVNULL
         )
         play_audio_file("/tmp/tts.wav") # aplay is blocking
