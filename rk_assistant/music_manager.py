@@ -4,6 +4,7 @@ import subprocess
 import shutil
 import os
 from .audio_utils import speak
+import signal
 
 current_player = None
 
@@ -77,36 +78,7 @@ def play_music(query: str):
         speak(f"Playing {title}")
         print(f"[music] ▶️  Streaming...", flush=True)
 
-        # Try players in order of quality/reliability
-        
-        # 1. VLC (cvlc) - Best quality and streaming support
-        try:
-            print(f"[music] 🎵 Streaming with VLC...", flush=True)
-            # --no-video: audio only
-            # --play-and-exit: quit when done
-            # -q: quiet
-            return subprocess.Popen(
-                ["cvlc", "--no-video", "--play-and-exit", "-q", stream_url],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-        except FileNotFoundError:
-            pass
-
-        # 2. mpv - Good quality
-        try:
-            print(f"[music] 🎵 Streaming with mpv...", flush=True)
-            return subprocess.Popen(
-                ["mpv", "--no-video", "--really-quiet", stream_url],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-        except FileNotFoundError:
-            pass
-
-        # 3. mpg123 - Reliable fallback
-        # Added --preload 0.1 to try to start faster? No, standard settings usually work if network is good.
-        # The --force-ipv4 on yt-dlp should fix the main delay.
+        # User requested mpg123 ONLY
         print(f"[music] 🎵 Streaming with mpg123...", flush=True)
         return subprocess.Popen(
             ["mpg123", "-o", "pulse", "-q", stream_url],
@@ -138,3 +110,24 @@ def stop_music():
     subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
     
     print("[music] ⏹️  Stopped", flush=True)
+
+
+def pause_music():
+    """Pause music using SIGSTOP (better than ducking)."""
+    global current_player
+    if current_player and current_player.poll() is None:
+        try:
+            current_player.send_signal(signal.SIGSTOP)
+            print("[music] ⏸️  Paused", flush=True)
+        except Exception as e:
+            print(f"[music] Pause error: {e}", flush=True)
+
+def unpause_music():
+    """Resume music using SIGCONT."""
+    global current_player
+    if current_player and current_player.poll() is None:
+        try:
+            current_player.send_signal(signal.SIGCONT)
+            print("[music] ▶️  Resumed", flush=True)
+        except Exception as e:
+            print(f"[music] Resume error: {e}", flush=True)

@@ -81,6 +81,7 @@ from . import settings_sync  # Sync mute/memory from Appwrite
 from . import command_poller  # Poll and execute commands from mobile app
 from .error_monitor import register_error, get_monitor
 from . import self_diagnosis
+from . import music_manager
 from difflib import SequenceMatcher
 
 def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.88):
@@ -570,7 +571,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     
                     # Duck volume (visual/audio feedback)
                     if music_proc_holder.get("proc"):
-                        set_volume(20)
+                        music_manager.pause_music()
                     
                     # Strip key word to get command
                     idx = text_lower.find(detected_wake_word)
@@ -608,7 +609,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             
                             # Restore volume
                             if music_proc_holder.get("proc"):
-                                set_volume(80)
+                                music_manager.unpause_music()
                                 
                             # If this was a chat/question, keep listening!
                             if expect_followup and is_online():
@@ -625,13 +626,13 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                                         current_command = follow_up_text
                                         in_conversation = True
                                         if music_proc_holder.get("proc"):
-                                            set_volume(20)
+                                            music_manager.pause_music()
                                 else:
                                     print("[stt] No follow-up heard.")
                         else:
                             print("[stt] No command heard after wake word.")
                             if music_proc_holder.get("proc"):
-                                set_volume(80)
+                                music_manager.unpause_music()
                 else:
                     pass
 
@@ -645,7 +646,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         print("[wake] Wake word detected (Offline)!")
         
         if music_proc_holder.get("proc"):
-            set_volume(20)
+            music_manager.pause_music()
         
         audio_path = record_until_silence(LAST_AUDIO)
         
@@ -656,7 +657,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         if not text:
              print("[stt] No transcription.")
              if music_proc_holder.get("proc"):
-                set_volume(80)
+                music_manager.unpause_music()
              return
              
         print(f"[stt] Transcription: {text}")
@@ -678,7 +679,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
             speak("I am offline and cannot process that command.")
 
         if music_proc_holder.get("proc"):
-            set_volume(80)
+            music_manager.unpause_music()
             
 
             set_volume(80)
