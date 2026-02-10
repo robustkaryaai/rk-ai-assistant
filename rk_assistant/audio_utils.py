@@ -140,8 +140,10 @@ def speak(text):
     except Exception as e:
         print(f"[tts] Error: {e}")
 
-def _normalize_audio(audio_data: sr.AudioData, target_level=25000) -> sr.AudioData:
+def _normalize_audio(audio_data, target_level=25000):
     """Normalize audio to target peak level (max 32767)."""
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return audio_data
     try:
         raw_data = audio_data.get_raw_data()
         max_val = audioop.max(raw_data, 2)
