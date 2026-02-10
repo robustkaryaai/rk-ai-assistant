@@ -155,6 +155,8 @@ def play_music(query: str):
                 "--extractor-args", "youtube:player_client=android",
                 "--force-overwrites",
                 "--force-ipv4",   # Fix for Pi network issues
+                "--no-part",      # Download entire file in one piece (no .part files)
+                "--concurrent-fragments", "1",  # Download sequentially, not in parallel
                 "--retries", "10",
                 "--fragment-retries", "10",
                 youtube_url
