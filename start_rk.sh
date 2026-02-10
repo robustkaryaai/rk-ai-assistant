@@ -6,16 +6,16 @@ echo "[startup] Starting RK AI Assistant..."
 
 # 1. Check Bluetooth (hci1)
 echo "[startup] Checking Bluetooth adapter (hci1)..."
-if ! hciconfig hci0 | grep -q "UP"; then
+if ! hciconfig hci1 | grep -q "UP"; then
     echo "[startup] Bluetooth adapter is DOWN. Attempting to bring up..."
-    sudo hciconfig hci0 up
+    sudo hciconfig hci1 up
     sleep 2
 fi
 
-if hciconfig hci0 | grep -q "UP"; then
+if hciconfig hci1 | grep -q "UP"; then
     echo "[startup] Bluetooth adapter is UP."
 else
-    echo "[startup] WARNING: Bluetooth adapter hci0 not found or down!"
+    echo "[startup] WARNING: Bluetooth adapter hci1 not found or down!"
 fi
 
 # 2. Check for Updates
