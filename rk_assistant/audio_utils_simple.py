@@ -5,6 +5,7 @@ import subprocess
 import socket
 import os
 import hashlib
+import re
 from pathlib import Path
 
 
