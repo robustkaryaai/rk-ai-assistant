@@ -103,8 +103,18 @@ def play_music(query: str):
              best_score = 1.0 # Perfect match
              break
              
+        # Fuzzy match against stored queries (Iterate all queries for this ID)
+        for pq in previous_queries:
+            # Clean pq first? No, just match raw pq.
+            # Use token_set_ratio logic here too?
+            # Just ratio for speed.
+            pq_clean = pq.replace("play", "").replace("song", "").replace("youtube", "").strip()
+            score_q = SequenceMatcher(None, norm_query, pq_clean).ratio()
+            if score_q > best_score:
+                best_score = score_q
+                best_match = vid_id
+                
         # Fuzzy title match
-        from difflib import SequenceMatcher
         # Basic ratio
         score1 = SequenceMatcher(None, norm_query, title).ratio()
         
@@ -118,7 +128,7 @@ def play_music(query: str):
         if q_words:
              score2 = len(intersection) / len(q_words)
              
-        score = max(score1, score2)
+        score = max(score1, score2, best_score) # include query match score
 
         # Boost if query is substring
         if norm_query in title or title in norm_query:
