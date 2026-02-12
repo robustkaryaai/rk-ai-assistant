@@ -663,16 +663,30 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
              
         print(f"[stt] Transcription: {text}")
         
-        # Check if online FIRST (then route to Gemini/backend)
-        # Only use offline commands if actually offline
-        if is_online():
+        # Determine if we should handle this locally (Hybrid Mode)
+        # Some commands are better handled locally even if online (e.g. Weather, Time, Alarms)
+        local_cmd = match_offline_command(text)
+        
+        # Whitelist of commands to ALWAYS handle locally
+        LOCAL_ALWAYS = ["weather", "time", "date", "alarm", "timer", "news", "headlines"]
+        
+        if local_cmd and local_cmd in LOCAL_ALWAYS:
+            print(f"[main] ⚡ Handling '{local_cmd}' locally (Hybrid Mode)", flush=True)
+            response = process_offline_command(local_cmd, music_proc_holder.get("proc"))
+            if response:
+                speak(response)
+            else:
+                 speak("I couldn't process that locally.")
+                 
+        elif is_online():
+            # Online AI (Gemini) for everything else
             process_online_command(text, slug, music_proc_holder)
+            
         else:
-            matched_cmd = match_offline_command(text)
-            if matched_cmd:
+            # Offline Mode
+            if local_cmd:
                 # Offline and matches a known pattern
-                # Pass the MATCHED command (e.g. "stop") not the raw text
-                response = process_offline_command(matched_cmd, music_proc_holder.get("proc"))
+                response = process_offline_command(local_cmd, music_proc_holder.get("proc"))
                 if response:
                     speak(response)
             else:
