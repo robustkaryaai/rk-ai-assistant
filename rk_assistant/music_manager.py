@@ -180,7 +180,7 @@ def search_youtube_and_play(norm_query):
         search_cmd = [
             "yt-dlp", 
             "--force-ipv4", 
-            "--extractor-args", "youtube:player_client=android",
+            "--extractor-args", "youtube:player_client=mweb,web",
             "--get-title", "--get-id", 
             f"ytsearch1:{norm_query}"
         ]
@@ -250,12 +250,12 @@ def search_youtube_and_play(norm_query):
         safe_path = file_path.replace("'", "'\\''")
         
         # FINAL PI ZERO PIPELINE (Strict mpg123):
-        # 1. yt-dlp: Grabs the lightest audio stream (Android client).
+        # 1. yt-dlp: Grabs best audio (mweb/web client for compatibility).
         # 2. ffmpeg: Converts stream to MP3 on-the-fly (needed for mpg123).
         # 3. tee: Saves valid MP3 to songs/ folder.
         # 4. mpg123: Plays the MP3 stream for "no cracking".
         pipeline_cmd = (
-            f"yt-dlp --force-ipv4 --extractor-args \"youtube:player_client=android\" -f \"ba\" -o - '{safe_url}' | "
+            f"yt-dlp --force-ipv4 --extractor-args \"youtube:player_client=mweb,web\" -f \"ba/b\" -o - '{safe_url}' | "
             f"ffmpeg -i - -f mp3 -acodec libmp3lame -ar 44100 -ac 2 -q:a 9 -f mp3 - | "
             f"tee '{safe_path}' | mpg123 -o pulse -q -"
         )
@@ -402,7 +402,7 @@ def sync_music_index():
                         cmd = [
                             "yt-dlp", 
                             "--force-ipv4", 
-                            "--extractor-args", "youtube:player_client=android",
+                            "--extractor-args", "youtube:player_client=mweb,web",
                             "--get-title", 
                             f"https://www.youtube.com/watch?v={vid_id}"
                         ]
