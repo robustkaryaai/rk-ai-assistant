@@ -13,6 +13,7 @@ except ModuleNotFoundError:
     import audioop_lts as audioop
 import math
 import math
+from typing import Optional
 from pathlib import Path
 from ctypes import *
 from contextlib import contextmanager
