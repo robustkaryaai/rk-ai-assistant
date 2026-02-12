@@ -290,40 +290,52 @@ def online_stt(audio_path: Path) -> str:
     except Exception:
         return ""
 
-def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0) -> Path:
+def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=None, mic=None) -> Optional[Path]:
     """
     Record audio with VAD (Silence Detection) for 'Alexa-style' interaction.
     Uses speech_recognition's built-in energy thresholding.
+    Pass pre-calibrated recognizer/mic to avoid latency.
     """
+    # Delete old file to prevent ghost repeats
+    if os.path.exists(out_path):
+        os.remove(out_path)
+
     if SPEECH_RECOGNITION_AVAILABLE and sr is not None:
         try:
-            r = sr.Recognizer()
-            r.pause_threshold = silence_duration
-            r.energy_threshold = 300 
-            r.dynamic_energy_threshold = True
+            r = recognizer if recognizer else sr.Recognizer()
+            if not recognizer:
+                r.pause_threshold = silence_duration
+                r.energy_threshold = 300 
+                r.dynamic_energy_threshold = True
             
-            device_index = MIC_DEVICE_INDEX
+            # Use provided mic or create new one
+            source_ctx = mic if mic else sr.Microphone(device_index=MIC_DEVICE_INDEX)
             
-            print(f"[record] Listening... (VAD enabled, silence={silence_duration}s)")
-            with sr.Microphone(device_index=device_index) as source:
-                # Fast calibration (optional, adds 0.5s latency but improves reliability)
-                print("[record] Calibrating for 1s...", flush=True)
-                r.adjust_for_ambient_noise(source, duration=1.0)
-                
-                # Listen automatically stops when silence is detected
-                # phrase_time_limit ensures we don't record forever if noisy
-                audio = r.listen(source, timeout=10, phrase_time_limit=15)
+            # If we create new mic, we need context manager. If passed, it depends if it's open.
+            # Simplify: Always use context manager unless it's an AudioSource
+            is_open_source = isinstance(source_ctx, sr.AudioSource) and getattr(source_ctx, "stream", None) is not None
+
+            print(f"[record] Listening... (VAD enabled)")
+            
+            if is_open_source:
+                audio = r.listen(source_ctx, timeout=5, phrase_time_limit=10)
+            else:
+                with source_ctx as source:
+                    if not recognizer:
+                         # Only calibrate if new recognizer
+                         r.adjust_for_ambient_noise(source, duration=0.5)
+                    audio = r.listen(source, timeout=5, phrase_time_limit=10)
             
             # Save to WAV (Normalized)
             norm_audio = _normalize_audio(audio)
             with open(out_path, "wb") as f:
                 f.write(norm_audio.get_wav_data())
             
-            return out_path
+            return Path(out_path)
             
         except sr.WaitTimeoutError:
             print("[record] Timeout (silence)")
-            return out_path
+            return None
         except Exception as e:
             print(f"[record] VAD Error: {e}")
             pass
@@ -337,7 +349,10 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0) -> Path:
         print("[record] Fallback: Recording 5s fixed...")
         cmd = ["arecord", "-D", device_arg, "-f", "S16_LE", "-r", "16000", "-d", "5", "-q", str(out_path)]
         subprocess.run(cmd, check=False)
-        return out_path
+        return Path(out_path)
+    except Exception as e:
+        print(f"[record] Fallback Error: {e}")
+        return None
     
     except Exception as e:
         print(f"[record] Error: {e}")

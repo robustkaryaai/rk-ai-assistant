@@ -139,6 +139,8 @@ def play_music(query: str):
         title = lines[0]
         vid_id = lines[1]
         
+        file_path = str(cache_dir / f"{vid_id}.mp3")
+        
         print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
         
         # Check if file exists
