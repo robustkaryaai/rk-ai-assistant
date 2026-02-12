@@ -139,11 +139,23 @@ def play_music(query: str):
         title = lines[0]
         vid_id = lines[1]
         
-        file_path = str(cache_dir / f"{vid_id}.mp3")
+        # Sanitize title for filename
+        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+        filename = f"{safe_title} [{vid_id}].mp3"[:255] # safe length
+        file_path = str(cache_dir / filename)
         
         print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
+        print(f"[music] Target File: {file_path}", flush=True) # Debug
         
-        # Check if file exists
+        # Check if file exists (Old format ID.mp3 fallback?)
+        old_path = str(cache_dir / f"{vid_id}.mp3")
+        if os.path.exists(old_path):
+            print(f"[music] 📂 Found old cache format, renaming...", flush=True)
+            try:
+                os.rename(old_path, file_path)
+            except:
+                pass
+
         if os.path.exists(file_path):
             print(f"[music] 📂 Playing from file cache: {file_path}", flush=True)
             # Add to index if missing
