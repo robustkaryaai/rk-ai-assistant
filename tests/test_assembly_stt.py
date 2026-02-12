@@ -72,7 +72,9 @@ def on_open(ws):
 def on_message(ws, message):
     try:
         data = json.loads(message)
-        msg_type = data.get('message_type') # AssemblyAI uses message_type usually, checking docs... user code used 'type' which might be wrong or v2?
+        # print(f"DEBUG RAW: {message}") # Uncomment if needed
+        
+        msg_type = data.get('message_type') # AssemblyAI v2 uses message_type
         # User code used msg_type = data.get('type')
         # Let's stick to user code but add debugging
         if not msg_type:
@@ -148,8 +150,23 @@ def save_wav_file():
 def run():
     global audio, stream, ws_app
 
-    # Initialize PyAudio
-    audio = pyaudio.PyAudio()
+    # List Microphones
+    info = audio.get_host_api_info_by_index(0)
+    numdevices = info.get('deviceCount')
+    device_idx = None
+    print("\n--- Available Microphones ---")
+    for i in range(0, numdevices):
+        if (audio.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) > 0:
+            name = audio.get_device_info_by_host_api_device_index(0, i).get('name')
+            print(f"Input Device id {i} - {name}")
+            if "USB" in name:
+                device_idx = i
+    
+    if device_idx is None:
+        device_idx = 1 # Fallback to 1 on Pi usually
+        print(f"No USB mic found, defaulting to index {device_idx}")
+    else:
+        print(f"Auto-selected USB Device: index {device_idx}")
 
     # Open microphone stream
     try:
@@ -159,6 +176,7 @@ def run():
             channels=CHANNELS,
             format=FORMAT,
             rate=SAMPLE_RATE,
+            input_device_index=device_idx
         )
         print("Microphone stream opened successfully.")
         print("Speak into your microphone. Press Ctrl+C to stop.")
