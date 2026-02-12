@@ -135,6 +135,12 @@ def process_offline_command(cmd: str, music_proc=None) -> str:
             return "No alarms to cancel."
     
     # System info
+    elif cmd in {"rk update"}:
+        return "_RK_UPDATE_"
+    elif cmd in {"rk shutdown"}:
+        return "_RK_SHUTDOWN_"
+    elif cmd in {"rk reboot", "rk restart"}:
+        return "_RK_REBOOT_"
     elif cmd in {"battery", "battery level", "battery status"}:
         return "Battery information not available in offline mode."
     elif cmd in {"status", "system status"}:

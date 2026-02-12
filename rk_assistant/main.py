@@ -372,6 +372,36 @@ def autoplay_monitor(music_proc_holder, slug):
             print(f"[autoplay] Error: {e}")
             time.sleep(10)
 
+def update_monitor():
+    """Background thread to check for updates and handle critical ones."""
+    import subprocess
+    import time
+    from .audio_utils_simple import speak
+    # Wait 1 min after startup before first check
+    time.sleep(60)
+    while True:
+        try:
+            print("[update] 📡 Checking for updates...")
+            subprocess.run(["git", "fetch", "origin"], capture_output=True, cwd="/home/raspberrypi/rk-ai-assistant")
+            
+            # Compare local HEAD with origin/main
+            res = subprocess.run(["git", "log", "HEAD..origin/main", "--oneline"], capture_output=True, text=True, cwd="/home/raspberrypi/rk-ai-assistant")
+            if res.stdout.strip():
+                print(f"[update] 📥 Update available: {res.stdout.strip().splitlines()[0]}")
+                diff_log = res.stdout.lower()
+                if "critical" in diff_log:
+                    print("[update] 🚨 Critical update detected!")
+                    speak("Critical update found. Updating and restarting.")
+                    subprocess.run(["git", "pull", "origin", "main"], capture_output=True, cwd="/home/raspberrypi/rk-ai-assistant")
+                    subprocess.run(["sudo", "systemctl", "restart", "rk-assistant.service"])
+                    break
+            
+            # Check every 30 mins
+            time.sleep(30 * 60)
+        except Exception as e:
+            print(f"[update] Error: {e}")
+            time.sleep(300)
+
 def process_online_command(text: str, slug: str, music_proc_holder: dict) -> bool:
     """
     Helper to process a command string using Gemini/Backend.
@@ -644,6 +674,23 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                                  print(f"[main] ⚡ Fast Track: {fast_cmd}")
                                  resp = process_offline_command(fast_cmd, music_proc_holder.get("proc"))
                                  
+                                 if resp == "_RK_UPDATE_":
+                                     speak("Checking for updates and restarting.")
+                                     import subprocess
+                                     subprocess.run(["git", "pull", "origin", "main"], cwd="/home/raspberrypi/rk-ai-assistant")
+                                     subprocess.run(["sudo", "systemctl", "restart", "rk-assistant.service"])
+                                     return
+                                 elif resp == "_RK_SHUTDOWN_":
+                                     speak("Shutting down the system.")
+                                     import subprocess
+                                     subprocess.run(["sudo", "shutdown", "-h", "now"])
+                                     return
+                                 elif resp == "_RK_REBOOT_":
+                                     speak("Rebooting the system.")
+                                     import subprocess
+                                     subprocess.run(["sudo", "reboot"])
+                                     return
+
                                  # Unpause if it was music control
                                  if any(x in fast_cmd for x in ["louder", "quieter", "volume", "resume"]):
                                      if music_proc_holder.get("proc"):
@@ -867,8 +914,12 @@ def main():
     try:
         t_auto = threading.Thread(target=autoplay_monitor, args=(music_proc_holder, slug), daemon=True)
         t_auto.start()
+        
+        # Start background update monitor
+        t_upd = threading.Thread(target=update_monitor, daemon=True)
+        t_upd.start()
     except Exception as e:
-        print(f"[main] Autoplay monitor error: {e}")
+        print(f"[main] Autoplay/Update monitor error: {e}")
     
     # Start background sync for mute/memory settings from Appwrite
     try:

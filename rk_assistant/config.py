@@ -182,6 +182,7 @@ OFFLINE_COMMANDS = [
     "battery", "battery level", "battery status",
     "status", "system status",
     "restart", "reboot", "shutdown", "power off",
+    "rk update", "rk shutdown", "rk reboot", "rk restart",
     "sleep", "wake", "wake up",
     
     # Network and connectivity
