@@ -45,9 +45,11 @@ def play_music(query: str):
     speak(f"Searching for {query}")
     
     # --- 1. Check Local JSON Index (Instant Playback) ---
-    cache_dir = os.path.join(os.getcwd(), "songs")
-    index_path = os.path.join(cache_dir, "index.json")
-    os.makedirs(cache_dir, exist_ok=True)
+    # --- 1. Check Local JSON Index (Instant Playback) ---
+    from pathlib import Path
+    cache_dir = Path(os.getcwd()) / "songs"
+    index_path = cache_dir / "index.json"
+    cache_dir.mkdir(parents=True, exist_ok=True)
     
     index = {}
     if os.path.exists(index_path):
@@ -61,8 +63,32 @@ def play_music(query: str):
     best_match = None
     best_score = 0.0
     
-    # Simple normalization
+    # Fuzzy match query against titles or stored queries
+    best_match = None
+    best_score = 0.0
+    
+    # Simple normalization + Cleaning filler words
     norm_query = query.lower().strip()
+    
+    # Common words to remove
+    ignore_words = [
+        "play", "song", "from", "youtube", "please", "can you", "i want to hear",
+        "plate", "place", "pleas", "plait" # STT errors for 'play'
+    ]
+    
+    clean_q = norm_query
+    for word in ignore_words:
+        # Remove whole words only
+        clean_q = clean_q.replace(f" {word} ", " ")
+        if clean_q.startswith(f"{word} "):
+            clean_q = clean_q[len(word)+1:]
+        if clean_q.endswith(f" {word}"):
+            clean_q = clean_q[:-len(word)-1]
+            
+    clean_q = clean_q.strip()
+    if clean_q: norm_query = clean_q # Update if not empty
+    
+    print(f"[music] 🧹 Cleaned Query: '{norm_query}' (Original: '{query}')", flush=True)
     
     for vid_id, data in index.items():
         # Check against title
