@@ -236,7 +236,7 @@ def search_youtube_and_play(norm_query):
             )
         
         # Stream & Cache
-        speak(f"Playing {title}")
+        speak(f"Downloading and playing {title}")
         print(f"[music] ▶️  Streaming & Caching... ({title})", flush=True)
         
         safe_url = f"https://www.youtube.com/watch?v={vid_id}"
