@@ -380,16 +380,22 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
                         
                         query = response.get("query")
                         
+                        # Async Playback
                         from .music_manager import play_music
-                        proc = play_music(query)
+                        import threading
                         
-                        if proc:
-                            stop_process(music_proc_holder.get("proc"))
-                            music_proc_holder["proc"] = proc
-                            return False # Music playing, don't follow up immediately
-                        else:
-                            speak("I couldn't find that song.")
-                            return False
+                        speak(f"Searching for {query}...")
+                        
+                        def run_music_bg():
+                            proc = play_music(query)
+                            if proc:
+                                stop_process(music_proc_holder.get("proc"))
+                                music_proc_holder["proc"] = proc
+                                
+                        t = threading.Thread(target=run_music_bg, daemon=True)
+                        t.start()
+                        
+                        return False # Music playing, don't follow up immediately
                             
                     elif intent_name == "announcement":
                         _speak_twice(response.get("reply", ""))

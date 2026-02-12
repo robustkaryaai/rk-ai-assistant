@@ -178,6 +178,9 @@ def play_music(query: str):
     
     try:
         # Get Video ID and Title
+        print(f"[music] 🌍 Searching YouTube for: {query}", flush=True)
+        speak(f"Searching online for {query}")
+        
         search_cmd = ["yt-dlp", "--force-ipv4", "--get-title", "--get-id", f"ytsearch1:{query}"]
         search_res = subprocess.run(search_cmd, capture_output=True, text=True)
         
