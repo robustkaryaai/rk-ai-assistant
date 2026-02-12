@@ -94,6 +94,7 @@ def play_music(query: str):
         file_path = os.path.join(cache_dir, f"{best_match}.mp3")
         if os.path.exists(file_path):
             # Shorten title for speaking
+
             speak_title = data['title']
             if "|" in speak_title:
                 speak_title = speak_title.split("|")[0]
@@ -140,56 +141,15 @@ def play_music(query: str):
         
         print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
         
-        file_path = os.path.join(cache_dir, f"{vid_id}.mp3")
-        
-        # Check if file exists (maybe from old cache without index)
+        # Check if file exists
         if os.path.exists(file_path):
-            print(f"[music] 📂 Playing from file cache (re-indexing): {file_path}", flush=True)
-            # Add to index
-            index[vid_id] = {
-                "title": title,
-                "queries": [norm_query]
-            }
+            print(f"[music] 📂 Playing from file cache: {file_path}", flush=True)
+            # Add to index if missing
+            current_data = index.get(vid_id, {})
+            index[vid_id] = {"title": title, "queries": [norm_query] + current_data.get("queries", [])}
             with open(index_path, "w") as f:
                 json.dump(index, f, indent=2)
-            
-            # Shorten title
-            speak_title = title
-            if "|" in speak_title:
-                speak_title = speak_title.split("|")[0]
-            words = speak_title.split()
-            if len(words) > 5:
-                speak_title = " ".join(words[:5])
                 
-            speak(f"Playing {speak_title}")
-        else:
-            # Download
-            speak(f"Downloading the song, please wait.")
-            print(f"[music] ⬇️ Downloading...", flush=True)
-            
-            dl_cmd = [
-                "yt-dlp", 
-                "--force-ipv4", 
-                "-x", "--audio-format", "mp3", 
-                "-o", file_path, 
-                f"https://www.youtube.com/watch?v={vid_id}"
-            ]
-            
-            dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
-            
-            if dl_res.returncode != 0:
-                print(f"[music] Download failed: {dl_res.stderr}", flush=True)
-                speak("I couldn't download the song.")
-                return None
-                
-            # Add to index
-            index[vid_id] = {
-                "title": title,
-                "queries": [norm_query]
-            }
-            with open(index_path, "w") as f:
-                json.dump(index, f, indent=2)
-             
             # Shorten title   
             speak_title = title
             if "|" in speak_title:
@@ -197,16 +157,64 @@ def play_music(query: str):
             words = speak_title.split()
             if len(words) > 5:
                 speak_title = " ".join(words[:5])
-                
             speak(f"Playing {speak_title}")
-            print(f"[music] ▶️  Playing new download...", flush=True)
-
-        # User requested mpg123 ONLY
-        return subprocess.Popen(
-            ["mpg123", "-o", "pulse", "-q", file_path],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+            
+            return subprocess.Popen(
+                ["mpg123", "-o", "pulse", "-q", file_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        
+        # --- Not in Cache: Stream & Save (Pipeline) ---
+        
+        # Self-healing check: Try to update yt-dlp if it looks broken
+        def update_ytdlp():
+            print("[music] 🔄 Updating yt-dlp...", flush=True)
+            speak("Updating music components...")
+            subprocess.run(["sudo", "pip3", "install", "-U", "yt-dlp", "--break-system-packages"], capture_output=True)
+            
+        speak(f"Playing {title}")
+        print(f"[music] ▶️  Streaming & Caching... ({title})", flush=True)
+        
+        # Pipeline: yt-dlp stdout -> tee file -> mpg123 stdin
+        # using shell=True for pipeline simplicity given the complexity of wiring 3 processes
+        # Escape quotes for shell
+        safe_url = f"https://www.youtube.com/watch?v={vid_id}"
+        safe_path = file_path.replace("'", "'\\''")
+        
+        # CMD: yt-dlp -o - [URL] 2>error.log | tee [FILE] | mpg123 -o pulse -q -
+        # We capture stderr to a temp file to check for errors? Or just let it print?
+        # User wants speed.
+        
+        pipeline_cmd = f"yt-dlp --force-ipv4 -x --audio-format mp3 -o - '{safe_url}' | tee '{safe_path}' | mpg123 -o pulse -q -"
+        
+        # We need to detect if yt-dlp fails.
+        # If the pipe breaks immediately.
+        
+        proc = subprocess.Popen(pipeline_cmd, shell=True)
+        
+        # Wait a bit to see if it crashes immediately?
+        try:
+            rank = proc.wait(timeout=2)
+            # If it exited in < 2 seconds, it failed
+            if rank != 0:
+                print(f"[music] Pipeline failed (valid exit code {rank}). Updating yt-dlp...", flush=True)
+                update_ytdlp()
+                # Retry once
+                proc = subprocess.Popen(pipeline_cmd, shell=True)
+        except subprocess.TimeoutExpired:
+            # It's running fine (streaming)
+            pass
+            
+        # Add to index
+        index[vid_id] = {
+            "title": title,
+            "queries": [norm_query]
+        }
+        with open(index_path, "w") as f:
+            json.dump(index, f, indent=2)
+            
+        return proc
         
     except Exception as e:
         print(f"[music] ❌ Error: {e}", flush=True)
