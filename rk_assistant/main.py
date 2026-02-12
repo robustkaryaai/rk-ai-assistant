@@ -729,11 +729,14 @@ def main():
             # FORCE HARDWARE GAIN FIRST
             setup_microphone_volume()
             
-            print("[stt] Initializing microphone...", flush=True)
-            recognizer = audio_utils.sr.Recognizer()
-            recognizer.dynamic_energy_threshold = True  
-            # User optimization: lower threshold for clean audio
-            recognizer.energy_threshold = 120 
+            print("[stt] Initializing microphone... (Supressing ALSA logs)", flush=True)
+            
+            # Suppress ALSA warnings during PyAudio init
+            with audio_utils.no_alsa_err():
+                recognizer = audio_utils.sr.Recognizer()
+                recognizer.dynamic_energy_threshold = True  
+                # User optimization: lower threshold for clean audio
+                recognizer.energy_threshold = 120 
             recognizer.pause_threshold = 0.8   
             recognizer.phrase_threshold = 0.3 
             recognizer.non_speaking_duration = 0.5 
@@ -742,14 +745,16 @@ def main():
             device_idx = MIC_DEVICE_INDEX
             
             # Find clean_mic index if configured
+            # Find clean_mic index if configured
             if MIC_DEVICE_NAME:
                 print(f"[stt] Searching for microphone: {MIC_DEVICE_NAME}")
                 try:
-                    for i, name in enumerate(audio_utils.sr.Microphone.list_microphone_names()):
-                        if MIC_DEVICE_NAME in name:
-                            print(f"[stt] Found '{name}' at index {i}")
-                            device_idx = i
-                            break
+                    with audio_utils.no_alsa_err():
+                        for i, name in enumerate(audio_utils.sr.Microphone.list_microphone_names()):
+                            if MIC_DEVICE_NAME in name:
+                                print(f"[stt] Found '{name}' at index {i}")
+                                device_idx = i
+                                break
                 except Exception as e:
                     print(f"[stt] Error listing microphones: {e}")
 
@@ -757,7 +762,9 @@ def main():
                 device_idx = None
                 
             print(f"[stt] Using Microphone Index: {device_idx}")
-            mic = audio_utils.sr.Microphone(device_index=device_idx)
+            
+            with audio_utils.no_alsa_err():
+                mic = audio_utils.sr.Microphone(device_index=device_idx)
             
             if mic is not None:
                 print("[stt] Calibrating microphone for ambient noise (10 seconds)...", flush=True)
