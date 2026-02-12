@@ -72,14 +72,14 @@ def process_offline_command(cmd: str, music_proc=None) -> str:
             # I will mark this to be handled by main.py's Fast Track.
             return "_PLAY_AGAIN_" # Special sentinel for main.py
         return "No song to play again."
-    elif cmd in {"pause music", "stop music", "stop", "pause", "quiet", "shut up", "silence", "exit"}:
+    elif cmd in {"pause music", "stop music", "stop", "pause", "quiet", "be quiet", "shut up", "silence", "exit"}:
         from . import music_manager
         music_manager.stop_music()
         return "Stopped."
-    elif cmd == "volume up" or cmd == "increase volume":
+    elif cmd in {"volume up", "increase volume", "louder", "speak louder", "louder please"}:
         set_volume(+10)
         return "Volume up."
-    elif cmd == "volume down" or cmd == "decrease volume":
+    elif cmd in {"volume down", "decrease volume", "quieter", "lower volume", "softer"}:
         set_volume(-10)
         return "Volume down."
     elif cmd in {"mute"}:

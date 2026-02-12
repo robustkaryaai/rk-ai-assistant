@@ -713,8 +713,15 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             # Execute logic
                             expect_followup = False
                             
-                            if match_offline_command(current_command):
-                                 resp = process_offline_command(current_command, music_proc_holder.get("proc"))
+                            offline_kw = match_offline_command(current_command)
+                            
+                            # Only handle offline if:
+                            # 1. We are actually offline
+                            # 2. OR it's a specific system/info command (time, battery) that doesn't need Gemini
+                            is_conversational = offline_kw in ["hello", "hi", "hey", "how are you", "what's up", "thank you", "thanks", "goodbye", "bye"]
+                            
+                            if offline_kw and (not online or not is_conversational):
+                                 resp = process_offline_command(offline_kw, music_proc_holder.get("proc"))
                                  if resp:
                                      speak(resp)
                             else:
