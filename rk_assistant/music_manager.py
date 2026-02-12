@@ -310,3 +310,85 @@ def unpause_music():
             print("[music] ▶️  Resumed", flush=True)
         except Exception as e:
             print(f"[music] Resume error: {e}", flush=True)
+
+def sync_music_index():
+    """Sync index.json with actual files in songs/ directory."""
+    try:
+        from pathlib import Path
+        import re
+        cache_dir = Path(os.getcwd()) / "songs"
+        index_path = cache_dir / "index.json"
+        
+        if not cache_dir.exists(): return
+        
+        import json
+        index = {}
+        if index_path.exists():
+            try:
+                with open(index_path, "r") as f:
+                    index = json.load(f)
+            except: pass
+            
+        files = list(cache_dir.glob("*.mp3"))
+        updated = False
+        
+        print(f"[music] 🔄 Syncing music index ({len(files)} files)...", flush=True)
+        
+        for f in files:
+            filename = f.name
+            vid_id = None
+            
+            # Regex 1: ... [ID].mp3
+            # YouTube IDs are typically 11 chars, but can vary. 
+            # Look for [ID] pattern at end.
+            m = re.search(r"\[([a-zA-Z0-9_-]+)\]\.mp3$", filename)
+            if m:
+                vid_id = m.group(1)
+            else:
+                # Regex 2: ID.mp3 (Raw ID)
+                # Assume filename IS the ID if no brackets
+                # Limit to typical ID chars
+                m = re.search(r"^([a-zA-Z0-9_-]+)\.mp3$", filename)
+                if m:
+                     vid_id = m.group(1)
+                     
+            if vid_id:
+                # If valid ID and NOT in index
+                if vid_id not in index:
+                    print(f"[music] ❓ Indexing missing song: {filename} (ID: {vid_id})", flush=True)
+                    # Fetch title
+                    try:
+                        cmd = ["yt-dlp", "--force-ipv4", "--get-title", f"https://www.youtube.com/watch?v={vid_id}"]
+                        res = subprocess.run(cmd, capture_output=True, text=True)
+                        
+                        if res.returncode == 0:
+                            title = res.stdout.strip()
+                            if title:
+                                # Add to index with NO queries (since we don't know what user would ask)
+                                # But title match will work!
+                                index[vid_id] = {"title": title, "queries": []}
+                                updated = True
+                                print(f"[music] ✓ Added to index: {title}", flush=True)
+                                
+                                # Rename if raw ID (ID.mp3 -> Title [ID].mp3)
+                                if filename == f"{vid_id}.mp3":
+                                     safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+                                     new_name = f"{safe_title} [{vid_id}].mp3"[:255]
+                                     try:
+                                         f.rename(cache_dir / new_name)
+                                         print(f"[music] 📂 Renamed to: {new_name}", flush=True)
+                                     except: pass
+                        else:
+                             print(f"[music] ❌ Failed to get title for {vid_id}", flush=True)
+                    except Exception as e:
+                        print(f"[music] Error fetching title for {vid_id}: {e}", flush=True)
+                        
+        if updated:
+             with open(index_path, "w") as f:
+                 json.dump(index, f, indent=2)
+             print("[music] ✅ Index sync complete.", flush=True)
+        else:
+             print("[music] Index is up to date.", flush=True)
+             
+    except Exception as e:
+        print(f"[music] Index sync error: {e}", flush=True)

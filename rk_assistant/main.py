@@ -809,6 +809,15 @@ def main():
         settings_sync.start_settings_sync(slug)
     except Exception as e:
         print(f"[sync] Failed to start settings sync: {e}")
+        
+    # Start background music index sync (Populate missing songs)
+    try:
+        from .music_manager import sync_music_index
+        import threading
+        t_music = threading.Thread(target=sync_music_index, daemon=True)
+        t_music.start()
+    except Exception as e:
+        print(f"[main] Music sync error: {e}")
     
     # Start command poller for mobile app commands
     try:
