@@ -176,7 +176,13 @@ def search_youtube_and_play(norm_query):
         print(f"[music] 🌍 Searching YouTube for: {norm_query}", flush=True)
         speak(f"Searching online for {norm_query}")
         
-        search_cmd = ["yt-dlp", "--force-ipv4", "--get-title", "--get-id", f"ytsearch1:{norm_query}"]
+        search_cmd = [
+            "yt-dlp", 
+            "--force-ipv4", 
+            "--extractor-args", "youtube:player_client=android",
+            "--get-title", "--get-id", 
+            f"ytsearch1:{norm_query}"
+        ]
         search_res = subprocess.run(search_cmd, capture_output=True, text=True)
         
         if search_res.returncode != 0:
@@ -236,12 +242,13 @@ def search_youtube_and_play(norm_query):
             )
         
         # Stream & Cache
-        speak(f"Downloading and playing {title}")
+        speak(f"Downloading and playing {title.partition('|')[0]}")
         print(f"[music] ▶️  Streaming & Caching... ({title})", flush=True)
         
         safe_url = f"https://www.youtube.com/watch?v={vid_id}"
         safe_path = file_path.replace("'", "'\\''")
-        pipeline_cmd = f"yt-dlp --force-ipv4 -x --audio-format mp3 -o - '{safe_url}' | tee '{safe_path}' | mpg123 -o pulse -q -"
+        # Optimized pipeline for Pi Zero: Android client + Best Audio (no transcoding if possible)
+        pipeline_cmd = f"yt-dlp --force-ipv4 --extractor-args \"youtube:player_client=android\" -f \"ba*\" -x --audio-format mp3 -o - '{safe_url}' | tee '{safe_path}' | mpg123 -o pulse -q -"
         
         proc = subprocess.Popen(pipeline_cmd, shell=True)
         
@@ -382,7 +389,13 @@ def sync_music_index():
                     print(f"[music] ❓ Indexing missing song: {filename} (ID: {vid_id})", flush=True)
                     # Fetch title
                     try:
-                        cmd = ["yt-dlp", "--force-ipv4", "--get-title", f"https://www.youtube.com/watch?v={vid_id}"]
+                        cmd = [
+                            "yt-dlp", 
+                            "--force-ipv4", 
+                            "--extractor-args", "youtube:player_client=android",
+                            "--get-title", 
+                            f"https://www.youtube.com/watch?v={vid_id}"
+                        ]
                         res = subprocess.run(cmd, capture_output=True, text=True)
                         
                         if res.returncode == 0:
