@@ -321,6 +321,57 @@ def _send_to_backend_and_handle(text: str, slug: str, music_proc_holder: dict) -
     threading.Thread(target=_handler, daemon=True).start()
 
 
+def trigger_music_playback(query, music_proc_holder):
+    """Start music playback in a background thread and update proc holder."""
+    def _run():
+        from .music_manager import play_music
+        proc = play_music(query)
+        if proc:
+            # Clean up old proc
+            old_proc = music_proc_holder.get("proc")
+            if old_proc:
+                try:
+                    import os, signal
+                    os.killpg(os.getpgid(old_proc.pid), signal.SIGTERM)
+                except:
+                    old_proc.terminate()
+            music_proc_holder["proc"] = proc
+            music_proc_holder["last_query"] = query
+            
+    import threading
+    threading.Thread(target=_run, daemon=True).start()
+
+def autoplay_monitor(music_proc_holder, slug):
+    """Background loop to detect when a song ends and trigger autoplay."""
+    print("[autoplay] Monitor started.", flush=True)
+    import time
+    from .music_manager import get_related_song_recommendation, current_player
+    
+    while True:
+        try:
+            proc = music_proc_holder.get("proc")
+            # If a song was playing but now it's finished (and not paused by us)
+            if proc and proc.poll() is not None:
+                print("[autoplay] Song finished! Finding related track...", flush=True)
+                # Clear the finished proc
+                music_proc_holder["proc"] = None
+                
+                # Get recommendation
+                last_query = music_proc_holder.get("last_query")
+                if last_query:
+                    recommendation = get_related_song_recommendation(last_query)
+                    if recommendation:
+                        print(f"[autoplay] ♾️ Autoplay: Next song is '{recommendation}'", flush=True)
+                        speak(f"Playing related song: {recommendation}")
+                        trigger_music_playback(recommendation, music_proc_holder)
+                    else:
+                        print("[autoplay] No recommendation found.", flush=True)
+            
+            time.sleep(5) # Check every 5s
+        except Exception as e:
+            print(f"[autoplay] Error: {e}")
+            time.sleep(10)
+
 def process_online_command(text: str, slug: str, music_proc_holder: dict) -> bool:
     """
     Helper to process a command string using Gemini/Backend.
@@ -374,27 +425,9 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
                     
                     # Special handling for local music
                     if response.get("intent") == "music_local":
-                        # Speak immediately so user knows we are working on it
-                        # music_manager handles "searching" feedback, so do not speak(reply) here
-                        pass
-                        
                         query = response.get("query")
-                        
-                        # Async Playback
-                        from .music_manager import play_music
-                        import threading
-                        
                         speak(f"Searching for {query}...")
-                        
-                        def run_music_bg():
-                            proc = play_music(query)
-                            if proc:
-                                stop_process(music_proc_holder.get("proc"))
-                                music_proc_holder["proc"] = proc
-                                
-                        t = threading.Thread(target=run_music_bg, daemon=True)
-                        t.start()
-                        
+                        trigger_music_playback(query, music_proc_holder)
                         return False # Music playing, don't follow up immediately
                             
                     elif intent_name == "announcement":
@@ -604,6 +637,32 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                         if current_command:
                             print(f"[stt] Processing command: '{current_command}'")
                             
+                            # --- FAST TRACK (Instant local execution for UX) ---
+                            # No speech, no waiting, just DO it.
+                            fast_cmd = current_command.lower().strip()
+                            if any(x in fast_cmd for x in ["louder", "quieter", "volume up", "volume down", "mute", "unmute", "stop", "pause", "resume", "play again", "replay"]):
+                                 print(f"[main] ⚡ Fast Track: {fast_cmd}")
+                                 resp = process_offline_command(fast_cmd, music_proc_holder.get("proc"))
+                                 
+                                 # Unpause if it was music control
+                                 if any(x in fast_cmd for x in ["louder", "quieter", "volume", "resume"]):
+                                     if music_proc_holder.get("proc"):
+                                        music_manager.unpause_music()
+                                        
+                                 # Special case: Play Again
+                                 if resp == "_PLAY_AGAIN_":
+                                     query = music_manager.last_played_query
+                                     if query:
+                                         trigger_music_playback(query, music_proc_holder)
+                                 
+                                 # Skip the rest (don't speak "Volume up" etc if we want Alexa speed, 
+                                 # or let it speak but it already executed)
+                                 # User said "make it like alexa", Alexa just does it (maybe a ding).
+                                 # For volume, just doing it is best.
+                                 if "volume" in fast_cmd or "louder" in fast_cmd or "quieter" in fast_cmd:
+                                     continue # Skip further processing for this command
+                                     
+                            # --- NORMAL TRACK ---
                             # Execute logic
                             expect_followup = False
                             
@@ -802,7 +861,14 @@ def main():
 
     # Initialize variables needed for voice_flow
     decoder_available = load_pocketsphinx_decoder()
-    music_proc_holder = {"proc": None}
+    music_proc_holder = {"proc": None, "last_query": None}
+    
+    # Start background autoplay monitor (Infinite loop)
+    try:
+        t_auto = threading.Thread(target=autoplay_monitor, args=(music_proc_holder, slug), daemon=True)
+        t_auto.start()
+    except Exception as e:
+        print(f"[main] Autoplay monitor error: {e}")
     
     # Start background sync for mute/memory settings from Appwrite
     try:

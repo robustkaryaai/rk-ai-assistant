@@ -161,6 +161,7 @@ OFFLINE_COMMANDS = [
     
     # Music    # Music controls
     "play music", "stop music", "pause music", "resume music",
+    "play again", "replay", "restart song", "repeat",
     "volume up", "volume down", "mute", "unmute",
     "stop", "pause", "quiet", "shut up", "silence", "exit",
     "volume up", "volume down", "mute", "unmute", "increase volume", "decrease volume",

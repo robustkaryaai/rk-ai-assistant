@@ -11,6 +11,25 @@ from difflib import SequenceMatcher
 current_player = None
 last_played_query = None
 
+def get_related_song_recommendation(title: str) -> Optional[str]:
+    """Use Gemini to get a related song title based on the current one."""
+    from .gemini_client import classify_intent, GEMINI_AVAILABLE
+    from .config import GEMINI_API_KEY, GEMINI_MODEL_PRIMARY
+    
+    if not GEMINI_AVAILABLE:
+        return None
+        
+    prompt = f"The user is listening to '{title}'. Suggest one similar or related song title only. Output strictly the song name and artist, nothing else. No punctuation, no prose."
+    
+    # We can reuse classify_intent but it returns JSON. 
+    # Let's add a simple text call or use conversational response.
+    from .gemini_client import get_conversational_response
+    suggestion = get_conversational_response(prompt, api_key=GEMINI_API_KEY, model_name=GEMINI_MODEL_PRIMARY)
+    
+    if suggestion and "Sorry" not in suggestion and "I'm having trouble" not in suggestion:
+        return suggestion.strip()
+    return None
+
 
 def clean_music_query(query):
     """Remove common filler words and STT artifacts."""
@@ -206,6 +225,9 @@ def search_youtube_and_play(norm_query):
             with open(index_path, "w") as f:
                 json.dump(index, f, indent=2)
                 
+            global last_played_query
+            last_played_query = norm_query # Store for autoplay/replay
+            
             speak(f"Playing {title}")
             return subprocess.Popen(
                 ["mpg123", "-o", "pulse", "-q", file_path],
@@ -252,9 +274,11 @@ def play_music(query: str):
     
     stop_music()
     
-    # 1. Clean Query
     norm_query = clean_music_query(query)
     print(f"[music] 🧹 Cleaned Query: '{norm_query}' (Original: '{query}')", flush=True)
+    
+    global last_played_query
+    last_played_query = query # Store the original query for 'play again'
     
     # 2. Try Local
     proc = search_local_and_play(norm_query)

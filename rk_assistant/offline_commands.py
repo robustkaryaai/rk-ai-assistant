@@ -64,6 +64,14 @@ def process_offline_command(cmd: str, music_proc=None) -> str:
     # Music controls
     if cmd in {"play music", "resume music"}:
         return "No cached music URL. Please ask online."
+    elif cmd in {"play again", "replay", "restart song", "repeat"}:
+        from . import music_manager
+        if music_manager.last_played_query:
+            # We need to call play_music from main or thread.
+            # But process_offline_command just returns a string.
+            # I will mark this to be handled by main.py's Fast Track.
+            return "_PLAY_AGAIN_" # Special sentinel for main.py
+        return "No song to play again."
     elif cmd in {"pause music", "stop music", "stop", "pause", "quiet", "shut up", "silence", "exit"}:
         from . import music_manager
         music_manager.stop_music()
