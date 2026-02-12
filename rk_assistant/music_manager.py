@@ -247,10 +247,19 @@ def search_youtube_and_play(norm_query):
         
         safe_url = f"https://www.youtube.com/watch?v={vid_id}"
         safe_path = file_path.replace("'", "'\\''")
-        # Optimized pipeline for Pi Zero: Android client + Best Audio (no transcoding if possible)
-        pipeline_cmd = f"yt-dlp --force-ipv4 --extractor-args \"youtube:player_client=android\" -f \"ba*\" -x --audio-format mp3 -o - '{safe_url}' | tee '{safe_path}' | mpg123 -o pulse -q -"
         
-        proc = subprocess.Popen(pipeline_cmd, shell=True)
+        # FINAL PI ZERO PIPELINE (Strict mpg123):
+        # 1. yt-dlp: Grabs the lightest audio stream (Android client).
+        # 2. ffmpeg: Converts stream to MP3 on-the-fly (needed for mpg123).
+        # 3. tee: Saves valid MP3 to songs/ folder.
+        # 4. mpg123: Plays the MP3 stream for "no cracking".
+        pipeline_cmd = (
+            f"yt-dlp --force-ipv4 --extractor-args \"youtube:player_client=android\" -f \"ba\" -o - '{safe_url}' | "
+            f"ffmpeg -i - -f mp3 -acodec libmp3lame -ar 44100 -ac 2 -q:a 9 -f mp3 - | "
+            f"tee '{safe_path}' | mpg123 -o pulse -q -"
+        )
+        
+        proc = subprocess.Popen(pipeline_cmd, shell=True, preexec_fn=os.setsid)
         
         # Add to index (Clean query)
         current_data = index.get(vid_id, {})
