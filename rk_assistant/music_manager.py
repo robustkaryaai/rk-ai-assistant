@@ -6,7 +6,7 @@ import os
 import json
 from .audio_utils import speak
 import signal
-from difflib import SequenceMatcher
+from typing import Optional, List, Dict, Any
 
 current_player = None
 last_played_query = None
