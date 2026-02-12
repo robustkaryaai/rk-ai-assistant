@@ -42,7 +42,8 @@ def play_music(query: str):
     stop_music()
     
     print(f"[music] 🔍 Searching: {query}", flush=True)
-    speak(f"Searching for {query}")
+    print(f"[music] 🔍 Searching: {query}", flush=True)
+    # speak(f"Searching for {query}") # REMOVED: Reduce latency for local hits
     
     # --- 1. Check Local JSON Index (Instant Playback) ---
     # --- 1. Check Local JSON Index (Instant Playback) ---
