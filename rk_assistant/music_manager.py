@@ -130,12 +130,14 @@ def search_local_and_play(norm_query):
              print(f"[music] ✅ Found local match! Score: {best_score:.2f} (ID: {best_match})", flush=True)
              data = index[best_match]
              
-             # Search for file manually to avoid glob bracket issues
-             found_file = None
-             for f in cache_dir.iterdir():
-                 if best_match in f.name and f.suffix == ".mp3":
-                     found_file = str(f)
-                     break
+             # Search for file
+             matches = list(cache_dir.glob(f"*{best_match}*.mp3"))
+             found_file = str(matches[0]) if matches else None
+             
+             if not found_file:
+                 # Try exact fallback
+                 possible = cache_dir / f"{best_match}.mp3"
+                 if possible.exists(): found_file = str(possible)
                  
              if found_file:
                  # Shorten title for speaking
