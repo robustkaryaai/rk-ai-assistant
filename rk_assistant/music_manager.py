@@ -78,11 +78,24 @@ def play_music(query: str):
              
         # Fuzzy title match
         from difflib import SequenceMatcher
-        score = SequenceMatcher(None, norm_query, title).ratio()
+        # Basic ratio
+        score1 = SequenceMatcher(None, norm_query, title).ratio()
         
-        # Also check if query is substring of title or vice versa
+        # Keyword match (Custom logic similar to token_set_ratio)
+        q_words = set(norm_query.split())
+        t_words = set(title.split())
+        intersection = q_words.intersection(t_words)
+        
+        # If significant overlap
+        score2 = 0.0
+        if q_words:
+             score2 = len(intersection) / len(q_words)
+             
+        score = max(score1, score2)
+
+        # Boost if query is substring
         if norm_query in title or title in norm_query:
-            if score < 0.7: score = 0.7
+            if score < 0.8: score = 0.8
             
         if score > best_score:
             best_score = score
@@ -91,10 +104,28 @@ def play_music(query: str):
     # Threshold for fuzzy match
     if best_score > 0.6 and best_match:
         data = index[best_match]
-        file_path = os.path.join(cache_dir, f"{best_match}.mp3")
-        if os.path.exists(file_path):
+        
+        # Search for file with this ID (glob because filename might have title)
+        # We expect "... [{best_match}].mp3" OR "{best_match}.mp3"
+        # Since [ ] might be stripped?
+        # Let's search for *{best_match}*
+        
+        found_file = None
+        # Try exact ID.mp3
+        possible = cache_dir / f"{best_match}.mp3"
+        if possible.exists():
+             found_file = str(possible)
+        else:
+             # Glob search
+             matches = list(cache_dir.glob(f"*{best_match}*.mp3"))
+             if matches:
+                 found_file = str(matches[0])
+        
+        if found_file:
+            print(f"[music] ⚡ Instant Hit: {data['title']} (Score: {best_score:.2f})", flush=True)
+            print(f"[music] File: {found_file}", flush=True)
+            
             # Shorten title for speaking
-
             speak_title = data['title']
             if "|" in speak_title:
                 speak_title = speak_title.split("|")[0]
@@ -102,7 +133,6 @@ def play_music(query: str):
             if len(words) > 5:
                 speak_title = " ".join(words[:5])
                 
-            print(f"[music] ⚡ Instant Hit: {data['title']} (Score: {best_score:.2f})", flush=True)
             speak(f"Playing {speak_title}")
             
             # Update queries list if new
@@ -112,7 +142,7 @@ def play_music(query: str):
                     json.dump(index, f, indent=2)
 
             return subprocess.Popen(
-                ["mpg123", "-o", "pulse", "-q", file_path],
+                ["mpg123", "-o", "pulse", "-q", found_file],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
