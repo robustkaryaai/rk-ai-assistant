@@ -6,27 +6,238 @@ import os
 import json
 from .audio_utils import speak
 import signal
+from difflib import SequenceMatcher
 
 current_player = None
 last_played_query = None
 
 
-def stop_music():
-    """Stop any currently playing music."""
-    global current_player
-    if current_player:
-        current_player.terminate()
-        current_player = None
+def clean_music_query(query):
+    """Remove common filler words and STT artifacts."""
+    if not query: return ""
+    norm_query = query.lower().strip()
     
-    # Force kill
-    subprocess.run(["pkill", "-9", "vlc"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "cvlc"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "ffplay"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
+    # Common words to remove
+    ignore_words = [
+        "play", "song", "from", "youtube", "please", "can you", "i want to hear",
+        "plate", "place", "pleas", "plait", # STT errors for 'play'
+        "search", "find"
+    ]
     
-    print("[music] ⏹️  Stopped", flush=True)
+    clean_q = norm_query
+    for word in ignore_words:
+        # Remove whole words only
+        clean_q = clean_q.replace(f" {word} ", " ")
+        if clean_q.startswith(f"{word} "):
+            clean_q = clean_q[len(word)+1:]
+        if clean_q.endswith(f" {word}"):
+            clean_q = clean_q[:-len(word)-1]
+            
+    return clean_q.strip()
 
+def search_local_and_play(norm_query):
+    """
+    Search local JSON index for fuzzy match using cleaned query.
+    Returns: process (subprocess.Popen) if found and played, else None.
+    """
+    try:
+        from pathlib import Path
+        cache_dir = Path(os.getcwd()) / "songs"
+        index_path = cache_dir / "index.json"
+        
+        if not index_path.exists():
+            return None
+            
+        import json
+        try:
+            with open(index_path, "r") as f:
+                index = json.load(f)
+        except:
+            return None
+
+        # Fuzzy match query against titles or stored queries
+        best_match = None
+        best_score = 0.0
+        
+        for vid_id, data in index.items():
+            # Check against title
+            title = data.get("title", "").lower()
+            if not title: continue
+            
+            # Check against stored queries (Iterate all queries for this ID)
+            previous_queries = data.get("queries", [])
+            for pq in previous_queries:
+                # IMPORTANT: Clean stored query too for comparisons?
+                # Or compare raw stored query vs clean input?
+                # User had success with fuzzy matching raw stored query vs clean input.
+                # So let's fuzzy match against raw stored query.
+                pq_clean = clean_music_query(pq) # Actually, clean stored query helps match clean input
+                
+                # Match against cleanly stored query
+                score_q = SequenceMatcher(None, norm_query, pq_clean).ratio()
+                if score_q > best_score:
+                    best_score = score_q
+                    best_match = vid_id
+                
+                # Also match against RAW stored query (for legacy index entries)
+                score_raw = SequenceMatcher(None, norm_query, pq).ratio()
+                if score_raw > best_score:
+                    best_score = score_raw
+                    best_match = vid_id
+                
+            # Fuzzy title match
+            score1 = SequenceMatcher(None, norm_query, title).ratio()
+            
+            # Keyword match
+            q_words = set(norm_query.split())
+            t_words = set(title.split())
+            intersection = q_words.intersection(t_words)
+            
+            score2 = 0.0
+            if q_words:
+                 score2 = len(intersection) / len(q_words)
+                 
+            current_score = max(score1, score2)
+            if current_score > best_score:
+                best_score = current_score
+                best_match = vid_id
+
+            # Boost if query is substring
+            if norm_query in title or title in norm_query:
+                 if 0.8 > best_score: best_score = 0.8
+                 
+        if best_score > 0.6 and best_match:
+             print(f"[music] ✅ Found local match! Score: {best_score:.2f} (ID: {best_match})", flush=True)
+             data = index[best_match]
+             
+             # Search for file
+             matches = list(cache_dir.glob(f"*{best_match}*.mp3"))
+             found_file = str(matches[0]) if matches else None
+             
+             if not found_file:
+                 # Try exact fallback
+                 possible = cache_dir / f"{best_match}.mp3"
+                 if possible.exists(): found_file = str(possible)
+                 
+             if found_file:
+                 # Shorten title for speaking
+                 speak_title = data['title']
+                 if "|" in speak_title: speak_title = speak_title.split("|")[0]
+                 words = speak_title.split()
+                 if len(words) > 5: speak_title = " ".join(words[:5])
+                    
+                 speak(f"Playing {speak_title}")
+                 
+                 # Store CLEAN query in index
+                 if norm_query not in data.get("queries", []):
+                     data.setdefault("queries", []).append(norm_query)
+                     with open(index_path, "w") as f:
+                         json.dump(index, f, indent=2)
+
+                 return subprocess.Popen(
+                    ["mpg123", "-o", "pulse", "-q", found_file],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                 )
+        
+        return None
+        
+    except Exception as e:
+        print(f"[music] Local search error: {e}")
+        return None
+
+def search_youtube_and_play(norm_query):
+    """Search YouTube, download, cache, and play."""
+    try:
+        from pathlib import Path
+        cache_dir = Path(os.getcwd()) / "songs"
+        index_path = cache_dir / "index.json"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        print(f"[music] 🌍 Searching YouTube for: {norm_query}", flush=True)
+        speak(f"Searching online for {norm_query}")
+        
+        search_cmd = ["yt-dlp", "--force-ipv4", "--get-title", "--get-id", f"ytsearch1:{norm_query}"]
+        search_res = subprocess.run(search_cmd, capture_output=True, text=True)
+        
+        if search_res.returncode != 0:
+             print("[music] Error finding song", flush=True)
+             speak("I couldn't find that song.")
+             return None
+             
+        lines = search_res.stdout.strip().split('\n')
+        if len(lines) < 2:
+            print("[music] ❌ No results or malformed output", flush=True)
+            speak("I couldn't find that song.")
+            return None
+            
+        title = lines[0]
+        vid_id = lines[1]
+        
+        # Sanitize title
+        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+        filename = f"{safe_title} [{vid_id}].mp3"[:255]
+        file_path = str(cache_dir / filename)
+        
+        print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
+
+        # Check for old cache format
+        old_path = str(cache_dir / f"{vid_id}.mp3")
+        if os.path.exists(old_path):
+            try: os.rename(old_path, file_path)
+            except: pass
+
+        # Load index
+        index = {}
+        if index_path.exists():
+            try:
+                with open(index_path, "r") as f: index = json.load(f)
+            except: pass
+
+        if os.path.exists(file_path):
+            print(f"[music] 📂 Playing from file cache: {file_path}", flush=True)
+            # Add to index (Clean query)
+            current_data = index.get(vid_id, {})
+            existing_queries = current_data.get("queries", [])
+            if norm_query not in existing_queries:
+                 existing_queries.append(norm_query)
+                 
+            index[vid_id] = {"title": title, "queries": existing_queries}
+            with open(index_path, "w") as f:
+                json.dump(index, f, indent=2)
+                
+            speak(f"Playing {title}")
+            return subprocess.Popen(
+                ["mpg123", "-o", "pulse", "-q", file_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        
+        # Stream & Cache
+        speak(f"Playing {title}")
+        print(f"[music] ▶️  Streaming & Caching... ({title})", flush=True)
+        
+        safe_url = f"https://www.youtube.com/watch?v={vid_id}"
+        safe_path = file_path.replace("'", "'\\''")
+        pipeline_cmd = f"yt-dlp --force-ipv4 -x --audio-format mp3 -o - '{safe_url}' | tee '{safe_path}' | mpg123 -o pulse -q -"
+        
+        proc = subprocess.Popen(pipeline_cmd, shell=True)
+        
+        # Add to index (Clean query)
+        current_data = index.get(vid_id, {})
+        existing_queries = current_data.get("queries", [])
+        if norm_query not in existing_queries:
+             existing_queries.append(norm_query)
+             
+        index[vid_id] = {"title": title, "queries": existing_queries}
+        with open(index_path, "w") as f:
+            json.dump(index, f, indent=2)
+            
+        return proc
+
+    except Exception as e:
+        print(f"[music] ❌ Error: {e}", flush=True)
+        return None
 
 def play_music(query: str):
     """
@@ -41,269 +252,23 @@ def play_music(query: str):
     
     stop_music()
     
-    print(f"[music] 🔍 Searching: {query}", flush=True)
-    print(f"[music] 🔍 Searching: {query}", flush=True)
-    # speak(f"Searching for {query}") # REMOVED: Reduce latency for local hits
-    
-    # --- 1. Check Local JSON Index (Instant Playback) ---
-    # --- 1. Check Local JSON Index (Instant Playback) ---
-    from pathlib import Path
-    cache_dir = Path(os.getcwd()) / "songs"
-    index_path = cache_dir / "index.json"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    
-    index = {}
-    if os.path.exists(index_path):
-        try:
-            with open(index_path, "r") as f:
-                index = json.load(f)
-        except Exception as e:
-            print(f"[music] Error loading index: {e}", flush=True)
-
-    # Fuzzy match query against titles or stored queries
-    best_match = None
-    best_score = 0.0
-    
-    # Fuzzy match query against titles or stored queries
-    best_match = None
-    best_score = 0.0
-    
-    # Simple normalization + Cleaning filler words
-    norm_query = query.lower().strip()
-    
-    # Common words to remove
-    ignore_words = [
-        "play", "song", "from", "youtube", "please", "can you", "i want to hear",
-        "plate", "place", "pleas", "plait" # STT errors for 'play'
-    ]
-    
-    clean_q = norm_query
-    for word in ignore_words:
-        # Remove whole words only
-        clean_q = clean_q.replace(f" {word} ", " ")
-        if clean_q.startswith(f"{word} "):
-            clean_q = clean_q[len(word)+1:]
-        if clean_q.endswith(f" {word}"):
-            clean_q = clean_q[:-len(word)-1]
-            
-    clean_q = clean_q.strip()
-    if clean_q: norm_query = clean_q # Update if not empty
-    
+    # 1. Clean Query
+    norm_query = clean_music_query(query)
     print(f"[music] 🧹 Cleaned Query: '{norm_query}' (Original: '{query}')", flush=True)
     
-    for vid_id, data in index.items():
-        # Check against title
-        title = data.get("title", "").lower()
-        if not title: continue
-        
-        # Check exact previous queries
-        previous_queries = data.get("queries", [])
-        if norm_query in previous_queries:
-             best_match = vid_id
-             best_score = 1.0 # Perfect match
-             break
-             
-        # Fuzzy match against stored queries (Iterate all queries for this ID)
-        for pq in previous_queries:
-            # Clean pq first? No, just match raw pq.
-            # Use token_set_ratio logic here too?
-            # Just ratio for speed.
-            pq_clean = pq.replace("play", "").replace("song", "").replace("youtube", "").strip()
-            score_q = SequenceMatcher(None, norm_query, pq_clean).ratio()
-            if score_q > best_score:
-                best_score = score_q
-                best_match = vid_id
-                
-        # Fuzzy title match
-        # Basic ratio
-        score1 = SequenceMatcher(None, norm_query, title).ratio()
-        
-        # Keyword match (Custom logic similar to token_set_ratio)
-        q_words = set(norm_query.split())
-        t_words = set(title.split())
-        intersection = q_words.intersection(t_words)
-        
-        # If significant overlap
-        score2 = 0.0
-        if q_words:
-             score2 = len(intersection) / len(q_words)
-             
-        score = max(score1, score2, best_score) # include query match score
-
-        # Boost if query is substring
-        if norm_query in title or title in norm_query:
-            if score < 0.8: score = 0.8
-            
-        if score > best_score:
-            best_score = score
-            best_match = vid_id
-            
-    # Threshold for fuzzy match
-    if best_score > 0.6 and best_match:
-        data = index[best_match]
-        
-        # Search for file with this ID (glob because filename might have title)
-        # We expect "... [{best_match}].mp3" OR "{best_match}.mp3"
-        # Since [ ] might be stripped?
-        # Let's search for *{best_match}*
-        
-        found_file = None
-        # Try exact ID.mp3
-        possible = cache_dir / f"{best_match}.mp3"
-        if possible.exists():
-             found_file = str(possible)
-        else:
-             # Glob search
-             matches = list(cache_dir.glob(f"*{best_match}*.mp3"))
-             if matches:
-                 found_file = str(matches[0])
-        
-        if found_file:
-            print(f"[music] ⚡ Instant Hit: {data['title']} (Score: {best_score:.2f})", flush=True)
-            print(f"[music] File: {found_file}", flush=True)
-            
-            # Shorten title for speaking
-            speak_title = data['title']
-            if "|" in speak_title:
-                speak_title = speak_title.split("|")[0]
-            words = speak_title.split()
-            if len(words) > 5:
-                speak_title = " ".join(words[:5])
-                
-            speak(f"Playing {speak_title}")
-            
-            # Update queries list if new
-            if norm_query not in data.get("queries", []):
-                data.setdefault("queries", []).append(norm_query)
-                with open(index_path, "w") as f:
-                    json.dump(index, f, indent=2)
-
-            return subprocess.Popen(
-                ["mpg123", "-o", "pulse", "-q", found_file],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            
-    # --- 2. Not found locally, proceed to Network Search ---
-    
-    try:
-        # Get Video ID and Title
-        print(f"[music] 🌍 Searching YouTube for: {query}", flush=True)
-        speak(f"Searching online for {query}")
-        
-        search_cmd = ["yt-dlp", "--force-ipv4", "--get-title", "--get-id", f"ytsearch1:{query}"]
-        search_res = subprocess.run(search_cmd, capture_output=True, text=True)
-        
-        if search_res.returncode != 0:
-             print("[music] Error finding song", flush=True)
-             print(f"[music] yt-dlp stderr: {search_res.stderr}", flush=True)
-             speak("I couldn't find that song.")
-             return None
-             
-        lines = search_res.stdout.strip().split('\n')
-        if len(lines) < 2:
-            print("[music] ❌ No results or malformed output", flush=True)
-            speak("I couldn't find that song.")
-            return None
-            
-        title = lines[0]
-        vid_id = lines[1]
-        
-        # Sanitize title for filename
-        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-        filename = f"{safe_title} [{vid_id}].mp3"[:255] # safe length
-        file_path = str(cache_dir / filename)
-        
-        print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
-        print(f"[music] Target File: {file_path}", flush=True) # Debug
-        
-        # Check if file exists (Old format ID.mp3 fallback?)
-        old_path = str(cache_dir / f"{vid_id}.mp3")
-        if os.path.exists(old_path):
-            print(f"[music] 📂 Found old cache format, renaming...", flush=True)
-            try:
-                os.rename(old_path, file_path)
-            except:
-                pass
-
-        if os.path.exists(file_path):
-            print(f"[music] 📂 Playing from file cache: {file_path}", flush=True)
-            # Add to index if missing
-            current_data = index.get(vid_id, {})
-            index[vid_id] = {"title": title, "queries": [norm_query] + current_data.get("queries", [])}
-            with open(index_path, "w") as f:
-                json.dump(index, f, indent=2)
-                
-            # Shorten title   
-            speak_title = title
-            if "|" in speak_title:
-                speak_title = speak_title.split("|")[0]
-            words = speak_title.split()
-            if len(words) > 5:
-                speak_title = " ".join(words[:5])
-            speak(f"Playing {speak_title}")
-            
-            return subprocess.Popen(
-                ["mpg123", "-o", "pulse", "-q", file_path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-        
-        # --- Not in Cache: Stream & Save (Pipeline) ---
-        
-        # Self-healing check: Try to update yt-dlp if it looks broken
-        def update_ytdlp():
-            print("[music] 🔄 Updating yt-dlp...", flush=True)
-            speak("Updating music components...")
-            subprocess.run(["sudo", "pip3", "install", "-U", "yt-dlp", "--break-system-packages"], capture_output=True)
-            
-        speak(f"Playing {title}")
-        print(f"[music] ▶️  Streaming & Caching... ({title})", flush=True)
-        
-        # Pipeline: yt-dlp stdout -> tee file -> mpg123 stdin
-        # using shell=True for pipeline simplicity given the complexity of wiring 3 processes
-        # Escape quotes for shell
-        safe_url = f"https://www.youtube.com/watch?v={vid_id}"
-        safe_path = file_path.replace("'", "'\\''")
-        
-        # CMD: yt-dlp -o - [URL] 2>error.log | tee [FILE] | mpg123 -o pulse -q -
-        # We capture stderr to a temp file to check for errors? Or just let it print?
-        # User wants speed.
-        
-        pipeline_cmd = f"yt-dlp --force-ipv4 -x --audio-format mp3 -o - '{safe_url}' | tee '{safe_path}' | mpg123 -o pulse -q -"
-        
-        # We need to detect if yt-dlp fails.
-        # If the pipe breaks immediately.
-        
-        proc = subprocess.Popen(pipeline_cmd, shell=True)
-        
-        # Wait a bit to see if it crashes immediately?
-        try:
-            rank = proc.wait(timeout=2)
-            # If it exited in < 2 seconds, it failed
-            if rank != 0:
-                print(f"[music] Pipeline failed (valid exit code {rank}). Updating yt-dlp...", flush=True)
-                update_ytdlp()
-                # Retry once
-                proc = subprocess.Popen(pipeline_cmd, shell=True)
-        except subprocess.TimeoutExpired:
-            # It's running fine (streaming)
-            pass
-            
-        # Add to index
-        index[vid_id] = {
-            "title": title,
-            "queries": [norm_query]
-        }
-        with open(index_path, "w") as f:
-            json.dump(index, f, indent=2)
-            
+    # 2. Try Local
+    proc = search_local_and_play(norm_query)
+    if proc:
+        current_player = proc
         return proc
         
-    except Exception as e:
-        print(f"[music] ❌ Error: {e}", flush=True)
-        return None
-
+    # 3. Try Online
+    proc = search_youtube_and_play(norm_query)
+    if proc:
+        current_player = proc
+        return proc
+        
+    return None
 
 def stop_music():
     """Stop music."""
