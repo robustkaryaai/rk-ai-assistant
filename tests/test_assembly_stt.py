@@ -149,6 +149,7 @@ def save_wav_file():
 # --- Main Execution ---
 def run():
     global audio, stream, ws_app
+    audio = pyaudio.PyAudio()
 
     # List Microphones
     info = audio.get_host_api_info_by_index(0)
