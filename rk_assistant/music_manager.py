@@ -404,7 +404,7 @@ def sync_music_index():
                         cmd = [
                             "yt-dlp", 
                             "--force-ipv4", 
-                            "--extractor-args", "youtube:player_client=mweb,web",
+                            "--extractor-args", "youtube:player_client=android",
                             "--get-title", 
                             f"https://www.youtube.com/watch?v={vid_id}"
                         ]
