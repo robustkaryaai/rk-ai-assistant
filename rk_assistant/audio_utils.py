@@ -7,6 +7,7 @@ import sys
 import time
 import subprocess
 import threading
+import shutil
 try:
     import audioop
 except ModuleNotFoundError:
