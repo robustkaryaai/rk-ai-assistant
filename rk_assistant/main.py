@@ -834,7 +834,9 @@ def main():
     is_first_boot = not slug_val
     if is_first_boot:
         print("[main] First boot detected.")
-        speak("Preparing RK AI")
+        sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
+        proc = play_audio_url(sound_path)
+        if proc: proc.wait()
     else:
         # 2. INITIAL SPEECH (before waiting for internet, so user hears it immediately)
         start_msg = "Radhe Radhe RK AI assistant is starting up"
@@ -917,7 +919,9 @@ def main():
 
     if is_first_boot:
         print("[main] First boot preparation complete.")
-        speak("Prepared. Now you can pair this device whenever you like to.")
+        sound_path = str(Path(__file__).parent / "sounds" / "prepared.mp3")
+        proc = play_audio_url(sound_path)
+        if proc: proc.wait()
         time.sleep(1)
 
     print("\n" + "="*60)
