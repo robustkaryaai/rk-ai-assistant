@@ -111,6 +111,22 @@ def _speak_twice(text: str) -> None:
     time.sleep(0.2)
     speak(text)
 
+def handle_local_response(response: str) -> None:
+    """Check if the response is a special audio sentinel, else speak it."""
+    if not response:
+        return
+    if response.startswith("_PLAY_OFFLINE_"):
+        try:
+            idx = response.split("_")[3]
+            sound_path = str(Path(__file__).parent / "sounds" / f"offline_{idx}.mp3")
+            proc = play_audio_url(sound_path)
+            if proc: proc.wait()
+        except Exception as e:
+            print(f"[audio] Failed to play offline mp3: {e}")
+            speak("I received your offline command.")
+    else:
+        speak(response)
+
 
 def _log_backend_error(error_msg: str, exception: Optional[Exception] = None) -> None:
     """Log backend errors to backend_error_log.txt."""
@@ -795,7 +811,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
             print(f"[main] ⚡ Handling '{local_cmd}' locally (Hybrid Mode)", flush=True)
             response = process_offline_command(local_cmd, music_proc_holder.get("proc"))
             if response:
-                speak(response)
+                handle_local_response(response)
             else:
                  speak("I couldn't process that locally.")
                  
@@ -809,7 +825,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 # Offline and matches a known pattern
                 response = process_offline_command(local_cmd, music_proc_holder.get("proc"))
                 if response:
-                    speak(response)
+                    handle_local_response(response)
             else:
                 # Offline and no known pattern
                 speak("I am currently offline and cannot process that command.")
@@ -981,7 +997,7 @@ def main():
              if match_offline_command(text):
                  resp = process_offline_command(text, music_proc_holder.get("proc"))
                  if resp:
-                     speak(resp)
+                     handle_local_response(resp)
              else:
                  # Online processing
                  process_online_command(text, slug, music_proc_holder)

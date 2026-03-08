@@ -173,6 +173,9 @@ def process_offline_command(cmd: str, music_proc=None) -> str:
         responses = ["Thank you!", "Glad you liked it!", "Great to hear!", "Awesome!"]
         return random.choice(responses)
     
-    return "I am currently offline and cannot process that command."
+    # For any generic command that was matched but has no specific logic, 
+    # instead of synthesizing a robotic voice, we play a pre-recorded high-quality response.
+    idx = random.randint(0, len(OFFLINE_AI_RESPONSES) - 1)
+    return f"_PLAY_OFFLINE_{idx}_"
 
 
