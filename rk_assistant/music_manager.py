@@ -245,7 +245,7 @@ def search_youtube_and_play(norm_query):
                 with open(index_path, "r") as f: index = json.load(f)
             except: pass
 
-        if os.path.exists(file_path):
+        if file_path and os.path.exists(file_path):
             print(f"[music] 📂 Playing from file cache: {file_path}", flush=True)
             # Add to index (Clean query)
             current_data = index.get(vid_id, {})
