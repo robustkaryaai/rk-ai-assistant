@@ -323,9 +323,13 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=N
             else:
                 with source_ctx as source:
                     if not recognizer:
-                         # Only calibrate if new recognizer
-                         r.adjust_for_ambient_noise(source, duration=0.5)
-                    audio = r.listen(source, timeout=5, phrase_time_limit=10)
+                         # Calibrate briefly but then force a LOW threshold
+                         # so the user's voice is always detected
+                         r.adjust_for_ambient_noise(source, duration=0.3)
+                         # Cap threshold — calibration can set it too high in noisy rooms
+                         r.energy_threshold = min(r.energy_threshold, 200)
+                         r.dynamic_energy_threshold = False  # Lock it, don't drift up
+                    audio = r.listen(source, timeout=8, phrase_time_limit=12)
             
             # Save to WAV (Normalized)
             norm_audio = _normalize_audio(audio)
