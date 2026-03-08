@@ -133,13 +133,19 @@ def search_local_and_play(norm_query):
              # Search for file (Escape brackets in ID for glob)
              import glob
              escaped_id = glob.escape(best_match)
-             matches = list(cache_dir.glob(f"*{escaped_id}*.mp3"))
+             matches = []
+             for ext in ["mp3", "m4a", "webm"]:
+                 matches.extend(list(cache_dir.glob(f"*{escaped_id}*.{ext}")))
+                 
              found_file = str(matches[0]) if matches else None
              
              if not found_file:
                  # Try exact fallback
-                 possible = cache_dir / f"{best_match}.mp3"
-                 if possible.exists(): found_file = str(possible)
+                 for ext in ["mp3", "m4a", "webm"]:
+                     possible = cache_dir / f"{best_match}.{ext}"
+                     if possible.exists(): 
+                         found_file = str(possible)
+                         break
                  
              if found_file:
                  # Shorten title for speaking
@@ -156,11 +162,14 @@ def search_local_and_play(norm_query):
                      with open(index_path, "w") as f:
                          json.dump(index, f, indent=2)
 
-                 return subprocess.Popen(
-                    ["mpg123", "-o", "pulse", "-q", found_file],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                 )
+                 # Play using appropriate player
+                 if found_file.endswith(".mp3"):
+                     cmd = ["mpg123", "-o", "pulse", "-q", found_file]
+                     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                 else:
+                     # For m4a/webm, use fast lightweight ffmpeg pipe to paplay/aplay (zero encoding overhead)
+                     pipeline = f"ffmpeg -hide_banner -loglevel error -i '{found_file}' -f wav - | paplay 2>/dev/null || ffmpeg -hide_banner -loglevel error -i '{found_file}' -f wav - | aplay -D pulse -q 2>/dev/null"
+                     return subprocess.Popen(pipeline, shell=True, preexec_fn=os.setsid)
         
         return None
         
@@ -202,18 +211,32 @@ def search_youtube_and_play(norm_query):
         title = lines[0]
         vid_id = lines[1]
         
-        # Sanitize title
+        # Remove illegal filename chars (especially slashes)
         safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-        filename = f"{safe_title} [{vid_id}].mp3"[:255]
-        file_path = str(cache_dir / filename)
+        filename_template = f"{safe_title} [{vid_id}].%(ext)s"[:255]
+        file_path_template = str(cache_dir / filename_template)
         
         print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
 
+        # Look for existing downloaded files (m4a, mp3, webm)
+        import glob
+        existing_matches = []
+        for ext in ["mp3", "m4a", "webm"]:
+            existing_matches.extend(list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}")))
+            
+        file_path = str(existing_matches[0]) if existing_matches else None
+
         # Check for old cache format
-        old_path = str(cache_dir / f"{vid_id}.mp3")
-        if os.path.exists(old_path):
-            try: os.rename(old_path, file_path)
-            except: pass
+        if not file_path:
+            for ext in ["mp3", "m4a", "webm"]:
+                old_path = str(cache_dir / f"{vid_id}.{ext}")
+                if os.path.exists(old_path):
+                    try: 
+                        new_name = f"{safe_title} [{vid_id}].{ext}"[:255]
+                        os.rename(old_path, str(cache_dir / new_name))
+                        file_path = str(cache_dir / new_name)
+                    except: pass
+                    break
 
         # Load index
         index = {}
@@ -237,32 +260,42 @@ def search_youtube_and_play(norm_query):
             global last_played_query
             last_played_query = norm_query # Store for autoplay/replay
             
-            speak(f"Playing {title}")
-            return subprocess.Popen(
-                ["mpg123", "-o", "pulse", "-q", file_path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+            speak(f"Playing {speak_title}")
+            
+            if file_path.endswith(".mp3"):
+                return subprocess.Popen(["mpg123", "-o", "pulse", "-q", file_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                pipeline = f"ffmpeg -hide_banner -loglevel error -i '{file_path}' -f wav - | paplay 2>/dev/null || ffmpeg -hide_banner -loglevel error -i '{file_path}' -f wav - | aplay -D pulse -q 2>/dev/null"
+                return subprocess.Popen(pipeline, shell=True, preexec_fn=os.setsid)
         
-        # Stream & Cache
-        speak(f"Downloading and playing {title.partition('|')[0]}")
-        print(f"[music] ▶️  Streaming & Caching... ({title})", flush=True)
+        # Download completely (native format, no transcoding, totally silent)
+        speak_title = title.partition('|')[0]
+        words = speak_title.split()
+        if len(words) > 5: speak_title = " ".join(words[:5])
+        speak(f"Downloading {speak_title}")
+        print(f"[music] ⬇️  Downloading fast... ({title})", flush=True)
         
         safe_url = f"https://www.youtube.com/watch?v={vid_id}"
-        safe_path = file_path.replace("'", "'\\''")
         
-        # FINAL PI ZERO PIPELINE (Strict mpg123):
-        # 1. yt-dlp: Grabs best audio (mweb/web client for compatibility).
-        # 2. ffmpeg: Converts stream to MP3 on-the-fly (needed for mpg123).
-        # 3. tee: Saves valid MP3 to songs/ folder.
-        # 4. mpg123: Plays the MP3 stream for "no cracking".
-        pipeline_cmd = (
-            f"yt-dlp --force-ipv4 --extractor-args \"youtube:player_client=android\" -f \"ba/b\" -o - '{safe_url}' | "
-            f"ffmpeg -i - -f mp3 -acodec libmp3lame -ar 44100 -ac 2 -q:a 9 -f mp3 - | "
-            f"tee '{safe_path}' | mpg123 -o pulse -q -"
-        )
+        dl_cmd = [
+            "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4", 
+            "--extractor-args", "youtube:player_client=android",
+            "-f", "ba[ext=m4a]/ba", "-o", file_path_template, safe_url
+        ]
         
-        proc = subprocess.Popen(pipeline_cmd, shell=True, preexec_fn=os.setsid)
+        subprocess.run(dl_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # Now find the downloaded file
+        new_matches = []
+        for ext in ["mp3", "m4a", "webm"]:
+            new_matches.extend(list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}")))
+            
+        final_file = str(new_matches[0]) if new_matches else None
+        
+        if not final_file:
+            print("[music] ❌ Download failed.", flush=True)
+            speak("I couldn't complete the download.")
+            return None
         
         # Add to index (Clean query)
         current_data = index.get(vid_id, {})
@@ -274,7 +307,13 @@ def search_youtube_and_play(norm_query):
         with open(index_path, "w") as f:
             json.dump(index, f, indent=2)
             
-        return proc
+        # Play the newly downloaded file
+        print(f"[music] ▶️  Playing...", flush=True)
+        if final_file.endswith(".mp3"):
+            return subprocess.Popen(["mpg123", "-o", "pulse", "-q", final_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            pipeline = f"ffmpeg -hide_banner -loglevel error -i '{final_file}' -f wav - | paplay 2>/dev/null || ffmpeg -hide_banner -loglevel error -i '{final_file}' -f wav - | aplay -D pulse -q 2>/dev/null"
+            return subprocess.Popen(pipeline, shell=True, preexec_fn=os.setsid)
 
     except Exception as e:
         print(f"[music] ❌ Error: {e}", flush=True)
@@ -372,7 +411,9 @@ def sync_music_index():
                     index = json.load(f)
             except: pass
             
-        files = list(cache_dir.glob("*.mp3"))
+        files = []
+        for ext in ["mp3", "m4a", "webm"]:
+            files.extend(list(cache_dir.glob(f"*.{ext}")))
         updated = False
         
         print(f"[music] 🔄 Syncing music index ({len(files)} files)...", flush=True)
