@@ -10,7 +10,18 @@ from typing import Optional
 from .audio_utils import play_audio_url, set_volume, speak, stop_process
 from .config import OFFLINE_COMMANDS
 
-OFFLINE_AI_RESPONSES = [f"Got it, noted {i}." for i in range(1, 101)]
+OFFLINE_AI_RESPONSES = [
+    "Got it.",
+    "Okay, noted.",
+    "Will do.",
+    "Consider it done.",
+    "I've saved that offline.",
+    "Noted for when we're back online.",
+    "Understood.",
+    "Sure thing.",
+    "Alright.",
+    "I've saved your request."
+]
 
 # Response templates for different command categories
 GREETING_RESPONSES = {

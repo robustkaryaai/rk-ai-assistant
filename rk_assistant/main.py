@@ -830,11 +830,17 @@ def main():
     print("Initializing RK AI Assistant...")
     print("="*30)
     
-    # 2. INITIAL SPEECH (before waiting for internet, so user hears it immediately)
-    start_msg = "Radhe Radhe RK AI assistant is starting up"
-    print(f"[main] {start_msg}")
-    speak(start_msg)
-    time.sleep(1) # Give it a second
+    slug_val, _ = read_slug()
+    is_first_boot = not slug_val
+    if is_first_boot:
+        print("[main] First boot detected.")
+        speak("Preparing RK AI")
+    else:
+        # 2. INITIAL SPEECH (before waiting for internet, so user hears it immediately)
+        start_msg = "Radhe Radhe RK AI assistant is starting up"
+        print(f"[main] {start_msg}")
+        speak(start_msg)
+        time.sleep(1) # Give it a second
     
     # 3. WAIT FOR INTERNET (User requested 2m max)
     wait_for_internet(max_minutes=2.0)
@@ -909,6 +915,11 @@ def main():
         print("Missing or invalid slug.txt (must contain 9-digit code).", file=sys.stderr)
         return
 
+    if is_first_boot:
+        print("[main] First boot preparation complete.")
+        speak("Prepared. Now you can pair this device whenever you like to.")
+        time.sleep(1)
+
     print("\n" + "="*60)
     print("RK AI ASSISTANT STARTUP")
     print(f"Device Slug: {slug}")
@@ -918,6 +929,17 @@ def main():
     decoder_available = load_pocketsphinx_decoder()
     music_proc_holder = {"proc": None, "last_query": None}
     
+    
+    def maintenance_poller(device_slug: str):
+        """Hits the backend maintenance endpoint every 2 minutes."""
+        while True:
+            try:
+                url = f"{BACKEND_BASE_URL}/device/{device_slug}/maintenance"
+                requests.get(url, timeout=10)
+            except Exception as e:
+                pass
+            time.sleep(120)
+
     # Start background autoplay monitor (Infinite loop)
     try:
         t_auto = threading.Thread(target=autoplay_monitor, args=(music_proc_holder, slug), daemon=True)
@@ -926,8 +948,12 @@ def main():
         # Start background update monitor
         t_upd = threading.Thread(target=update_monitor, daemon=True)
         t_upd.start()
+
+        # Start maintenance poller to clear old files
+        t_maint = threading.Thread(target=maintenance_poller, args=(slug,), daemon=True)
+        t_maint.start()
     except Exception as e:
-        print(f"[main] Autoplay/Update monitor error: {e}")
+        print(f"[main] Autoplay/Update/Maintenance monitor error: {e}")
     
     # Start background sync for mute/memory settings from Appwrite
     try:
@@ -969,22 +995,17 @@ def main():
     #    print("[commands] Background command poller started")
     
     # --- 7. Voice Loop ---
-    # --- 7. Voice Loop ---
-    try:
-        print("\n" + "="*30)
-        print("STARTING VOICE MODE")
-        print("="*30 + "\n")
-        
-        # Announce ready right before starting to listen
+    print("\n" + "="*30)
+    print("STARTING VOICE MODE")
+    print("="*30 + "\n")
+    
+    # Announce ready right before starting to listen (skip if first boot since we already spoke)
+    if not is_first_boot:
         ready_msg = "Radhe Radhe RK AI assistant is ready"
         print(f"🔊 {ready_msg}")
         speak(ready_msg)
-        
-        voice_flow(decoder_available, music_proc_holder, slug, recognizer, mic)
-    except KeyboardInterrupt:
-        pass
 
-    # Voice mode: standard wake word loop (Fallback if voice_flow returns)
+    # Voice mode: standard wake word loop (with robust self-diagnosis)
     while True:
         try:
             voice_flow(decoder_available, music_proc_holder, slug, recognizer=recognizer, mic=mic)
