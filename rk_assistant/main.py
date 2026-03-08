@@ -837,8 +837,8 @@ def main():
     # 3. WAIT FOR INTERNET (User requested 2m max)
     wait_for_internet(max_minutes=2.0)
     
-    # 4. SET INITIAL VOLUME (ensure we can hear it)
-    set_volume(80)
+    # 4. SET INITIAL VOLUME (comfortable level for BT speaker)
+    set_volume(40)
 
     # Initialize and Calibrate Microphone ONE TIME here
     recognizer = None

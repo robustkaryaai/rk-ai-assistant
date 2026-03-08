@@ -371,37 +371,34 @@ record_audio = record_until_silence
 def load_pocketsphinx_decoder(*args, **kwargs): return False
 def wait_for_wake_word(*args, **kwargs): return False
 def stop_process(*args, **kwargs): pass
+
 def set_volume(change=0):
     """
     Adjust system volume.
-    change: int (positive for up, negative for down).
+    change: int — positive = up, negative = down.
+    Values >= 50 treated as absolute % (e.g. startup set_volume(80) → 80%).
     """
     try:
-        # Use pactl (PulseAudio) first as we use -o pulse for mpg123
-        if shutil.which("pactl"):
-            # Format: +10% or -10%
-            sign = "+" if change >= 0 else "-"
-            # Ensure at least 5% change to be noticeable, but handle 0
-            if change == 0: return
-            
-            # Limit volume max to 150%? pactl allows >100%.
-            # Using relative change
-            subprocess.run(
-                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{sign}{abs(change)}%"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-        elif shutil.which("amixer"):
-            # Fallback to ALSA
-            sign = "+" if change >= 0 else "-"
-            subprocess.run(
-                ["amixer", "sset", "Master", f"{abs(change)}%{sign}"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+        if change == 0 or not shutil.which("pactl"):
+            return
+
+        # Target BT sink by name so it works even if @DEFAULT_SINK@ is wrong
+        bt_sink = f"bluez_output.{BLUETOOTH_SPEAKER_MAC.replace(':', '_')}.1"
+
+        if abs(change) >= 50:
+            # Absolute volume (startup call)
+            vol_str = f"{abs(change)}%"
         else:
-             print("[audio] No volume control tool found (pactl/amixer).")
+            # Relative change (+10% / -10%)
+            vol_str = f"{'+' if change > 0 else '-'}{abs(change)}%"
+
+        subprocess.run(["pactl", "set-sink-volume", bt_sink, vol_str],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", vol_str],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"[audio] Volume → {vol_str}")
     except Exception as e:
         print(f"[audio] Error setting volume: {e}")
+
 def quick_stt(*args, **kwargs): return ""
 def synthesize_to_wav(*args, **kwargs): return None
