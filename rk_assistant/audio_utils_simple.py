@@ -154,7 +154,8 @@ def _speak_chunk(text: str, alsa_device: str = "pulse") -> bool:
         import threading
 
         def _generate():
-            tts = gTTS(text=text, lang='en')
+            # Use Indian English TLD to properly pronounce Hinglish words (deshbhakti etc)
+            tts = gTTS(text=text, lang='en', tld='co.in')
             tts.save(str(cache_path_mp3))
 
         gen_thread = threading.Thread(target=_generate)
