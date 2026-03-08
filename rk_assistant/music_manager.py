@@ -182,7 +182,7 @@ def search_youtube_and_play(norm_query):
         search_cmd = [
             "yt-dlp", 
             "--force-ipv4", 
-            "--extractor-args", "youtube:player_client=mweb,web",
+            "--extractor-args", "youtube:player_client=android",
             "--get-title", "--get-id", 
             f"ytsearch1:{norm_query}"
         ]
@@ -257,7 +257,7 @@ def search_youtube_and_play(norm_query):
         # 3. tee: Saves valid MP3 to songs/ folder.
         # 4. mpg123: Plays the MP3 stream for "no cracking".
         pipeline_cmd = (
-            f"yt-dlp --force-ipv4 --extractor-args \"youtube:player_client=mweb,web\" -f \"ba/b\" -o - '{safe_url}' | "
+            f"yt-dlp --force-ipv4 --extractor-args \"youtube:player_client=android\" -f \"ba/b\" -o - '{safe_url}' | "
             f"ffmpeg -i - -f mp3 -acodec libmp3lame -ar 44100 -ac 2 -q:a 9 -f mp3 - | "
             f"tee '{safe_path}' | mpg123 -o pulse -q -"
         )
