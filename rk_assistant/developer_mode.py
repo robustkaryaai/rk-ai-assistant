@@ -119,7 +119,7 @@ def test_audio_input():
         # Use existing record function (which uses VAD now)
         recorded_path = audio_utils.record_audio(out_path=wav_path, silence_duration=1.0)
         
-        if not recorded_path.exists():
+        if recorded_path is None or not recorded_path.exists():
             print("❌ Recording produced no file.")
             return
 
