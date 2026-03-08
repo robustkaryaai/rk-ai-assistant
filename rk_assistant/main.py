@@ -949,17 +949,6 @@ def main():
     decoder_available = load_pocketsphinx_decoder()
     music_proc_holder = {"proc": None, "last_query": None}
     
-    
-    def maintenance_poller(device_slug: str):
-        """Hits the backend maintenance endpoint every 2 minutes."""
-        while True:
-            try:
-                url = f"{BACKEND_BASE_URL}/device/{device_slug}/maintenance"
-                requests.get(url, timeout=10)
-            except Exception as e:
-                pass
-            time.sleep(120)
-
     # Start background autoplay monitor (Infinite loop)
     try:
         t_auto = threading.Thread(target=autoplay_monitor, args=(music_proc_holder, slug), daemon=True)
@@ -969,11 +958,12 @@ def main():
         t_upd = threading.Thread(target=update_monitor, daemon=True)
         t_upd.start()
 
-        # Start maintenance poller to clear old files
-        t_maint = threading.Thread(target=maintenance_poller, args=(slug,), daemon=True)
-        t_maint.start()
+        # Launch the independent maintenance poller script
+        poller_path = str(Path(__file__).parent / "rk_maintenance_poller.py")
+        subprocess.Popen([sys.executable, poller_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        print("[main] Launched independent maintenance poller background process.")
     except Exception as e:
-        print(f"[main] Autoplay/Update/Maintenance monitor error: {e}")
+        print(f"[main] Autoplay/Update monitor error: {e}")
     
     # Start background sync for mute/memory settings from Appwrite
     try:
