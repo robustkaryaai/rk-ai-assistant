@@ -191,7 +191,6 @@ def search_youtube_and_play(norm_query):
         search_cmd = [
             "yt-dlp", 
             "--force-ipv4", 
-            "--extractor-args", "youtube:player_client=android",
             "--get-title", "--get-id", 
             f"ytsearch1:{norm_query}"
         ]
@@ -279,7 +278,6 @@ def search_youtube_and_play(norm_query):
         
         dl_cmd = [
             "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4", 
-            "--extractor-args", "youtube:player_client=android",
             "-f", "ba[ext=m4a]/ba", "-o", file_path_template, safe_url
         ]
         
@@ -445,7 +443,6 @@ def sync_music_index():
                         cmd = [
                             "yt-dlp", 
                             "--force-ipv4", 
-                            "--extractor-args", "youtube:player_client=android",
                             "--get-title", 
                             f"https://www.youtube.com/watch?v={vid_id}"
                         ]
