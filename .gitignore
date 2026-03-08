@@ -4,4 +4,6 @@ __pycache__/
 rk_assistant/data/
 dialogue_example.mp4
 .env
+**/.env
 .env.example
+**/.env.example
