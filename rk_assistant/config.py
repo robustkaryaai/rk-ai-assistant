@@ -117,7 +117,7 @@ USE_GEMINI_DIRECT = os.getenv("USE_GEMINI_DIRECT", "1") == "1"  # Feature flag
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # Gemini Model Configuration₹
-GEMINI_MODEL_PRIMARY = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-2.5-flash")  # Flash for fast intent routing
+GEMINI_MODEL_PRIMARY = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-2.5-flash-lite")  # Flash Lite: 15 RPM, fast intent routing
 GEMINI_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemma-3-4b-it")  # Tiny Gemma fallback if flash fails
 STT_ENGINE = os.getenv("STT_ENGINE", "google")  # Options: "groq", "google"
 
