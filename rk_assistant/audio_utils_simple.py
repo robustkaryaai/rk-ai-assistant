@@ -200,10 +200,13 @@ def speak(text, use_gtts=True):
                 return
             print("⚠ Piper failed, trying chunked gTTS...", flush=True)
 
-        # Split into chunks for sequential streaming
-        chunks = _split_into_chunks(text)
-        if not chunks:
+        # Split into chunks for sequential streaming if text is long
+        if len(text) < 150:
             chunks = [text]
+        else:
+            chunks = _split_into_chunks(text)
+            if not chunks:
+                chunks = [text]
 
         for chunk in chunks:
             if not chunk:

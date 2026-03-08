@@ -240,7 +240,7 @@ def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = 
     elif intent == "task":
         return handle_task(parameters)
     
-    elif intent == "remember":
+    elif intent in ["remember", "note"]:
         return handle_memory(parameters)
     
     elif intent == "mute":
