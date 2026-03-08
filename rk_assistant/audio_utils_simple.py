@@ -108,85 +108,113 @@ def _speak_with_piper(text):
 def sanitize_text(text):
     """Remove emojis and non-standard symbols."""
     if not text: return ""
-    return re.sub(r'[^\w\s,!.?\'"-]', '', text)
+    return re.sub(r'[^\w\s,!.?\'\"-]', '', text)
+
+
+def _split_into_chunks(text: str):
+
+    """Split text into speakable chunks (by newline first, then by sentence)."""
+    chunks = []
+    for line in text.split('\n'):
+        line = line.strip().lstrip('- ').strip()
+        if not line:
+            continue
+        # Split long lines at sentence boundaries
+        parts = re.split(r'(?<=[.!?])\s+', line)
+        for part in parts:
+            part = part.strip()
+            if part:
+                chunks.append(part)
+    return chunks
+
+
+def _speak_chunk(text: str, alsa_device: str = "pulse") -> bool:
+    """Speak a single chunk of text. Returns True if gTTS succeeded."""
+    cache_path_mp3 = _get_cache_path(text)
+    cache_path_wav = cache_path_mp3.with_suffix('.wav')
+
+    # WAV cached → instant
+    if cache_path_wav.exists():
+        subprocess.run(['aplay', '-D', alsa_device, '-q', str(cache_path_wav)],
+                       check=False, stderr=subprocess.DEVNULL, timeout=30)
+        return True
+
+    # MP3 cached → convert & play
+    if cache_path_mp3.exists():
+        subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)],
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if cache_path_wav.exists():
+            subprocess.run(['aplay', '-D', alsa_device, '-q', str(cache_path_wav)],
+                           check=False, stderr=subprocess.DEVNULL, timeout=30)
+            return True
+
+    # Neither cached → generate via gTTS
+    try:
+        from gtts import gTTS
+        import threading
+
+        def _generate():
+            tts = gTTS(text=text, lang='en')
+            tts.save(str(cache_path_mp3))
+
+        gen_thread = threading.Thread(target=_generate)
+        gen_thread.start()
+        gen_thread.join(timeout=12)  # 12s per chunk (reasonable for short sentence)
+
+        if gen_thread.is_alive():
+            print(f"⚠ gTTS chunk timed out, using espeak for: {text[:40]}", flush=True)
+            return False
+
+        subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)],
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if cache_path_wav.exists():
+            subprocess.run(['aplay', '-D', alsa_device, '-q', str(cache_path_wav)],
+                           check=False, stderr=subprocess.DEVNULL, timeout=30)
+            return True
+    except Exception as e:
+        print(f"⚠ gTTS chunk failed: {e}", flush=True)
+
+    return False
+
 
 def speak(text, use_gtts=True):
     """
     Convert text to speech with intelligent cascading fallback.
-    
-    Priority:
-    1. Piper TTS (natural voice, ~200-800ms, offline)
-    2. gTTS cache (natural voice, ~200ms, cached phrases)
-    3. espeak (robotic voice, ~50ms, always works)
+    Long text is split into sentence chunks and played sequentially
+    (generate chunk 1 → play → generate chunk 2 → play...).
+
+    Priority per chunk:
+    1. Piper TTS (offline, natural)
+    2. gTTS cache (online, natural)
+    3. espeak (always works, robotic)
     """
     try:
-        # Sanitize
         text = sanitize_text(text)
         print(f"🔊 {text}", flush=True)
-        
-        # Use PulseAudio output
+
         alsa_device = "pulse"
-        
-        # Try Piper TTS first (natural voice, fast, offline)
+
+        # For short text or Piper available — speak whole thing at once
         if _is_piper_available():
             if _speak_with_piper(text):
                 return
-            print("⚠ Piper failed, trying gTTS cache...", flush=True)
-        
-        # Fallback to gTTS with caching when online
-        if use_gtts and is_online():
-            try:
-                # We need both MP3 (storage) and WAV (playback) paths
-                cache_path_mp3 = _get_cache_path(text)
-                cache_path_wav = cache_path_mp3.with_suffix('.wav')
-                
-                # Check if WAV is already cached (fastest path)
-                if cache_path_wav.exists():
-                    subprocess.run(['aplay', '-D', alsa_device, '-q', str(cache_path_wav)], 
-                                 check=False, stderr=subprocess.DEVNULL, timeout=30)
-                    return
-                
-                # If MP3 exists but WAV doesn't, just convert it
-                if cache_path_mp3.exists():
-                    subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)], 
-                                 check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    if cache_path_wav.exists():
-                        subprocess.run(['aplay', '-D', alsa_device, '-q', str(cache_path_wav)], 
-                                     check=False, stderr=subprocess.DEVNULL, timeout=30)
-                        return
-                
-                # Neither exists - generate new audio
-                from gtts import gTTS
-                import threading
-                
-                def _generate():
-                    tts = gTTS(text=text, lang='en')
-                    tts.save(str(cache_path_mp3))
-                
-                gen_thread = threading.Thread(target=_generate)
-                gen_thread.start()
-                gen_thread.join(timeout=10) # 10s hard timeout for gTTS generation
-                
-                if gen_thread.is_alive():
-                    print("⚠ gTTS generation timed out, falling back to espeak", flush=True)
-                    raise TimeoutError("gTTS generation took too long")
+            print("⚠ Piper failed, trying chunked gTTS...", flush=True)
 
-                # Convert generated MP3 to WAV for aplay
-                subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)], 
-                             check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Split into chunks for sequential streaming
+        chunks = _split_into_chunks(text)
+        if not chunks:
+            chunks = [text]
 
-                # Play the WAV
-                if cache_path_wav.exists():
-                    subprocess.run(['aplay', '-D', alsa_device, '-q', str(cache_path_wav)], 
-                                 check=False, stderr=subprocess.DEVNULL, timeout=30)
-                return
-                
-            except Exception as e:
-                print(f"⚠ gTTS failed, falling back to espeak: {e}", flush=True)
-        
-        # Final fallback to espeak
-        subprocess.run(['espeak', text], check=False, stderr=subprocess.DEVNULL)
-        
+        for chunk in chunks:
+            if not chunk:
+                continue
+            spoken = False
+            if use_gtts and is_online():
+                spoken = _speak_chunk(chunk, alsa_device)
+            if not spoken:
+                # espeak fallback for this chunk
+                subprocess.run(['espeak', chunk], check=False, stderr=subprocess.DEVNULL)
+
     except Exception as e:
         print(f"⚠ Speak error: {e}", flush=True)
 
