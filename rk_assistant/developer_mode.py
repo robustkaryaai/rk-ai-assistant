@@ -108,6 +108,16 @@ def test_audio_input():
     print_header("5. MICROPHONE TEST 🎤")
     print("[*] Recording via audio_utils (VAD enabled)... SPEAK NOW!")
     
+    # Auto-configure BT mic via HFP profile before testing
+    from .config import BLUETOOTH_SPEAKER_MAC
+    bt_card = "bluez_card." + BLUETOOTH_SPEAKER_MAC.replace(":", "_")
+    bt_source = "bluez_input." + BLUETOOTH_SPEAKER_MAC.replace(":", "_") + ".0"
+    subprocess.run(["pactl", "set-card-profile", bt_card, "headset-head-unit"],
+                   capture_output=True)
+    subprocess.run(["pactl", "set-default-source", bt_source],
+                   capture_output=True)
+    print(f"[*] BT mic profile set → {bt_source}")
+    
     try:
         from . import audio_utils
         from pathlib import Path
