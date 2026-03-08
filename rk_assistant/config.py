@@ -105,7 +105,7 @@ PIPER_VOICE_MODEL = os.getenv(
 # Backend
 BACKEND_URL = "https://rk-ai-backend.onrender.com/voice"
 BACKEND_BASE_URL = "https://rk-ai-backend.onrender.com"  # Base URL for text endpoint
-REQUEST_TIMEOUT = 180  # seconds (increased for slow backend/network)
+REQUEST_TIMEOUT = 8  # seconds (fail fast - weather/news shouldn't hang)
 
 # Gemini API (for direct fast responses)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

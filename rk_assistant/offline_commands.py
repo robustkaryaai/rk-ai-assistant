@@ -92,7 +92,10 @@ def process_offline_command(cmd: str, music_proc=None) -> str:
     # Time and date
     elif any(x in cmd for x in ["time", "what time"]):
         now = dt.datetime.now()
-        return now.strftime("It is %I:%M %p.")
+        hour = now.strftime("%I").lstrip("0") or "12"  # Remove leading zero
+        mins = now.strftime("%M")
+        period = now.strftime("%p")
+        return f"It is {hour} {mins} {period}."
     elif any(x in cmd for x in ["date", "what's the date", "today's date"]):
         now = dt.datetime.now()
         return now.strftime("Today is %A, %B %d, %Y.")
