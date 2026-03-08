@@ -133,70 +133,66 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
         models_to_try.append(fallback_model)
     
     last_error = None
-    
+    MAX_503_RETRIES = 2  # Keep low — flash is only 5 RPM
+    RETRY_WAITS = [5, 10]  # seconds between retries
     # Nested loop: Try each KEY, and for each key, try each MODEL
     for key_type, key in keys_to_try:
         for current_model in models_to_try:
-            try:
-                # Generate classification
-                print(f"[gemini] 🚀 Calling {current_model} ({key_type} key)...", flush=True)
-                
-                # Use standard SDK call with 60s timeout (for slower models like Gemma 3)
-                client = genai.Client(api_key=key, http_options={'timeout': 180000})
-                
-                # Build prompt
-                full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
-                
-                response = client.models.generate_content(
-                    model=current_model,
-                    contents=full_prompt
-                )
-                
-                if not response or not response.text:
-                    print(f"[gemini] Empty response from {key_type} key")
-                    last_error = "Empty response"
-                    continue
-                
-                raw_response = response.text.strip()
-                print(f"[gemini] Raw response ({key_type}): {raw_response[:200]}", flush=True)
-                
-                # Remove markdown code blocks if present
-                if raw_response.startswith("```json"):
-                    raw_response = raw_response.replace("```json", "").replace("```", "").strip()
-                elif raw_response.startswith("```"):
-                    raw_response = raw_response.replace("```", "").strip()
-                
-                # Parse JSON
+            for attempt in range(MAX_503_RETRIES + 1):  # 0..3
                 try:
-                    intents = json.loads(raw_response)
+                    if attempt > 0:
+                        wait = 2 ** attempt  # 2s, 4s, 8s
+                        print(f"[gemini] 🔄 503 retry {attempt}/{MAX_503_RETRIES} for {current_model}, waiting {wait}s...", flush=True)
+                        time.sleep(wait)
                     
-                    if not isinstance(intents, list):
-                        print(f"[gemini] Response not a list, wrapping: {intents}")
-                        intents = [intents]
+                    print(f"[gemini] 🚀 Calling {current_model} ({key_type} key)...", flush=True)
                     
-                    # Validate intent objects
-                    for intent_obj in intents:
-                        if not isinstance(intent_obj, dict) or "intent" not in intent_obj:
-                            print(f"[gemini] Invalid intent object: {intent_obj}")
-                            last_error = "Invalid intent format"
-                            raise ValueError("Invalid intent object")
+                    client = genai.Client(api_key=key, http_options={'timeout': 180000})
+                    full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
                     
-                    print(f"[gemini] ✓ Successfully classified with {current_model} ({key_type} key): {intents}", flush=True)
-                    return intents
+                    response = client.models.generate_content(
+                        model=current_model,
+                        contents=full_prompt
+                    )
                     
-                except (json.JSONDecodeError, ValueError) as e:
-                    print(f"[gemini] Parse error with {key_type} key: {e}")
-                    last_error = str(e)
-                    continue
-                
-            except Exception as e:
-                error_msg = str(e)
-                print(f"[gemini] Error with {current_model} ({key_type} key): {error_msg}", flush=True)
-                last_error = error_msg
-                continue
+                    if not response or not response.text:
+                        print(f"[gemini] Empty response from {key_type} key")
+                        last_error = "Empty response"
+                        break  # Try next model/key
+                    
+                    raw_response = response.text.strip()
+                    print(f"[gemini] Raw response ({key_type}): {raw_response[:200]}", flush=True)
+                    
+                    if raw_response.startswith("```json"):
+                        raw_response = raw_response.replace("```json", "").replace("```", "").strip()
+                    elif raw_response.startswith("```"):
+                        raw_response = raw_response.replace("```", "").strip()
+                    
+                    try:
+                        intents = json.loads(raw_response)
+                        if not isinstance(intents, list):
+                            intents = [intents]
+                        for intent_obj in intents:
+                            if not isinstance(intent_obj, dict) or "intent" not in intent_obj:
+                                last_error = "Invalid intent format"
+                                raise ValueError("Invalid intent object")
+                        print(f"[gemini] ✓ Classified with {current_model} ({key_type} key): {intents}", flush=True)
+                        return intents
+                    except (json.JSONDecodeError, ValueError) as e:
+                        print(f"[gemini] Parse error: {e}")
+                        last_error = str(e)
+                        break  # Parse error, try next model
+                        
+                except Exception as e:
+                    error_msg = str(e)
+                    is_503 = "503" in error_msg or "UNAVAILABLE" in error_msg
+                    print(f"[gemini] Error with {current_model} ({key_type}): {error_msg[:80]}", flush=True)
+                    last_error = error_msg
+                    if is_503 and attempt < MAX_503_RETRIES:
+                        continue  # Retry same model/key
+                    break  # Non-503 or retries exhausted → next model/key
     
-    # All keys failed
-    print(f"[gemini] All API keys failed. Last error: {last_error}. Defaulting to chat.")
+    print(f"[gemini] All attempts failed. Last error: {last_error[:80]}. Defaulting to chat.")
     return [{"intent": "chat", "parameters": {"prompt": text}}]
 
 

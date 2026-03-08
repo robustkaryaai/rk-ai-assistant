@@ -377,26 +377,28 @@ def update_monitor():
     import subprocess
     import time
     from .audio_utils_simple import speak
+    # Detect the actual project root dynamically
+    import os as _os
+    _project_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
     # Wait 1 min after startup before first check
     time.sleep(60)
     while True:
         try:
             print("[update] 📡 Checking for updates...")
-            subprocess.run(["git", "fetch", "origin"], capture_output=True, cwd="/home/raspberrypi/rk-ai-assistant")
+            subprocess.run(["git", "fetch", "origin"], capture_output=True, cwd=_project_dir)
             
-            # Compare local HEAD with origin/main
-            res = subprocess.run(["git", "log", "HEAD..origin/main", "--oneline"], capture_output=True, text=True, cwd="/home/raspberrypi/rk-ai-assistant")
+            res = subprocess.run(["git", "log", "HEAD..origin/main", "--oneline"],
+                                  capture_output=True, text=True, cwd=_project_dir)
             if res.stdout.strip():
                 print(f"[update] 📥 Update available: {res.stdout.strip().splitlines()[0]}")
                 diff_log = res.stdout.lower()
                 if "critical" in diff_log:
                     print("[update] 🚨 Critical update detected!")
                     speak("Critical update found. Updating and restarting.")
-                    subprocess.run(["git", "pull", "origin", "main"], capture_output=True, cwd="/home/raspberrypi/rk-ai-assistant")
+                    subprocess.run(["git", "pull", "origin", "main"], capture_output=True, cwd=_project_dir)
                     subprocess.run(["sudo", "systemctl", "restart", "rk-assistant.service"])
                     break
             
-            # Check every 30 mins
             time.sleep(30 * 60)
         except Exception as e:
             print(f"[update] Error: {e}")
