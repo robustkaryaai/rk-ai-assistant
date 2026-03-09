@@ -76,6 +76,20 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
     # D. Install Packages
     echo "[startup] Installing requirements.txt. This will take ~10 minutes..."
     pip install -r "$SCRIPT_DIR/requirements.txt"
+    
+    # E. Download Pocketsphinx Models (if missing)
+    echo "[startup] Downloading Pocketsphinx acoustic models for offline STT..."
+    MODEL_DIR="$SCRIPT_DIR/rk_assistant/model"
+    mkdir -p "$MODEL_DIR"
+    
+    if [ ! -f "$MODEL_DIR/cmudict-en-us.dict" ]; then
+        echo "[startup] Fetching cmudict-en-us.dict..."
+        curl -L "https://raw.githubusercontent.com/cmusphinx/pocketsphinx/master/model/en-us/cmudict-en-us.dict" -o "$MODEL_DIR/cmudict-en-us.dict"
+    fi
+    if [ ! -f "$MODEL_DIR/en-us.lm.bin" ]; then
+        echo "[startup] Fetching en-us.lm.bin..."
+        curl -L "https://github.com/cmusphinx/pocketsphinx/raw/master/model/en-us/en-us.lm.bin" -o "$MODEL_DIR/en-us.lm.bin"
+    fi
 
     # E. Speak Ready
     if command -v mpg123 &>/dev/null && [ -f "$SOUND_DIR/pairing.mp3" ]; then
