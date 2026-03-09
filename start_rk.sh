@@ -60,8 +60,9 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
     source "$VENV_DIR/bin/activate"
 
     # C. Speak Initializing Warning
-    if command -v espeak &>/dev/null; then
-        espeak -s 140 "Initializing R K A I. This may take up to 10 minutes."
+    SOUND_DIR="$SCRIPT_DIR/rk_assistant/sounds"
+    if command -v mpg123 &>/dev/null && [ -f "$SOUND_DIR/initializing.mp3" ]; then
+        mpg123 "$SOUND_DIR/initializing.mp3"
     fi
 
     # D. Install Packages
@@ -69,8 +70,8 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
     pip install -r "$SCRIPT_DIR/requirements.txt"
 
     # E. Speak Ready
-    if command -v espeak &>/dev/null; then
-        espeak -s 140 "R K A I initialized. Entering pairing mode."
+    if command -v mpg123 &>/dev/null && [ -f "$SOUND_DIR/pairing.mp3" ]; then
+        mpg123 "$SOUND_DIR/pairing.mp3"
     fi
     
     touch "$FIRST_BOOT_FLAG"
