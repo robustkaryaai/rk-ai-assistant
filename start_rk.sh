@@ -62,7 +62,10 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
     # C. Speak Initializing Warning
     SOUND_DIR="$SCRIPT_DIR/rk_assistant/sounds"
     if command -v mpg123 &>/dev/null && [ -f "$SOUND_DIR/initializing.mp3" ]; then
-        mpg123 "$SOUND_DIR/initializing.mp3"
+        echo "[startup] Playing initializing.mp3 via mpg123..."
+        mpg123 "$SOUND_DIR/initializing.mp3" >/dev/null 2>&1
+    else
+        echo "[startup] Warning: mpg123 not found or initializing.mp3 missing!"
     fi
 
     # D. Install Packages
@@ -71,7 +74,8 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
 
     # E. Speak Ready
     if command -v mpg123 &>/dev/null && [ -f "$SOUND_DIR/pairing.mp3" ]; then
-        mpg123 "$SOUND_DIR/pairing.mp3"
+        echo "[startup] Playing pairing.mp3 via mpg123..."
+        mpg123 "$SOUND_DIR/pairing.mp3" >/dev/null 2>&1
     fi
     
     touch "$FIRST_BOOT_FLAG"
