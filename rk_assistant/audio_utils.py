@@ -445,7 +445,17 @@ def quick_stt(audio_path: str) -> str:
     global _vosk_model
     if not _vosk_model:
         if not load_vosk_model():
-            return ""
+            print("[stt] Vosk unavailable. Falling back to offline PocketSphinx...")
+            if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+                return ""
+            try:
+                recognizer = sr.Recognizer()
+                with sr.AudioFile(str(audio_path)) as source:
+                    audio = recognizer.record(source)
+                    return recognizer.recognize_sphinx(audio)
+            except Exception as e:
+                print(f"[stt] Offline Sphinx Error: {e}")
+                return ""
             
     if not os.path.exists(audio_path):
         return ""
@@ -541,15 +551,22 @@ def wait_for_wake_word(use_offline: bool = True) -> bool:
                     return True
                     
         except ImportError:
-            print("[wake] 🦔 Porcupine not installed (unsupported architecture). Falling back to online loop.")
-            use_offline = False
+            print("[wake] 🦔 Porcupine not installed (unsupported architecture). Falling back to Sphinx offline loop.")
+            use_offline = True  # We stay offline, but use Sphinx fallback
+            porcupine_failed = True
         except Exception as e:
-            print(f"[wake] 🦔 Porcupine Error: {e}. Falling back to online loop.")
-            use_offline = False
+            print(f"[wake] 🦔 Porcupine Error: {e}. Falling back to Sphinx offline loop.")
+            use_offline = True
+            porcupine_failed = True
 
     # Fallback / Online Loop
-    if not use_offline and SPEECH_RECOGNITION_AVAILABLE and sr is not None:
-        print(f"\n[wake] ☁️  Standard Mic Listening for '{WAKE_WORD}'...")
+    fallback_active = ("porcupine_failed" in locals() and porcupine_failed) or not use_offline
+    if fallback_active and SPEECH_RECOGNITION_AVAILABLE and sr is not None:
+        if use_offline:
+            print(f"\n[wake] 📡 Offline Sphinx Listening for '{WAKE_WORD}'...")
+        else:
+            print(f"\n[wake] ☁️  Standard Mic Listening for '{WAKE_WORD}'...")
+            
         recognizer = sr.Recognizer()
         recognizer.energy_threshold = 400
         recognizer.dynamic_energy_threshold = True
@@ -560,7 +577,13 @@ def wait_for_wake_word(use_offline: bool = True) -> bool:
                 while True:
                     try:
                         audio = recognizer.listen(source, timeout=2, phrase_time_limit=3)
-                        text = recognizer.recognize_google(audio).lower()
+                        
+                        # Routing transcribe engine
+                        if use_offline:
+                             text = recognizer.recognize_sphinx(audio).lower()
+                        else:
+                             text = recognizer.recognize_google(audio).lower()
+                             
                         print(f"   (heard: '{text}')", end="\r")
                         if WAKE_WORD.lower() in text or any(w in text for w in WAKE_WORDS):
                             print("\n[wake] 🟢 Wake Word Detected!")
@@ -572,6 +595,9 @@ def wait_for_wake_word(use_offline: bool = True) -> bool:
                     except sr.WaitTimeoutError:
                         continue
                     except sr.UnknownValueError:
+                        continue
+                    except Exception as loop_e:
+                        print(f"   (Sphinx/Google engine skip: {loop_e})", end="\r")
                         continue
         except Exception as e:
             print(f"[wake] Mic Error: {e}")
