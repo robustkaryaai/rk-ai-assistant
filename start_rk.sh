@@ -18,14 +18,13 @@ for HCI in hci0 hci1; do
 done
 # Extract slug to set BT Name
 if [ -f "$SCRIPT_DIR/rk_assistant/slug.txt" ]; then
-    SLUG=$(cat "$SCRIPT_DIR/rk_assistant/slug.txt" | tr -d '[:space:]')
+    SLUG=$(head -n 1 "$SCRIPT_DIR/rk_assistant/slug.txt" | grep -o "[a-zA-Z0-9\-]*" | head -n 1)
 elif [ -f "$SCRIPT_DIR/.env" ] && grep -q "^DEVICE_SLUG=" "$SCRIPT_DIR/.env"; then
-    SLUG=$(grep -oP "^DEVICE_SLUG=\K.*" "$SCRIPT_DIR/.env" | tr -d '"'\'' ' | head -n 1)
+    SLUG=$(grep -oP "^DEVICE_SLUG=[\"']?\K[a-zA-Z0-9\-]+" "$SCRIPT_DIR/.env" | head -n 1)
 elif [ -f "$SCRIPT_DIR/rk_assistant/.env" ] && grep -q "^DEVICE_SLUG=" "$SCRIPT_DIR/rk_assistant/.env"; then
-    SLUG=$(grep -oP "^DEVICE_SLUG=\K.*" "$SCRIPT_DIR/rk_assistant/.env" | tr -d '"'\'' ' | head -n 1)
+    SLUG=$(grep -oP "^DEVICE_SLUG=[\"']?\K[a-zA-Z0-9\-]+" "$SCRIPT_DIR/rk_assistant/.env" | head -n 1)
 else
-    # Fallback to fetching it using python if config.py has it in environ
-    SLUG=$(python3 -c "import sys, os; sys.path.insert(0, '$SCRIPT_DIR'); from rk_assistant import config; print(os.environ.get('DEVICE_SLUG', 'Unknown'))" 2>/dev/null || echo "Unknown")
+    SLUG="Unknown"
 fi
 
 BT_NAME="RK-AI-$SLUG"
