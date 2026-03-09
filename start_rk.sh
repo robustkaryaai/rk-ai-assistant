@@ -77,24 +77,30 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
     echo "[startup] Installing requirements.txt. This will take ~10 minutes..."
     pip install -r "$SCRIPT_DIR/requirements.txt"
     
-    # E. Download Vosk Model (if missing)
-    echo "[startup] Downloading Vosk model for offline STT..."
+    ARCH=$(uname -m)
+
+    # E. Download Vosk Model (if missing/supported)
     MODEL_DIR="$SCRIPT_DIR/rk_assistant/model"
     mkdir -p "$MODEL_DIR"
     
-    if [ ! -d "$MODEL_DIR/vosk-model-small-en-us-0.15" ] && [ ! -d "$MODEL_DIR/vosk-model" ]; then
-        echo "[startup] Fetching vosk-model-small-en-us-0.15.zip..."
-        curl -L "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip" -o "$MODEL_DIR/vosk-model.zip"
-        echo "[startup] Extracting Vosk model..."
-        unzip -q -o "$MODEL_DIR/vosk-model.zip" -d "$MODEL_DIR/"
-        rm -f "$MODEL_DIR/vosk-model.zip"
-        mv "$MODEL_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/vosk-model" 2>/dev/null || true
-    fi
+    if [ "$ARCH" != "armv6l" ]; then
+        echo "[startup] Downloading Vosk model for offline STT..."
+        if [ ! -d "$MODEL_DIR/vosk-model-small-en-us-0.15" ] && [ ! -d "$MODEL_DIR/vosk-model" ]; then
+            echo "[startup] Fetching vosk-model-small-en-us-0.15.zip..."
+            curl -L "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip" -o "$MODEL_DIR/vosk-model.zip"
+            echo "[startup] Extracting Vosk model..."
+            unzip -q -o "$MODEL_DIR/vosk-model.zip" -d "$MODEL_DIR/"
+            rm -f "$MODEL_DIR/vosk-model.zip"
+            mv "$MODEL_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/vosk-model" 2>/dev/null || true
+        fi
 
-    # F. Download SmolLM Model (if missing)
-    if [ ! -f "$MODEL_DIR/SmolLM-135M-Instruct-Q4_K_M.gguf" ]; then
-        echo "[startup] Fetching SmolLM-135M-Instruct for experimental offline LLM..."
-        curl -L "https://huggingface.co/lmstudio-community/SmolLM-135M-Instruct-GGUF/resolve/main/SmolLM-135M-Instruct-Q4_K_M.gguf" -o "$MODEL_DIR/SmolLM-135M-Instruct-Q4_K_M.gguf"
+        # F. Download SmolLM Model (if missing/supported)
+        if [ ! -f "$MODEL_DIR/SmolLM-135M-Instruct-Q4_K_M.gguf" ]; then
+            echo "[startup] Fetching SmolLM-135M-Instruct for experimental offline LLM..."
+            curl -L "https://huggingface.co/lmstudio-community/SmolLM-135M-Instruct-GGUF/resolve/main/SmolLM-135M-Instruct-Q4_K_M.gguf" -o "$MODEL_DIR/SmolLM-135M-Instruct-Q4_K_M.gguf"
+        fi
+    else
+        echo "[startup] Architecture ($ARCH) does not support Vosk/SmolLM natively. Skipping offline models."
     fi
     
     # G. Install Piper TTS & Models (if missing)

@@ -1,6 +1,6 @@
 requests
 sounddevice
-vosk
+vosk; platform_machine != "armv6l"
 SpeechRecognition
 PyAudio
 gTTS==2.5.1

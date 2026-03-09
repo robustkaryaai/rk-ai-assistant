@@ -19,8 +19,8 @@ elif [[ "$ARCH" == "armv7l" ]] || [[ "$ARCH" == "armhf" ]]; then
     PIPER_URL="https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_armv7l.tar.gz"
 else
     echo "❌ Unsupported architecture: $ARCH"
-    echo "Piper TTS requires ARM64 or ARMv7l"
-    exit 1
+    echo "Piper TTS requires ARM64 or ARMv7l. Skipping setup seamlessly."
+    exit 0
 fi
 
 # Create temp directory
