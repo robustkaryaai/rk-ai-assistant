@@ -949,22 +949,6 @@ def main():
     decoder_available = load_pocketsphinx_decoder()
     music_proc_holder = {"proc": None, "last_query": None}
     
-    # Start background autoplay monitor (Infinite loop)
-    try:
-        t_auto = threading.Thread(target=autoplay_monitor, args=(music_proc_holder, slug), daemon=True)
-        t_auto.start()
-        
-        # Start background update monitor
-        t_upd = threading.Thread(target=update_monitor, daemon=True)
-        t_upd.start()
-
-        # Launch the independent maintenance poller script
-        poller_path = str(Path(__file__).parent / "rk_maintenance_poller.py")
-        subprocess.Popen([sys.executable, poller_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        print("[main] Launched independent maintenance poller background process.")
-    except Exception as e:
-        print(f"[main] Autoplay/Update monitor error: {e}")
-    
     # Start background sync for mute/memory settings from Appwrite
     try:
         settings_sync.start_settings_sync(slug)
@@ -996,6 +980,23 @@ def main():
         command_poller.start_command_poller(slug)
     except Exception as e:
         print(f"[commands] Failed to start command poller: {e}")
+    
+    
+    # Start background autoplay monitor (Infinite loop)
+    try:
+        t_auto = threading.Thread(target=autoplay_monitor, args=(music_proc_holder, slug), daemon=True)
+        t_auto.start()
+        
+        # Start background update monitor
+        t_upd = threading.Thread(target=update_monitor, daemon=True)
+        t_upd.start()
+
+        # Launch the independent maintenance poller script
+        poller_path = str(Path(__file__).parent / "rk_maintenance_poller.py")
+        subprocess.Popen([sys.executable, poller_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        print("[main] Launched independent maintenance poller background process.")
+    except Exception as e:
+        print(f"[main] Autoplay/Update monitor error: {e}")
 
     # --- 6. Start Backend Command Polling (Background) ---
     # Disabled to stop 500 error spam while debugging voice
