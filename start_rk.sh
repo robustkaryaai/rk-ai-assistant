@@ -77,18 +77,18 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
     echo "[startup] Installing requirements.txt. This will take ~10 minutes..."
     pip install -r "$SCRIPT_DIR/requirements.txt"
     
-    # E. Download Pocketsphinx Models (if missing)
-    echo "[startup] Downloading Pocketsphinx acoustic models for offline STT..."
+    # E. Download Vosk Model (if missing)
+    echo "[startup] Downloading Vosk model for offline STT..."
     MODEL_DIR="$SCRIPT_DIR/rk_assistant/model"
     mkdir -p "$MODEL_DIR"
     
-    if [ ! -f "$MODEL_DIR/cmudict-en-us.dict" ]; then
-        echo "[startup] Fetching cmudict-en-us.dict..."
-        curl -L "https://raw.githubusercontent.com/cmusphinx/pocketsphinx/master/model/en-us/cmudict-en-us.dict" -o "$MODEL_DIR/cmudict-en-us.dict"
-    fi
-    if [ ! -f "$MODEL_DIR/en-us.lm.bin" ]; then
-        echo "[startup] Fetching en-us.lm.bin..."
-        curl -L "https://github.com/cmusphinx/pocketsphinx/raw/master/model/en-us/en-us.lm.bin" -o "$MODEL_DIR/en-us.lm.bin"
+    if [ ! -d "$MODEL_DIR/vosk-model-small-en-us-0.15" ] && [ ! -d "$MODEL_DIR/vosk-model" ]; then
+        echo "[startup] Fetching vosk-model-small-en-us-0.15.zip..."
+        curl -L "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip" -o "$MODEL_DIR/vosk-model.zip"
+        echo "[startup] Extracting Vosk model..."
+        unzip -q -o "$MODEL_DIR/vosk-model.zip" -d "$MODEL_DIR/"
+        rm -f "$MODEL_DIR/vosk-model.zip"
+        mv "$MODEL_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/vosk-model" 2>/dev/null || true
     fi
 
     # E. Speak Ready

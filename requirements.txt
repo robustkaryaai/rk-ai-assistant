@@ -1,6 +1,6 @@
 requests
 sounddevice
-pocketsphinx
+vosk
 SpeechRecognition
 PyAudio
 gTTS==2.5.1

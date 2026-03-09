@@ -40,7 +40,7 @@ import requests
 
 from . import audio_utils
 from .audio_utils import (
-    load_pocketsphinx_decoder,
+    load_vosk_model,
     online_stt,
     play_audio_url,
     quick_stt,
@@ -947,7 +947,7 @@ def main():
     print("="*60)
 
     # Initialize variables needed for voice_flow
-    decoder_available = load_pocketsphinx_decoder()
+    decoder_available = load_vosk_model()
     music_proc_holder = {"proc": None, "last_query": None}
     
     # Start background sync for mute/memory settings from Appwrite
@@ -1014,11 +1014,13 @@ def main():
         else:
             print("[main] WARNING: No internet detected on boot. Launching AP Provisioning mode...", flush=True)
             
-        # Play a sound or say something so the user knows
-        try:
-            speak("I am not connected to the internet. Entering pairing mode.")
-        except:
-            pass
+        # Play a sound or say something so the user knows if it's not the first boot
+        # (First boot uses a pre-recorded mp3 from start_rk.sh just before this)
+        if not is_first_boot:
+            try:
+                speak("I am not connected to the internet. Entering pairing mode.")
+            except:
+                pass
             
         success = run_ap_provisioning(slug)
         if success:

@@ -367,8 +367,78 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=N
 # Alias
 record_audio = record_until_silence
 
-# --- Stubs ---
-def load_pocketsphinx_decoder(*args, **kwargs): return False
+import json
+import wave
+
+# Vosk Model Holder
+_vosk_model = None
+
+def load_vosk_model() -> bool:
+    """Load the Vosk offline model into memory."""
+    global _vosk_model
+    if _vosk_model is not None:
+        return True
+    
+    try:
+        from vosk import Model
+        model_path = os.path.join(str(Path(__file__).parent), "model", "vosk-model")
+        if not os.path.exists(model_path):
+            print(f"[vosk] Model not found at {model_path}. Offline STT unavailable.")
+            return False
+            
+        print("[vosk] Loading Vosk offline STT model...")
+        _vosk_model = Model(model_path)
+        print("[vosk] Model loaded successfully.")
+        return True
+    except Exception as e:
+        print(f"[vosk] Error loading model: {e}")
+        return False
+
+def quick_stt(audio_path: str) -> str:
+    """
+    Perform offline STT using the loaded Vosk model.
+    Reads the given wav file and returns the transcribed text.
+    """
+    global _vosk_model
+    if not _vosk_model:
+        if not load_vosk_model():
+            return ""
+            
+    if not os.path.exists(audio_path):
+        return ""
+        
+    try:
+        from vosk import KaldiRecognizer
+        
+        wf = wave.open(audio_path, "rb")
+        # Vosk expects mono PCM (which sr.AudioData.get_wav_data provides if mic is mono)
+        if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
+            print("[vosk] Audio file must be WAV format mono PCM.")
+            wf.close()
+            return ""
+            
+        rec = KaldiRecognizer(_vosk_model, wf.getframerate())
+        rec.SetWords(False)
+        
+        while True:
+            data = wf.readframes(4000)
+            if len(data) == 0:
+                break
+            rec.AcceptWaveform(data)
+            
+        result_json = rec.FinalResult()
+        wf.close()
+        
+        res = json.loads(result_json)
+        text = res.get("text", "")
+        if text:
+             print(f"[vosk] Offline Heard: '{text}'")
+        return text
+        
+    except Exception as e:
+        print(f"[vosk] Offline STT error: {e}")
+        return ""
+
 def wait_for_wake_word(*args, **kwargs): return False
 def stop_process(*args, **kwargs): pass
 
@@ -400,5 +470,4 @@ def set_volume(change=0):
     except Exception as e:
         print(f"[audio] Error setting volume: {e}")
 
-def quick_stt(*args, **kwargs): return ""
 def synthesize_to_wav(*args, **kwargs): return None
