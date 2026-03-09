@@ -992,6 +992,7 @@ def main():
         t_upd.start()
 
         # Launch the independent maintenance poller script
+        import subprocess
         poller_path = str(Path(__file__).parent / "rk_maintenance_poller.py")
         subprocess.Popen([sys.executable, poller_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         print("[main] Launched independent maintenance poller background process.")
