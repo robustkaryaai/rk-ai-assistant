@@ -61,6 +61,11 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
 
     # C. Speak Initializing Warning
     SOUND_DIR="$SCRIPT_DIR/rk_assistant/sounds"
+    
+    # Bump speaker volume up before talking
+    echo "[startup] Maximizing audio volume..."
+    amixer set Master 30%+ 2>/dev/null || amixer sset 'Master' 100% 2>/dev/null
+    
     if command -v mpg123 &>/dev/null && [ -f "$SOUND_DIR/initializing.mp3" ]; then
         echo "[startup] Playing initializing.mp3 via mpg123..."
         mpg123 "$SOUND_DIR/initializing.mp3" >/dev/null 2>&1
