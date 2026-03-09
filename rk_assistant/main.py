@@ -994,7 +994,7 @@ def main():
         # Launch the independent maintenance poller script
         import subprocess
         poller_path = str(Path(__file__).parent / "rk_maintenance_poller.py")
-        subprocess.Popen([sys.executable, poller_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen([sys.executable, "-u", poller_path], stdout=sys.stdout, stderr=sys.stderr, start_new_session=True)
         print("[main] Launched independent maintenance poller background process.")
     except Exception as e:
         print(f"[main] Autoplay/Update monitor error: {e}")

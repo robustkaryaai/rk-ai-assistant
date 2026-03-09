@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from rk_assistant.config import BACKEND_BASE_URL
-from rk_assistant.main import read_slug
+from rk_assistant.networking import read_slug
 
 def run_poller():
     print("[maintenance] Standalone poller starting...")
