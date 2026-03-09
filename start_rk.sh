@@ -16,13 +16,25 @@ for HCI in hci0 hci1; do
         sudo hciconfig $HCI up 2>/dev/null && echo "[startup] $HCI is UP." && break
     fi
 done
+# Extract slug to set BT Name
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    SLUG=$(grep -oP "^DEVICE_SLUG=\K.*" "$SCRIPT_DIR/.env" || echo "Unknown")
+elif [ -f "/home/raspberrypi/rk-ai-assistant/.env" ]; then
+    SLUG=$(grep -oP "^DEVICE_SLUG=\K.*" "/home/raspberrypi/rk-ai-assistant/.env" || echo "Unknown")
+else
+    SLUG="Unknown"
+fi
 
-# Make discoverable + pairable via bluetoothctl
-bluetoothctl << 'BTEOF' &>/dev/null
+BT_NAME="RK-AI-$SLUG"
+echo "[startup] Setting Bluetooth Name to: $BT_NAME"
+
+# Make discoverable, pairable, and auto-accept pairings via NoInputNoOutput
+bluetoothctl << BTEOF &>/dev/null
 power on
+system-alias $BT_NAME
 discoverable on
 pairable on
-agent on
+agent NoInputNoOutput
 default-agent
 BTEOF
 
