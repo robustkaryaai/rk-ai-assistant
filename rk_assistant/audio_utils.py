@@ -482,67 +482,104 @@ def quick_stt(audio_path: str) -> str:
         print(f"[vosk] Offline STT error: {e}")
         return ""
 
-def wait_for_wake_word() -> bool:
+def wait_for_wake_word(use_offline: bool = True) -> bool:
     """
-    Ultra-low CPU wake word detection using Picovoice Porcupine.
+    Ultra-low CPU wake word detection using Picovoice Porcupine (offline default).
+    If use_offline=False or unsupported architecture, falls back to standard live listening.
     Continuously listens for "porcupine" (or configured wake word) 
     and returns True when heard.
     """
     if not PORCUPINE_ACCESS_KEY:
         print("[porcupine] ❌ ERROR: PORCUPINE_ACCESS_KEY not found in .env files.")
         print("   Get one for free at console.picovoice.ai and add it to .env")
-        time.sleep(5)
-        return False
+        use_offline = False
         
-    try:
-        import pvporcupine
-        import pyaudio
-        import struct
-        
-        # Initialize Porcupine with the default built-in "porcupine" keyword
-        # To use "computer", "jarvis", etc., change keywords=["porcupine"]
-        porcupine = pvporcupine.create(
-            access_key=PORCUPINE_ACCESS_KEY,
-            keywords=["porcupine"]
-        )
-        
-        pa = pyaudio.PyAudio()
-        
-        print(f"\n[wake] 🦔 Porcupine Engine Started. Listening for wake word...")
-        
-        audio_stream = pa.open(
-            rate=porcupine.sample_rate,
-            channels=1,
-            format=pyaudio.paInt16,
-            input=True,
-            frames_per_buffer=porcupine.frame_length,
-            input_device_index=MIC_DEVICE_INDEX
-        )
-        
-        while True:
-            pcm = audio_stream.read(porcupine.frame_length, exception_on_overflow=False)
-            pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
+    if use_offline:
+        try:
+            import pvporcupine
+            import pyaudio
+            import struct
             
-            keyword_index = porcupine.process(pcm)
+            # Initialize Porcupine with the default built-in "porcupine" keyword
+            # To use "computer", "jarvis", etc., change keywords=["porcupine"]
+            porcupine = pvporcupine.create(
+                access_key=PORCUPINE_ACCESS_KEY,
+                keywords=["porcupine"]
+            )
             
-            if keyword_index >= 0:
-                print(f"\n[wake] 🦔 Wake Word Detected!")
-                audio_stream.stop_stream()
-                audio_stream.close()
-                pa.terminate()
-                porcupine.delete()
+            pa = pyaudio.PyAudio()
+            
+            print(f"\n[wake] 🦔 Porcupine Engine Started. Listening for wake word...")
+            
+            audio_stream = pa.open(
+                rate=porcupine.sample_rate,
+                channels=1,
+                format=pyaudio.paInt16,
+                input=True,
+                frames_per_buffer=porcupine.frame_length,
+                input_device_index=MIC_DEVICE_INDEX
+            )
+            
+            while True:
+                pcm = audio_stream.read(porcupine.frame_length, exception_on_overflow=False)
+                pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
                 
-                # Play hardware beep to acknowledge
-                subprocess.run(
-                    ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
-                    stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
-                )
-                return True
+                keyword_index = porcupine.process(pcm)
                 
-    except Exception as e:
-        print(f"[wake] 🦔 Porcupine Error: {e}")
-        time.sleep(2)
-        return False
+                if keyword_index >= 0:
+                    print(f"\n[wake] 🦔 Wake Word Detected!")
+                    audio_stream.stop_stream()
+                    audio_stream.close()
+                    pa.terminate()
+                    porcupine.delete()
+                    
+                    # Play hardware beep to acknowledge
+                    subprocess.run(
+                        ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
+                        stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
+                    )
+                    return True
+                    
+        except ImportError:
+            print("[wake] 🦔 Porcupine not installed (unsupported architecture). Falling back to online loop.")
+            use_offline = False
+        except Exception as e:
+            print(f"[wake] 🦔 Porcupine Error: {e}. Falling back to online loop.")
+            use_offline = False
+
+    # Fallback / Online Loop
+    if not use_offline and SPEECH_RECOGNITION_AVAILABLE and sr is not None:
+        print(f"\n[wake] ☁️  Standard Mic Listening for '{WAKE_WORD}'...")
+        recognizer = sr.Recognizer()
+        recognizer.energy_threshold = 400
+        recognizer.dynamic_energy_threshold = True
+        
+        try:
+            with sr.Microphone(device_index=MIC_DEVICE_INDEX) as source:
+                recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                while True:
+                    try:
+                        audio = recognizer.listen(source, timeout=2, phrase_time_limit=3)
+                        text = recognizer.recognize_google(audio).lower()
+                        print(f"   (heard: '{text}')", end="\r")
+                        if WAKE_WORD.lower() in text or any(w in text for w in WAKE_WORDS):
+                            print("\n[wake] 🟢 Wake Word Detected!")
+                            subprocess.run(
+                                ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
+                                stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
+                            )
+                            return True
+                    except sr.WaitTimeoutError:
+                        continue
+                    except sr.UnknownValueError:
+                        continue
+        except Exception as e:
+            print(f"[wake] Mic Error: {e}")
+            time.sleep(2)
+            return False
+            
+    time.sleep(2)
+    return False
 def stop_process(*args, **kwargs): pass
 
 def set_volume(change=0):

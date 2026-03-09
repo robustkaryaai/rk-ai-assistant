@@ -775,11 +775,58 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 else:
                     pass
 
-# The legacy PocketSphinx offline block has been removed. All audio processing
-    # now flows through the unified Porcupine -> WebRTC VAD pipeline above.
+    elif not online:
+        # --- OFFLINE MODE (Porcupine + WebRTC + Vosk) ---
+        print("\n[stt] 📡 Running in OFFLINE mode.", flush=True)
+        detected = audio_utils.wait_for_wake_word(use_offline=True)
+        
+        if detected:
+            print("[stt] Wake word detected. Recording command...", flush=True)
+            # Record it using WebRTC VAD
+            audio_path = audio_utils.record_audio()
             
+            if audio_path:
+                text = audio_utils.quick_stt(str(audio_path))
+                if text:
+                    text_lower = text.lower()
+                    print(f"[stt] Heard offline: '{text_lower}'")
+                    # Try to map it via machine learning classifier first
+                    offline_kw = match_offline_command(text_lower)
+                    
+                    if offline_kw:
+                        resp = process_offline_command(offline_kw, music_proc_holder.get("proc"))
+                        if resp == "_RK_UPDATE_":
+                             speak("Checking for updates and restarting.")
+                             import subprocess
+                             subprocess.run(["git", "pull", "origin", "main"], cwd="/home/raspberrypi/rk-ai-assistant-main")
+                             subprocess.run(["sudo", "systemctl", "restart", "rk-assistant.service"])
+                             return
+                        elif resp == "_RK_SHUTDOWN_":
+                             speak("Shutting down the system.")
+                             import subprocess
+                             subprocess.run(["sudo", "shutdown", "-h", "now"])
+                             return
+                        elif resp == "_RK_REBOOT_":
+                             speak("Rebooting the system.")
+                             import subprocess
+                             subprocess.run(["sudo", "reboot"])
+                             return
+                             
+                        if resp == "_PLAY_AGAIN_":
+                            query = music_manager.last_played_query
+                            if query:
+                                trigger_music_playback(query, music_proc_holder)
+                        elif resp:
+                            speak(resp)
+                    else:
+                        print("[stt] No specific offline intent matched.")
+                else:
+                     print("[stt] Vosk transcribed nothing.")
+            else:
+                print("[stt] Nothing recorded (silence).")
 
-            set_volume(80)
+    # Outside the main loops (usually unreachable unless loop breaks)
+    set_volume(80)
 
 
 
