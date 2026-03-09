@@ -74,8 +74,8 @@ from .networking import (
 )
 from .offline_commands import match_offline_command, process_offline_command
 from .weather_news import fetch_news, fetch_weather
-from .provisioning_service import start_ble_service
-from .intent_classifier import guess_fallback_intent, start_pending_request_msg, needs_backend
+from .ap_provisioning import run_ap_provisioning
+from .reset_monitor import start_reset_monitor
 from . import gemini_client
 from . import local_handlers
 from . import settings_sync  # Sync mute/memory from Appwrite
@@ -1000,13 +1000,33 @@ def main():
     except Exception as e:
         print(f"[main] Autoplay/Update monitor error: {e}")
 
-    # Start BLE provisioning GATT server (allows app to send WiFi credentials via BLE)
+    # Start hardware reset button monitor (GPIO 17)
     try:
-        ble_thread = threading.Thread(target=start_ble_service, args=(slug,), daemon=True)
-        ble_thread.start()
-        print(f"[main] BLE provisioning GATT server started for slug: {slug}")
+        start_reset_monitor()
     except Exception as e:
-        print(f"[main] BLE provisioning service error: {e}")
+        print(f"[main] Failed to start reset monitor: {e}")
+
+    # --- Wi-Fi AP Provisioning (Fallback if Offline) ---
+    # Start the AP hotspot. It blocks until configured or a timeout occurs.
+    if not is_online() or is_first_boot:
+        if is_first_boot:
+            print("[main] First boot detected. Launching AP Provisioning mode...", flush=True)
+        else:
+            print("[main] WARNING: No internet detected on boot. Launching AP Provisioning mode...", flush=True)
+            
+        # Play a sound or say something so the user knows
+        try:
+            speak("I am not connected to the internet. Please connect to my Wi-Fi hotspot to set me up.")
+        except:
+            pass
+            
+        success = run_ap_provisioning(slug)
+        if success:
+            print("[main] Provisioning success. The device should be rebooting now...", flush=True)
+            time.sleep(10)
+            return  # Will be killed by reboot anyway
+        else:
+            print("[main] AP provisioning timed out or failed. Continuing in offline mode...", flush=True)
 
 
     # --- 6. Start Backend Command Polling (Background) ---
