@@ -112,6 +112,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_API_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP", "")  # Backup key for failover
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemma-3-12b-it")  # Fast model for low latency
 USE_GEMINI_DIRECT = os.getenv("USE_GEMINI_DIRECT", "1") == "1"  # Feature flag
+PORCUPINE_ACCESS_KEY = os.getenv("PORCUPINE_ACCESS_KEY", "")
 
 # Groq API (for ultra-fast STT)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")

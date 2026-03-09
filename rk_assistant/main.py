@@ -775,64 +775,8 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 else:
                     pass
 
-    else:
-        # --- OFFLINE MODE (PocketSphinx Fallback) ---
-        print(f"[wake] Waiting for wake word '{WAKE_WORD}' (Offline/Pocketsphinx)...", flush=True)
-        woke = wait_for_wake_word(decoder_available, WAKE_WORDS)
-        if not woke:
-            return
-
-        print("[wake] Wake word detected (Offline)!")
-        
-        if music_proc_holder.get("proc"):
-            music_manager.pause_music()
-        
-        audio_path = record_until_silence(LAST_AUDIO)
-        
-        text = ""
-        if is_online():
-             text = online_stt(audio_path)
-        
-        if not text:
-             print("[stt] No transcription.")
-             if music_proc_holder.get("proc"):
-                music_manager.unpause_music()
-             return
-             
-        print(f"[stt] Transcription: {text}")
-        
-        # Determine if we should handle this locally (Hybrid Mode)
-        # Some commands are better handled locally even if online (e.g. Weather, Time, Alarms)
-        local_cmd = match_offline_command(text)
-        
-        # Whitelist of commands to ALWAYS handle locally
-        LOCAL_ALWAYS = ["weather", "time", "date", "alarm", "timer", "news", "headlines"]
-        
-        if local_cmd and local_cmd in LOCAL_ALWAYS:
-            print(f"[main] ⚡ Handling '{local_cmd}' locally (Hybrid Mode)", flush=True)
-            response = process_offline_command(local_cmd, music_proc_holder.get("proc"))
-            if response:
-                handle_local_response(response)
-            else:
-                 speak("I couldn't process that locally.")
-                 
-        elif is_online():
-            # Online AI (Gemini) for everything else
-            process_online_command(text, slug, music_proc_holder)
-            
-        else:
-            # Offline Mode
-            if local_cmd:
-                # Offline and matches a known pattern
-                response = process_offline_command(local_cmd, music_proc_holder.get("proc"))
-                if response:
-                    handle_local_response(response)
-            else:
-                # Offline and no known pattern
-                speak("I am currently offline and cannot process that command.")
-
-        if music_proc_holder.get("proc"):
-            music_manager.unpause_music()
+# The legacy PocketSphinx offline block has been removed. All audio processing
+    # now flows through the unified Porcupine -> WebRTC VAD pipeline above.
             
 
             set_volume(80)

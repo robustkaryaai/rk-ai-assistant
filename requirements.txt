@@ -8,5 +8,7 @@ google-genai
 audioop-lts; python_version >= "3.13"
 numpy
 webrtcvad
+pvporcupine
+scikit-learn
 # dbus-python and PyGObject must be installed via system packages on Raspberry Pi:
 # sudo apt-get install -y python3-dbus python3-gi python3-gi-cairo libgirepository1.0-dev

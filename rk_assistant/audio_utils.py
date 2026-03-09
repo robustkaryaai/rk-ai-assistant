@@ -61,7 +61,8 @@ from .config import (
     MUTE_MODE, # Added by user instruction
     STT_ENGINE, # Added by user instruction
     GEMINI_API_KEY, # Added by user instruction
-    GEMINI_API_KEY_BACKUP # Added by user instruction
+    GEMINI_API_KEY_BACKUP, # Added by user instruction
+    PORCUPINE_ACCESS_KEY
 )
 
 # Hardcoded settings for PulseAudio
@@ -481,7 +482,67 @@ def quick_stt(audio_path: str) -> str:
         print(f"[vosk] Offline STT error: {e}")
         return ""
 
-def wait_for_wake_word(*args, **kwargs): return False
+def wait_for_wake_word() -> bool:
+    """
+    Ultra-low CPU wake word detection using Picovoice Porcupine.
+    Continuously listens for "porcupine" (or configured wake word) 
+    and returns True when heard.
+    """
+    if not PORCUPINE_ACCESS_KEY:
+        print("[porcupine] ❌ ERROR: PORCUPINE_ACCESS_KEY not found in .env files.")
+        print("   Get one for free at console.picovoice.ai and add it to .env")
+        time.sleep(5)
+        return False
+        
+    try:
+        import pvporcupine
+        import pyaudio
+        import struct
+        
+        # Initialize Porcupine with the default built-in "porcupine" keyword
+        # To use "computer", "jarvis", etc., change keywords=["porcupine"]
+        porcupine = pvporcupine.create(
+            access_key=PORCUPINE_ACCESS_KEY,
+            keywords=["porcupine"]
+        )
+        
+        pa = pyaudio.PyAudio()
+        
+        print(f"\n[wake] 🦔 Porcupine Engine Started. Listening for wake word...")
+        
+        audio_stream = pa.open(
+            rate=porcupine.sample_rate,
+            channels=1,
+            format=pyaudio.paInt16,
+            input=True,
+            frames_per_buffer=porcupine.frame_length,
+            input_device_index=MIC_DEVICE_INDEX
+        )
+        
+        while True:
+            pcm = audio_stream.read(porcupine.frame_length, exception_on_overflow=False)
+            pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
+            
+            keyword_index = porcupine.process(pcm)
+            
+            if keyword_index >= 0:
+                print(f"\n[wake] 🦔 Wake Word Detected!")
+                audio_stream.stop_stream()
+                audio_stream.close()
+                pa.terminate()
+                porcupine.delete()
+                
+                # Play hardware beep to acknowledge
+                subprocess.run(
+                    ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
+                    stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
+                )
+                return True
+                
+    except Exception as e:
+        print(f"[wake] 🦔 Porcupine Error: {e}")
+        time.sleep(2)
+        return False
 def stop_process(*args, **kwargs): pass
 
 def set_volume(change=0):

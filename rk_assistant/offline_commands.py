@@ -24,103 +24,85 @@ OFFLINE_AI_RESPONSES = [
 ]
 
 # Response templates for different command categories
-GREETING_RESPONSES = {
-    "hello": ["Hello! How can I help you?", "Hi there!", "Hello! Nice to hear from you!"],
-    "hi": ["Hi! What can I do for you?", "Hey there!", "Hi! I'm listening."],
-    "hey": ["Hey! How can I assist?", "Hey there!", "Hey! What's up?"],
-    "good morning": ["Good morning! Hope you have a great day!", "Good morning! How can I help?"],
-    "good afternoon": ["Good afternoon! What can I do for you?", "Good afternoon!"],
-    "good evening": ["Good evening! How may I assist?", "Good evening!"],
-    "good night": ["Good night! Sleep well!", "Good night! See you tomorrow!"],
-}
+GREETING_RESPONSES = [
+    "Hello! How can I help you?", "Hi there!", 
+    "Hello! Nice to hear from you!", "Greetings!", 
+    "Hey! How can I assist?", "Good to see you!"
+]
 
 CONVERSATIONAL_RESPONSES = {
-    "how are you": ["I'm doing great! Thanks for asking.", "I'm fine, thank you! How about you?"],
-    "what's up": ["Not much, just waiting to help you!", "All good here! What about you?"],
-    "thank you": ["You're welcome!", "Happy to help!", "Anytime!"],
-    "thanks": ["No problem!", "You're welcome!", "My pleasure!"],
-    "okay": ["Okay!", "Got it!", "Understood!"],
-    "yes": ["Yes!", "Affirmative!", "Okay!"],
-    "no": ["No problem!", "Alright!", "Okay!"],
+    "how_are_you": ["I'm doing great! Thanks for asking.", "I'm fine, thank you! How about you?"],
+    "gratitude": ["You're welcome!", "Happy to help!", "Anytime!", "My pleasure!"],
     "goodbye": ["Goodbye! Take care!", "See you later!", "Bye! Have a great day!"],
-    "bye": ["Bye!", "See you!", "Goodbye!"],
+    "identity": ["I am RK AI, an intelligent offline assistant.", "My name is RK, I'm here to help."]
 }
 
-
-import re
+from .intent_classifier import classify_local_intent
 
 def match_offline_command(text: str) -> Optional[str]:
-    """Return matched command keyword if present as a WHOLE WORD."""
-    text = (text or "").lower()
-    for cmd in OFFLINE_COMMANDS:
-        # Use regex to match whole words only (e.g. "hi" won't match "something")
-        if re.search(rf"\b{re.escape(cmd)}\b", text):
-            return cmd
-    return None
+    """
+    Uses the SciKit-Learn Tiny ML model to categorize the spoken text
+    into a predefined offline intent (e.g. 'volume_up', 'weather').
+    Returns None if the confidence is too low.
+    """
+    return classify_local_intent(text)
 
 
 
-def process_offline_command(cmd: str, music_proc=None) -> str:
-    """Execute offline actions and return response text."""
-    cmd = (cmd or "").lower()
+def process_offline_command(intent_id: str, music_proc=None) -> str:
+    """Execute offline actions based on the classified intent and return response text."""
+    if not intent_id: return ""
     
-    # Greeting commands
-    if cmd in GREETING_RESPONSES:
-        return random.choice(GREETING_RESPONSES[cmd])
+    # Greetings & Conversations
+    if intent_id == "greeting":
+        return random.choice(GREETING_RESPONSES)
     
-    # Conversational commands
-    if cmd in CONVERSATIONAL_RESPONSES:
-        return random.choice(CONVERSATIONAL_RESPONSES[cmd])
+    if intent_id in CONVERSATIONAL_RESPONSES:
+        return random.choice(CONVERSATIONAL_RESPONSES[intent_id])
     
     # Music controls
-    if cmd in {"play music", "resume music"}:
+    if intent_id in ["play_music", "resume_music"]:
         return "No cached music URL. Please ask online."
-    elif cmd in {"play again", "replay", "restart song", "repeat"}:
+    elif intent_id == "play_again":
         from . import music_manager
         if music_manager.last_played_query:
-            # We need to call play_music from main or thread.
-            # But process_offline_command just returns a string.
-            # I will mark this to be handled by main.py's Fast Track.
             return "_PLAY_AGAIN_" # Special sentinel for main.py
         return "No song to play again."
-    elif cmd in {"pause music", "stop music", "stop", "pause", "quiet", "be quiet", "shut up", "silence", "exit"}:
+    elif intent_id in ["stop", "pause_music"]:
         from . import music_manager
         music_manager.stop_music()
         return "Stopped."
-    elif cmd in {"volume up", "increase volume", "louder", "speak louder", "louder please"}:
+        
+    # Audio Settings
+    elif intent_id == "volume_up":
         set_volume(+10)
         return "Volume up."
-    elif cmd in {"volume down", "decrease volume", "quieter", "lower volume", "softer"}:
+    elif intent_id == "volume_down":
         set_volume(-10)
         return "Volume down."
-    elif cmd in {"mute"}:
+    elif intent_id == "mute":
         set_volume(-50)
         return "Muted."
-    elif cmd in {"unmute"}:
+    elif intent_id == "unmute":
         set_volume(+20)
         return "Unmuted."
     
     # Time and date
-    elif any(x in cmd for x in ["time", "what time"]):
+    elif intent_id == "time":
         now = dt.datetime.now()
         hour = now.strftime("%I").lstrip("0") or "12"  # Remove leading zero
         mins = now.strftime("%M")
         period = now.strftime("%p")
         return f"It is {hour} {mins} {period}."
-    elif any(x in cmd for x in ["date", "what's the date", "today's date"]):
+    elif intent_id == "date":
         now = dt.datetime.now()
         return now.strftime("Today is %A, %B %d, %Y.")
-    
-    # Announcements
-    elif cmd in {"announcement", "announce", "make announcement"}:
-        return "Ready for your announcement."
 
-    # News
-    elif cmd in {"news", "headlines"}:
+    # News & Weather
+    elif intent_id == "news":
         from .weather_news import fetch_news
         return fetch_news()
-    # Weather (Works if internet is available, even if backend is down)
-    elif cmd in {"weather", "what's the weather", "weather today"}:
+    elif intent_id == "weather":
         from .weather_news import fetch_weather
         w = fetch_weather()
         if w:
@@ -131,50 +113,18 @@ def process_offline_command(cmd: str, music_proc=None) -> str:
             return f"Current weather in {place} is {desc}, {temp} degrees Celsius."
         else:
             return "Sorry, I couldn't get the weather info."
-    
-    # Alarms (basic offline support)
-    elif cmd in {"set alarm"}:
-        from .alarm_manager import prompt_for_alarm_time, set_alarm
-        time_str = prompt_for_alarm_time()
-        if time_str and set_alarm(time_str):
-            return f"Alarm set for {time_str}."
-        else:
-            return "Could not set alarm. Please try again."
-    elif cmd in {"cancel alarm", "delete alarm", "stop alarm"}:
-        from .alarm_manager import cancel_all_alarms
-        count = cancel_all_alarms()
-        if count > 0:
-            return f"Canceled {count} alarm{'s' if count != 1 else ''}."
-        else:
-            return "No alarms to cancel."
-    
+            
     # System info
-    elif cmd in {"rk update"}:
+    elif intent_id == "update_system":
         return "_RK_UPDATE_"
-    elif cmd in {"rk shutdown"}:
+    elif intent_id == "shutdown_device":
         return "_RK_SHUTDOWN_"
-    elif cmd in {"rk reboot", "rk restart"}:
+    elif intent_id == "restart_device":
         return "_RK_REBOOT_"
-    elif cmd in {"battery", "battery level", "battery status"}:
+    elif intent_id == "battery":
         return "Battery information not available in offline mode."
-    elif cmd in {"status", "system status"}:
-        return "System is running in offline mode."
     
-    # Assistant info
-    elif cmd in {"who are you", "what's your name", "introduce yourself"}:
-        return "I am RK AI, your personal assistant created by RK Innovators."
-    elif cmd in {"help", "help me", "what can you do"}:
-        return "I can help with music playback, alarms, time, date, and basic commands. For more features, connect to the internet."
-    elif cmd in {"commands", "list commands", "available commands"}:
-        return "I support greetings, music controls, time and date queries, alarms, and system commands. Ask me anything!"
-    
-    # Nice responses
-    elif cmd in {"nice", "great", "awesome", "cool", "wonderful", "excellent", "perfect"}:
-        responses = ["Thank you!", "Glad you liked it!", "Great to hear!", "Awesome!"]
-        return random.choice(responses)
-    
-    # For any generic command that was matched but has no specific logic, 
-    # instead of synthesizing a robotic voice, we play a pre-recorded high-quality response.
+    # Generic generic command matched but no specific logic -> play offline sound
     idx = random.randint(0, len(OFFLINE_AI_RESPONSES) - 1)
     return f"_PLAY_OFFLINE_{idx}_"
 

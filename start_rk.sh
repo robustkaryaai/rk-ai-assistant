@@ -91,7 +91,19 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
         mv "$MODEL_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/vosk-model" 2>/dev/null || true
     fi
 
-    # E. Speak Ready
+    # F. Download SmolLM Model (if missing)
+    if [ ! -f "$MODEL_DIR/SmolLM-135M-Instruct-Q4_K_M.gguf" ]; then
+        echo "[startup] Fetching SmolLM-135M-Instruct for experimental offline LLM..."
+        curl -L "https://huggingface.co/lmstudio-community/SmolLM-135M-Instruct-GGUF/resolve/main/SmolLM-135M-Instruct-Q4_K_M.gguf" -o "$MODEL_DIR/SmolLM-135M-Instruct-Q4_K_M.gguf"
+    fi
+    
+    # G. Install Piper TTS & Models (if missing)
+    if ! command -v piper &> /dev/null && [ -f "$SCRIPT_DIR/install_piper.sh" ]; then
+        echo "[startup] Piper TTS not found. Installing Piper and downloading voice models..."
+        bash "$SCRIPT_DIR/install_piper.sh"
+    fi
+
+    # H. Speak Ready
     if command -v mpg123 &>/dev/null && [ -f "$SOUND_DIR/pairing.mp3" ]; then
         echo "[startup] Playing pairing.mp3 via mpg123..."
         mpg123 "$SOUND_DIR/pairing.mp3" >/dev/null 2>&1

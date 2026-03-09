@@ -20,13 +20,13 @@ if __name__ == "__main__" and __package__ is None:
     __package__ = "rk_assistant"
 
 from rk_assistant import audio_utils
-from rk_assistant.networking import is_online, read_slug, fetch_slug_from_env
+from rk_assistant.networking import is_online, read_slug
 from rk_assistant.config import (
     LAST_AUDIO, BACKEND_BASE_URL, GEMINI_API_KEY, 
     GEMINI_API_KEY_BACKUP, STT_ENGINE, MIC_DEVICE_INDEX
 )
 from rk_assistant.offline_commands import match_offline_command, process_offline_command
-from rk_assistant.gemini_client import generate_response
+from rk_assistant.gemini_client import classify_intent
 from rk_assistant.weather_news import fetch_weather, fetch_news
 
 def print_header(title: str):
@@ -153,8 +153,7 @@ def test_command_routing():
         print("\n[B] Sending to Gemini (Online Mode Simulation)...")
         print("    Querying Gemini API directly...")
         try:
-            prompt = f"User said: {text}\nRespond as a helpful AI assistant in raw JSON format."
-            gemini_resp = generate_response(prompt)
+            gemini_resp = classify_intent(text, api_key=GEMINI_API_KEY, backup_key=GEMINI_API_KEY_BACKUP)
             print("    🤖 Gemini Raw JSON Response:\n")
             print(f"    {gemini_resp}")
         except Exception as e:
