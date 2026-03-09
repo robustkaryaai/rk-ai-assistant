@@ -695,7 +695,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                                  if resp == "_RK_UPDATE_":
                                      speak("Checking for updates and restarting.")
                                      import subprocess
-                                     subprocess.run(["git", "pull", "origin", "main"], cwd="/home/raspberrypi/rk-ai-assistant")
+                                     subprocess.run(["git", "pull", "origin", "main"], cwd="/home/raspberrypi/rk-ai-assistant-main")
                                      subprocess.run(["sudo", "systemctl", "restart", "rk-assistant.service"])
                                      return
                                  elif resp == "_RK_SHUTDOWN_":

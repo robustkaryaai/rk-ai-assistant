@@ -111,12 +111,12 @@ def fetch_news():
                 # Remove source suffix (e.g. " - Times of India")
                 if " - " in title:
                     title = title.rsplit(" - ", 1)[0]
-                headlines.append(title)
+                headlines.append({"title": title})
             
             if headlines:
-                return "Here are the top headlines:\n" + "\n".join(f"- {h}" for h in headlines)
+                return {"articles": headlines}
                 
     except Exception as e:
         print(f"[news] Error fetching news: {e}")
         
-    return "Sorry, I couldn't get the latest news right now."
+    return None
