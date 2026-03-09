@@ -79,6 +79,7 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
     fi
     
     touch "$FIRST_BOOT_FLAG"
+    IS_FIRST_BOOT=1
     echo "[startup] === FIRST BOOT SETUP COMPLETE ==="
 fi
 
@@ -150,4 +151,8 @@ elif [ -d "$ALT_VENV" ]; then
 fi
 
 echo "[startup] Launching main.py..."
-exec python3 -u -m rk_assistant.main
+if [ "$IS_FIRST_BOOT" = "1" ]; then
+    exec python3 -u -m rk_assistant.main --first-boot
+else
+    exec python3 -u -m rk_assistant.main
+fi

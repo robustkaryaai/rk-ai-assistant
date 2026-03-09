@@ -848,7 +848,7 @@ def main():
     print("="*30)
     
     slug_val, _ = read_slug()
-    is_first_boot = not slug_val
+    is_first_boot = "--first-boot" in sys.argv
     if is_first_boot:
         print("[main] First boot detected.")
         sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
