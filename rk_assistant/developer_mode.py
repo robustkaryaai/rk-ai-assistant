@@ -1,413 +1,225 @@
 """
-Developer Mode for RK Assistant.
-Interactive diagnostic tool for testing system components.
-Run with: python3 -m rk_assistant.developer_mode
+RK AI - Developer Mode & Testing Suite
+
+This script provides an interactive CLI to test every component of the 
+RK AI system in complete isolation. You can verify network status, test 
+hardware microphones with WebRTC VAD, test TTS engines, query Gemini, 
+route offline commands, and interact with the experimental offline SmolLM model.
 """
 
 import os
 import sys
 import time
-import subprocess
-import threading
-from getpass import getpass
+from pathlib import Path
 
-# Allow running this script directly (python3 developer_mode.py)
+# Ensure package context so relative imports work
 if __name__ == "__main__" and __package__ is None:
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.dirname(current_dir)
     sys.path.insert(0, parent_dir)
     __package__ = "rk_assistant"
 
-from .config import GEMINI_API_KEY, BACKEND_BASE_URL, SLUG_FILE
-from .gemini_client import test_gemini_connection
-from .networking import check_network_health, is_online
-from .audio_utils_simple import speak
-import sounddevice as sd
-import numpy as np
-import wave
-from pathlib import Path
+from rk_assistant import audio_utils
+from rk_assistant.networking import is_online, read_slug, fetch_slug_from_env
+from rk_assistant.config import (
+    LAST_AUDIO, BACKEND_BASE_URL, GEMINI_API_KEY, 
+    GEMINI_API_KEY_BACKUP, STT_ENGINE, MIC_DEVICE_INDEX
+)
+from rk_assistant.offline_commands import match_offline_command, process_offline_command
+from rk_assistant.gemini_client import generate_response
+from rk_assistant.weather_news import fetch_weather, fetch_news
 
-# Default Password (should be moved to env for production)
-DEV_PASSWORD = os.getenv("DEV_PASSWORD", "rkadmin")
+def print_header(title: str):
+    print("\n" + "=" * 60)
+    print(f" DEVELOPER MODE: {title}")
+    print("=" * 60)
 
-def print_header(text):
-    print(f"\n{'='*40}")
-    print(f"  {text}")
-    print(f"{'='*40}\n")
-
-def check_auth():
-    print_header("🔐 DEVELOPER MODE AUTHENTICATION")
-    attempts = 0
-    while attempts < 3:
-        pwd = getpass("Enter Developer Password: ")
-        if pwd == DEV_PASSWORD:
-            print("✅ Access Granted.")
-            return True
-        else:
-            print("❌ Access Denied.")
-            attempts += 1
-    return False
-
-def test_network():
-    print_header("1. NETWORK DIAGNOSTICS 📶")
-    print("[*] Checking internet connectivity...")
-    if is_online():
-        print("✅ Internet: ONLINE")
-    else:
-        print("❌ Internet: OFFLINE")
-    
-    print("[*] Running network health check...")
-    from .networking import check_network_health
-    check_network_health()
-
-def test_gemini():
-    print_header("2. GEMINI AI DIAGNOSTICS 🧠")
-    print(f"[*] API Key Present: {'Yes' if GEMINI_API_KEY else 'No'}")
-    
-    if GEMINI_API_KEY:
-        print("[*] Testing API connection (Saying 'Hello')...")
-        start = time.time()
-        result = test_gemini_connection(GEMINI_API_KEY)
-        duration = time.time() - start
-        
-        if result:
-            print(f"✅ Gemini Connection: SUCCESS ({duration:.2f}s)")
-        else:
-            print("❌ Gemini Connection: FAILED")
-    else:
-        print("❌ Skipping test (No API Key)")
-
-def test_backend():
-    print_header("3. BACKEND DIAGNOSTICS ☁️")
-    print(f"[*] Backend URL: {BACKEND_BASE_URL}")
-    print("[*] Pinging backend...")
-    
-    import requests
+def _get_smollm_response(prompt: str) -> str:
+    """Test hook for the 135-parameter offline LLM."""
     try:
-        # Just check if we can reach the base URL or root
-        # Since actual endpoints need slugs, we'll try a simple health check if exists, 
-        # or just fetch google.com if backend doesn't have a root get.
-        # Actually let's try to fetch the device check endpoint with a dummy slug
-        url = f"{BACKEND_BASE_URL.replace('/api', '')}/" # Root
-        resp = requests.get(url, timeout=5)
-        print(f"✅ Backend Reachable (Status: {resp.status_code})")
-    except Exception as e:
-        print(f"❌ Backend Unreachable: {e}")
-
-def test_audio_output():
-    print_header("4. AUDIO OUTPUT TEST 🔊")
-    print("[*] Playing test tone...")
-    try:
-        # Simple beep using sox or aplay if available, or just speak
-        speak("Audio output test initiated.")
-        print("✅ TTS Output: SENT (Did you hear it?)")
-    except Exception as e:
-        print(f"❌ Audio Output Error: {e}")
-
-def test_audio_input():
-    print_header("5. MICROPHONE TEST 🎤")
-    print("[*] Recording via audio_utils (VAD enabled)... SPEAK NOW!")
-    
-    # Auto-configure BT mic via HFP profile before testing
-    from .config import BLUETOOTH_SPEAKER_MAC
-    bt_card = "bluez_card." + BLUETOOTH_SPEAKER_MAC.replace(":", "_")
-    bt_source = "bluez_input." + BLUETOOTH_SPEAKER_MAC.replace(":", "_") + ".0"
-    subprocess.run(["pactl", "set-card-profile", bt_card, "headset-head-unit"],
-                   capture_output=True)
-    subprocess.run(["pactl", "set-default-source", bt_source],
-                   capture_output=True)
-    print(f"[*] BT mic profile set → {bt_source}")
-    
-    try:
-        from . import audio_utils
-        from pathlib import Path
-        
-        # 1. Record
-        wav_path = Path("/tmp/dev_mode_test.wav")
-        if wav_path.exists(): wav_path.unlink()
-        
-        # Use existing record function (which uses VAD now)
-        recorded_path = audio_utils.record_audio(out_path=wav_path, silence_duration=1.0)
-        
-        if recorded_path is None or not recorded_path.exists():
-            print("❌ Recording produced no file.")
-            return
-
-        print("[*] Recording finished.")
-        
-        # 2. Playback
-        print("[*] Playing back recording...")
-        audio_utils.play_audio_file(str(recorded_path))
-        print("✅ Info: Playback initiated. (Did you hear yourself?)")
-        
-        # 3. Transcribe (STT)
-        print("[*] Transcribing (Google STT)...")
-        text = audio_utils.online_stt(recorded_path)
-        
-        if text:
-            print(f"✅ STT Result: '{text}'")
-        else:
-            print("❌ STT Failed (Silence or unintelligible)")
-            
-    except Exception as e:
-        print(f"❌ Microphone/STT Error: {e}")
-
-def test_music_dependencies():
-    print_header("6. MUSIC SYSTEM CHECK 🎵")
-    
-    # Check yt-dlp
-    yt_check = subprocess.run(["which", "yt-dlp"], capture_output=True, text=True)
-    if yt_check.returncode == 0:
-        print(f"✅ yt-dlp: INSTALLED ({yt_check.stdout.strip()})")
-    else:
-        print("❌ yt-dlp: NOT FOUND")
-        print("   👉 Fix: Run 'pip install yt-dlp' on the Pi.")
-
-    # Check ffmpeg
-    ff_check = subprocess.run(["which", "ffmpeg"], capture_output=True, text=True)
-    if ff_check.returncode == 0:
-        print(f"✅ ffmpeg: INSTALLED ({ff_check.stdout.strip()})")
-    else:
-        print("❌ ffmpeg: NOT FOUND")
-
-def test_intent_classification():
-    print_header("7. INTENT CLASSIFICATION TEST 🎯")
-    print("[*] Testing Gemini's ability to classify intents...")
-    
-    if not GEMINI_API_KEY:
-        print("❌ Skipped (No API Key)")
-        return
-    
-    try:
-        from .gemini_client import classify_intent
-        
-        test_query = "What time is it?"
-        print(f"[*] Query: '{test_query}'")
-        
-        result = classify_intent(test_query, api_key=GEMINI_API_KEY)
-        
-        if result and isinstance(result, list) and len(result) > 0:
-            intent_name = result[0].get("intent", "unknown")
-            print(f"✅ Classification Success: '{intent_name}'")
-        else:
-            print("❌ Classification Failed: No valid intent returned")
-            
-    except Exception as e:
-        print(f"❌ Classification Error: {e}")
-
-def test_time_intent():
-    print_header("8. TIME INTENT TEST 🕐")
-    print("[*] Testing local time retrieval...")
-    
-    try:
-        from datetime import datetime
-        
-        time_str = datetime.now().strftime("%I:%M %p")
-        print(f"✅ Current Time: {time_str}")
-            
-    except Exception as e:
-        print(f"❌ Time Error: {e}")
-
-def test_volume_control():
-    print_header("9. VOLUME CONTROL TEST 🔊")
-    print("[*] Testing volume adjustment...")
-    
-    try:
-        from . import audio_utils
-        
-        # Test if set_volume is callable
-        if hasattr(audio_utils, 'set_volume'):
-            print("✅ Volume Control: AVAILABLE")
-            # Don't actually change volume during test to avoid disruption
-        else:
-            print("❌ set_volume function not found")
-            
-    except Exception as e:
-        print(f"❌ Volume Error: {e}")
-
-def test_bluetooth_status():
-    print_header("10. BLUETOOTH STATUS TEST 📡")
-    print("[*] Checking Bluetooth speaker connection...")
-    
-    try:
-        from .config import BLUETOOTH_SPEAKER_MAC
-        
-        # Check connection via bluetoothctl
-        result = subprocess.run(
-            ["bluetoothctl", "info", BLUETOOTH_SPEAKER_MAC],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        
-        if "Connected: yes" in result.stdout:
-            print(f"✅ Speaker Connected: {BLUETOOTH_SPEAKER_MAC}")
-        else:
-            print(f"❌ Speaker Disconnected: {BLUETOOTH_SPEAKER_MAC}")
-            
-    except Exception as e:
-        print(f"❌ Bluetooth Error: {e}")
-
-def test_music_search():
-    print_header("11. MUSIC SEARCH TEST 🎵")
-    print("[*] Testing music search pipeline...")
-    
-    try:
-        # Check if yt-dlp is available first
-        yt_check = subprocess.run(["which", "yt-dlp"], capture_output=True, text=True)
-        if yt_check.returncode != 0:
-            print("⚠️ Skipped (yt-dlp not installed)")
-            return
-        
-        # Dry-run search (don't download)
-        test_song = "Sandese aate hai"
-        print(f"[*] Searching for: '{test_song}'")
-        
-        result = subprocess.run(
-            ["yt-dlp", "--get-title", f"ytsearch1:{test_song}"],
-            capture_output=True,
-            text=True,
-            timeout=120  # Increased to 2 minutes as requested
-        )
-        
-        if result.returncode == 0 and result.stdout.strip():
-            print(f"✅ Music Search: WORKING (Found: {result.stdout.strip()[:50]}...)")
-        else:
-            print("❌ Music Search: FAILED")
-            
-    except Exception as e:
-        print(f"❌ Music Search Error: {e}")
-
-def test_backend_integration():
-    print_header("12. BACKEND INTEGRATION TEST ☁️")
-    print("[*] Testing backend communication...")
-    
-    try:
-        from .networking import post_text_to_backend
-        
-        # Read slug
-        slug_path = Path(SLUG_FILE)
-        if not slug_path.exists():
-            print("⚠️ Skipped (No slug file)")
-            return
-        
-        slug = slug_path.read_text().strip().split('\n')[0]
-        print(f"[*] Using Slug: {slug}")
-        
-        # Send test message
-        response = post_text_to_backend("Test from developer mode", slug)
-        
-        if response and not response.get("error"):
-            print("✅ Backend Communication: SUCCESS")
-        else:
-            print(f"⚠️ Backend Response: {response}")
-            
-    except Exception as e:
-        print(f"❌ Backend Error: {e}")
-
-def test_conversational_ai():
-    print_header("13. CONVERSATIONAL AI TEST 💬")
-    print("[*] Testing Gemini chat response...")
-    
-    if not GEMINI_API_KEY:
-        print("❌ Skipped (No API Key)")
-        return
-    
-    try:
-        from .gemini_client import get_conversational_response
-        
-        test_prompt = "Say hello"
-        print(f"[*] Prompt: '{test_prompt}'")
-        
-        response = get_conversational_response(test_prompt, api_key=GEMINI_API_KEY)
-        
-        if response and len(response) > 0 and "trouble" not in response.lower():
-            print(f"✅ AI Response: {response[:80]}...")
-        else:
-            print(f"❌ AI Response Failed: {response}")
-            
-    except Exception as e:
-        print(f"❌ Conversational AI Error: {e}")
-
-def main():
-    if not check_auth():
-        sys.exit(1)
-
-    tests = [
-        test_network,
-        test_gemini,
-        test_backend,
-        test_music_dependencies,
-        test_audio_output,
-        test_audio_input,
-        test_intent_classification,
-        test_time_intent,
-        test_volume_control,
-        test_bluetooth_status,
-        test_music_search,
-        test_backend_integration,
-        test_conversational_ai,
-        test_memory_engine,
-        test_automation_engine,
-    ]
-
-    for test in tests:
-        start_time = time.time()
-        test()
-        duration = time.time() - start_time
-        print(f"⏱️  {test.__name__} completed in {duration:.4f}s")
-        time.sleep(1)
-
-    print_header("✨ DIAGNOSTICS COMPLETE ✨")
-
-
-def test_memory_engine():
-    print_header("14. MEMORY ENGINE TEST 🧠")
-    print("[*] Testing long-term memory storage...")
-    
-    try:
-        from .memory_engine import store_memory, retrieve_memories
-        
-        # Test Store
-        test_fact = f"Developer mode test run at {time.time()}"
-        print(f"[*] Storing fact: '{test_fact}'")
-        store_memory(test_fact, tags="dev_test")
-        
-        # Test Retrieve
-        print("[*] Retrieving memory...")
-        memories = retrieve_memories("developer mode test")
-        
-        found = any(test_fact in m for m in memories)
-        if found:
-            print("✅ Memory Engine: SUCCESS (Fact stored and retrieved)")
-        else:
-            print("❌ Memory Engine: FAILED (Stored fact not found)")
-            
-    except Exception as e:
-        print(f"❌ Memory Engine Error: {e}")
-
-
-def test_automation_engine():
-    print_header("15. AUTOMATION ENGINE TEST 🏠")
-    print("[*] Verifying automation routines...")
-    
-    try:
-        from .automation import ROUTINES, execute_routine
-        
-        count = len(ROUTINES)
-        print(f"[*] Found {count} defined routines: {', '.join(ROUTINES.keys())}")
-        
-        if "night_protocol" in ROUTINES:
-            print("✅ 'Night Protocol' detected.")
-            # We don't execute it to avoid shutting down things, just verify structure
-            print("✅ Automation Engine: AVAILABLE")
-        else:
-            print("❌ 'Night Protocol' missing from routines.")
-            
+        from llama_cpp import Llama
     except ImportError:
-        print("❌ Automation Module Missing")
+        return "\n❌ [ERROR] llama-cpp-python not installed.\n   Run: pip install llama-cpp-python\n   Note: Building this on Pi Zero takes a very long time."
+        
+    model_path = os.path.join(current_dir, "model", "SmolLM-135M-Instruct-Q4_K_M.gguf")
+    if not os.path.exists(model_path):
+        return f"\n❌ [ERROR] Model not found at {model_path}.\n   Run: wget https://huggingface.co/lmstudio-community/SmolLM-135M-Instruct-GGUF/resolve/main/SmolLM-135M-Instruct-Q4_K_M.gguf -P {os.path.join(current_dir, 'model')}"
+        
+    try:
+        print(f"\n[SmolLM] Loading 135M parameter model into memory...")
+        start_time = time.time()
+        llm = Llama(model_path=model_path, n_ctx=256, verbose=False)
+        print(f"[SmolLM] Loaded in {time.time() - start_time:.2f}s")
+        
+        print(f"\n[SmolLM] Generating response (Watch token speed)...")
+        gen_start = time.time()
+        output = llm(
+            f"Question: {prompt}\nAnswer:",
+            max_tokens=64, 
+            stop=["Question:", "\n"],
+            echo=False
+        )
+        duration = time.time() - gen_start
+        text = output['choices'][0]['text'].strip()
+        tokens = output['usage']['completion_tokens']
+        
+        print(f"\n[SmolLM Stats] Generated {tokens} tokens in {duration:.2f}s ({tokens/duration:.2f} t/s)")
+        return text
     except Exception as e:
-        print(f"❌ Automation Error: {e}")
+        return f"\n❌ [SmolLM ERROR]: {e}"
+
+def test_network_and_config():
+    print_header("1. Network & Configuration")
+    print("Pinging 8.8.8.8 to verify internet connectivity...")
+    online = is_online()
+    print(f"\nInternet Status: {'✅ ONLINE' if online else '❌ OFFLINE'}")
+    
+    slug, _ = read_slug()
+    if not slug:
+        slug = fetch_slug_from_env()
+    print(f"Device Slug:     {slug if slug else '❌ NOT FOUND'}")
+    
+    print(f"Backend Server:  {BACKEND_BASE_URL}")
+    print(f"STT Engine:      {STT_ENGINE}")
+    print(f"Gemini Key 1:    {'✅ CONFIGURED' if GEMINI_API_KEY else '❌ MISSING'}")
+    print(f"Gemini Key 2:    {'✅ CONFIGURED' if GEMINI_API_KEY_BACKUP else '❌ MISSING'}")
+    input("\nPress Enter to return to menu...")
+
+def test_microphone_and_vad():
+    print_header("2. Microphone & WebRTC VAD")
+    print(f"Configured Hardware Device Index: {MIC_DEVICE_INDEX}")
+    print("\nTesting recording loop with integrated WebRTC noise suppression...")
+    print(" 1. Please stay completely silent for 2 seconds.")
+    print(" 2. Then speak a sentence clearly.")
+    print(" 3. Then stay silent again to trigger the end of the recording.")
+    input("\n[Press Enter to begin recording...]")
+    
+    start = time.time()
+    audio_path = audio_utils.record_until_silence(out_path=LAST_AUDIO, silence_duration=1.5)
+    
+    if not audio_path or not os.path.exists(audio_path):
+        print("\n❌ Recording failed or timed out in silence.")
+    else:
+        file_size = os.path.getsize(audio_path)
+        duration = time.time() - start
+        print(f"\n✅ Recording finished in {duration:.2f}s.")
+        print(f"   Audio saved to: {audio_path} ({file_size} bytes)")
+        if file_size < 10000:
+            print("   ⚠️ WARNING: File is extremely small. VAD likely stripped out all audio as pure noise.")
+        else:
+            print("   Playing back the VAD-filtered recording:")
+            audio_utils.play_audio_file(str(audio_path))
+    input("\nPress Enter to return to menu...")
+
+def test_stt_engines():
+    print_header("3. Speech-To-Text (Offline & Online)")
+    if not os.path.exists(LAST_AUDIO):
+        print(f"❌ No audio file found at {LAST_AUDIO}. Please run Test 2 (Microphone) first.")
+        input("\nPress Enter to return to menu...")
+        return
+        
+    print("\nExecuting OFFLINE Vosk Transcription...")
+    start = time.time()
+    if audio_utils.load_vosk_model():
+        offline_text = audio_utils.quick_stt(LAST_AUDIO)
+        print(f"\n   RESULT: '{offline_text}' (took {time.time() - start:.2f}s)")
+    else:
+        print("\n   ❌ Failed to load Vosk model.")
+        
+    print("\nExecuting ONLINE Transcription (Google/Gemini)...")
+    start = time.time()
+    online_text = audio_utils.online_stt(LAST_AUDIO)
+    print(f"\n   RESULT: '{online_text}' (took {time.time() - start:.2f}s)")
+    
+    input("\nPress Enter to return to menu...")
+
+def test_command_routing():
+    print_header("4. Command Routing (Text Simulation)")
+    print("Type a phrase exactly as if the STT engine had parsed it.")
+    text = input("\nInput Phrase: ").strip()
+    
+    if not text:
+        return
+
+    print("\n[A] Checking Offline Commands First...")
+    cmd = match_offline_command(text)
+    if cmd:
+        print(f"    ✅ Matched Offline Command: '{cmd}'")
+        resp = process_offline_command(cmd)
+        print(f"    🤖 RK AI Response Action:\n    {resp}")
+        print("\nNote: Since an offline command matched, this would NOT be sent to Gemini.")
+    else:
+        print("    ❌ No offline command matched.")
+        print("\n[B] Sending to Gemini (Online Mode Simulation)...")
+        print("    Querying Gemini API directly...")
+        try:
+            prompt = f"User said: {text}\nRespond as a helpful AI assistant in raw JSON format."
+            gemini_resp = generate_response(prompt)
+            print("    🤖 Gemini Raw JSON Response:\n")
+            print(f"    {gemini_resp}")
+        except Exception as e:
+            print(f"    ❌ Gemini Error: {e}")
+            
+    input("\nPress Enter to return to menu...")
+
+def test_offline_smollm():
+    print_header("5. Experimental Offline SmolLM (135m)")
+    print("This will test a fully-local, quantized LLM completely on-device.")
+    print("WARNING: On a Pi Zero W, token generation can be slower than 0.5 token/sec.")
+    text = input("\nPrompt for SmolLM: ").strip()
+    if text:
+        result = _get_smollm_response(text)
+        print(f"\n🤖 SmolLM Output:\n   {result}")
+    
+    input("\nPress Enter to return to menu...")
+
+def test_third_party():
+    print_header("6. Third Party Integrations")
+    print("Fetching Weather...")
+    w = fetch_weather()
+    if w:
+        print(f"✅ Weather success: {w.get('current', {}).get('temp_c')}C in {w.get('location', {}).get('name')}")
+    else:
+        print("❌ Weather failed.")
+        
+    print("\nFetching News...")
+    n = fetch_news()
+    if len(n) > 50:
+         print(f"✅ News success. ({len(n)} characters parsed)")
+    else:
+         print(f"❌ News failed or too short. ('{n}')")
+         
+    input("\nPress Enter to return to menu...")
+
+def main_menu():
+    while True:
+        os.system('clear' if os.name == 'posix' else 'cls')
+        print("=" * 60)
+        print(" RK AI - THE DEVELOPER SUITE ")
+        print("=" * 60)
+        print(" 1. Test Network & Configuration")
+        print(" 2. Test Microphone & WebRTC VAD")
+        print(" 3. Test Speech-To-Text (Vosk & Online)")
+        print(" 4. Test Text Command Routing & Gemini")
+        print(" 5. Test Experimental Offline SmolLM")
+        print(" 6. Test Third-Party Integrations")
+        print(" 0. Exit")
+        print("-" * 60)
+        
+        choice = input("Select a module: ").strip()
+        
+        if choice == '1': test_network_and_config()
+        elif choice == '2': test_microphone_and_vad()
+        elif choice == '3': test_stt_engines()
+        elif choice == '4': test_command_routing()
+        elif choice == '5': test_offline_smollm()
+        elif choice == '6': test_third_party()
+        elif choice == '0':
+            print("\nExiting Developer Suite. Run `sudo systemctl restart rk-assistant` to resume normal operation.")
+            break
 
 if __name__ == "__main__":
-    main()
+    try:
+        main_menu()
+    except KeyboardInterrupt:
+        print("\nExiting Developer Suite.")
