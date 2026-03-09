@@ -121,19 +121,6 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
 fi
 
 # ─── 2. Standard Bluetooth Setup ───────────────────────────
-echo "[startup] Normal Bluetooth config..."
-
-# Extract slug to set BT Name
-if [ -f "$SCRIPT_DIR/rk_assistant/slug.txt" ]; then
-    SLUG=$(head -n 1 "$SCRIPT_DIR/rk_assistant/slug.txt" | grep -o "[a-zA-Z0-9\-]*" | head -n 1)
-elif [ -f "$SCRIPT_DIR/.env" ] && grep -q "^DEVICE_SLUG=" "$SCRIPT_DIR/.env"; then
-    SLUG=$(grep -oP "^DEVICE_SLUG=[\"']?\K[a-zA-Z0-9\-]+" "$SCRIPT_DIR/.env" | head -n 1)
-else
-    SLUG="Unknown"
-fi
-
-BT_NAME="RK-AI-$SLUG"
-echo "[startup] Setting Bluetooth Name to: $BT_NAME"
 
 sudo killall -9 bluetooth-agent 2>/dev/null
 sudo killall -9 bt-agent 2>/dev/null
