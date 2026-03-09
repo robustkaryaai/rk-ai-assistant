@@ -25,7 +25,16 @@ pairable on
 agent on
 default-agent
 BTEOF
-echo "[startup] Pi is BT discoverable."
+
+# ── Confirm BT is now discoverable ─────────────────────────
+sleep 1
+if hciconfig 2>/dev/null | grep -q "ISCAN\|PSCAN\|SCAN"; then
+    echo "[startup] ✓ Bluetooth is DISCOVERABLE — Pi should now appear on your phone's BT scan!"
+elif bluetoothctl show 2>/dev/null | grep -q "Discoverable: yes"; then
+    echo "[startup] ✓ Bluetooth is DISCOVERABLE — Pi should now appear on your phone's BT scan!"
+else
+    echo "[startup] ✗ Bluetooth may NOT be discoverable — check 'bluetoothctl show'"
+fi
 
 # Try to reconnect to last paired phone
 if [ -f "$PAIRING_FILE" ]; then
