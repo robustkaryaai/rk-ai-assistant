@@ -146,6 +146,7 @@ BLUETOOTH_HCI = os.getenv("BLUETOOTH_HCI", "hci1")
 # Feature Toggles
 MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "1") == "1"
 MUTE_MODE = os.getenv("MUTE_MODE", "0") == "1"
+FORCE_OFFLINE = os.getenv("FORCE_OFFLINE", "0") == "1"
 ROUTINES_SYNC_URL = f"{BACKEND_BASE_URL}/routines"
 
 # Offline command whitelist (100 max). Keep short strings for cheap checks.

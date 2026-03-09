@@ -25,6 +25,7 @@ from .config import (
     SLUG_FILE,
     BLUETOOTH_SPEAKER_MAC,
     BLUETOOTH_HCI,
+    FORCE_OFFLINE,
 )
 
 def get_ip_address():
@@ -40,7 +41,9 @@ def get_ip_address():
 
 
 def is_online(host: str = "8.8.8.8", port: int = 53, timeout: float = 3.0) -> bool:
-    """Cheap online check using UDP socket."""
+    """Cheap online check using UDP socket. Fakes offline if FORCE_OFFLINE is True."""
+    if FORCE_OFFLINE:
+        return False
     try:
         socket.setdefaulttimeout(timeout)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
