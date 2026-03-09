@@ -8,8 +8,8 @@ Type=simple
 User=raspberrypi
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
-WorkingDirectory=/home/raspberrypi/Documents/rk-ai-assistant
-ExecStart=/usr/bin/bash /home/raspberrypi/Documents/rk-ai-assistant/start_rk.sh
+WorkingDirectory=/home/raspberrypi/Documents/rk-ai-assistant-main
+ExecStart=/usr/bin/bash /home/raspberrypi/Documents/rk-ai-assistant-main/start_rk.sh
 Restart=always
 RestartSec=10
 StandardOutput=inherit
