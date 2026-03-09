@@ -28,6 +28,7 @@ if __name__ == "__main__" and __package__ is None:
 import json
 import os
 import sys
+import subprocess
 import tempfile
 import threading
 import time

@@ -20,8 +20,8 @@ _muted = False
 _consecutive_failures = 0
 _last_success_time = 0
 _backoff_until = 0
-MAX_FAILURES_BEFORE_BACKOFF = 3
-BACKOFF_DURATION = 60  # seconds
+MAX_FAILURES_BEFORE_BACKOFF = 5
+BACKOFF_DURATION = 15  # seconds — keep short so device recovers fast after Wi-Fi reboot
 
 def set_mute(muted: bool) -> str:
     """Set mute state"""
