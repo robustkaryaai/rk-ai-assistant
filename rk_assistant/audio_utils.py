@@ -177,6 +177,44 @@ def speak(text):
     except Exception as e:
         print(f"[tts] Error: {e}")
 
+def _apply_webrtc_vad(audio_data):
+    """Filter out non-speech (noise) frames using WebRTC VAD."""
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return audio_data
+    try:
+        import webrtcvad
+        vad = webrtcvad.Vad(3) # Aggressiveness 0-3 (3 is most aggressive)
+        
+        # WebRTC only supports 8000, 16000, 32000, or 48000 Hz, 16-bit
+        supported_rates = [8000, 16000, 32000, 48000]
+        if audio_data.sample_rate not in supported_rates or audio_data.sample_width != 2:
+            return audio_data # Skip if incompatible
+            
+        raw_data = audio_data.get_raw_data()
+        
+        # 30 ms frames
+        frame_duration_ms = 30
+        frame_size = int(audio_data.sample_rate * (frame_duration_ms / 1000.0) * audio_data.sample_width)
+        
+        filtered_data = bytearray()
+        for i in range(0, len(raw_data) - frame_size + 1, frame_size):
+            frame = raw_data[i:i + frame_size]
+            if vad.is_speech(frame, audio_data.sample_rate):
+                filtered_data.extend(frame)
+                
+        # If VAD stripped everything (e.g., pure silence), return the original
+        if len(filtered_data) < frame_size * 5: # At least 150ms of speech
+            return audio_data
+            
+        return sr.AudioData(bytes(filtered_data), audio_data.sample_rate, audio_data.sample_width)
+        
+    except ImportError:
+        print("[audio] webrtcvad not installed, skipping noise suppression.")
+        return audio_data
+    except Exception as e:
+        print(f"[audio] VAD pass error: {e}")
+        return audio_data
+
 def _normalize_audio(audio_data, target_level=25000):
     """Normalize audio to target peak level (max 32767)."""
     if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
@@ -241,7 +279,8 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
         except sr.UnknownValueError:
             # RETRY ONCE WITH NORMALIZATION
             try:
-                norm_audio = _normalize_audio(audio)
+                clean_audio = _apply_webrtc_vad(audio)
+                norm_audio = _normalize_audio(clean_audio)
                 text = recognizer.recognize_google(norm_audio)
                 print(f"[stt] (Normalized) Heard: '{text}'", flush=True)
                 return text
@@ -332,8 +371,11 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=N
                          r.dynamic_energy_threshold = False  # Lock it, don't drift up
                     audio = r.listen(source, timeout=8, phrase_time_limit=12)
             
+            # Apply WebRTC VAD to strip pure noise
+            clean_audio = _apply_webrtc_vad(audio)
+            
             # Save to WAV (Normalized)
-            norm_audio = _normalize_audio(audio)
+            norm_audio = _normalize_audio(clean_audio)
             with open(out_path, "wb") as f:
                 f.write(norm_audio.get_wav_data())
             
