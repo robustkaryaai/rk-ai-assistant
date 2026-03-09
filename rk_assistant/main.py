@@ -999,6 +999,15 @@ def main():
     except Exception as e:
         print(f"[main] Autoplay/Update monitor error: {e}")
 
+    # Start BLE provisioning GATT server (allows app to send WiFi credentials via BLE)
+    try:
+        ble_thread = threading.Thread(target=start_ble_service, args=(slug,), daemon=True)
+        ble_thread.start()
+        print(f"[main] BLE provisioning GATT server started for slug: {slug}")
+    except Exception as e:
+        print(f"[main] BLE provisioning service error: {e}")
+
+
     # --- 6. Start Backend Command Polling (Background) ---
     # Disabled to stop 500 error spam while debugging voice
     # if online:
