@@ -97,6 +97,32 @@ def execute_command(cmd: dict, slug: str) -> None:
             success = True
             # Note: Actual shutdown would be handled externally
             
+        elif cmd_type == 'set_wifi':
+            ssid = payload.get('ssid')
+            password = payload.get('password', '')
+            if ssid:
+                audio_utils_simple.speak(f"Received new Wi-Fi credentials for {ssid}. I will reboot and connect now.")
+                result = f"Applying Wi-Fi credentials for {ssid}"
+                success = True
+                
+                # We must mark it complete BEFORE rebooting, so do it manually here
+                try:
+                    requests.post(
+                        f"{BACKEND_BASE_URL}/device/{slug}/commands/{cmd_id}/complete",
+                        json={"result": result, "success": success},
+                        timeout=5
+                    )
+                except: pass
+                
+                # Execute the Wi-Fi switch and reboot
+                from .ap_provisioning import apply_wifi_and_reboot
+                import threading
+                threading.Thread(target=apply_wifi_and_reboot, args=(ssid, password), daemon=True).start()
+                return # Exit this execution
+            else:
+                result = "Missing SSID in set_wifi payload"
+                success = False
+
         else:
             result = f"Unknown command type: {cmd_type}"
             success = False

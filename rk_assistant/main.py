@@ -1016,7 +1016,7 @@ def main():
             
         # Play a sound or say something so the user knows
         try:
-            speak("I am not connected to the internet. Please connect to my Wi-Fi hotspot to set me up.")
+            speak("I am not connected to the internet. Entering pairing mode.")
         except:
             pass
             
