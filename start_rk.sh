@@ -17,10 +17,10 @@ for HCI in hci0 hci1; do
     fi
 done
 # Extract slug to set BT Name
-if [ -f "$SCRIPT_DIR/.env" ]; then
-    SLUG=$(grep -oP "^DEVICE_SLUG=\K.*" "$SCRIPT_DIR/.env" || echo "Unknown")
-elif [ -f "/home/raspberrypi/rk-ai-assistant/.env" ]; then
-    SLUG=$(grep -oP "^DEVICE_SLUG=\K.*" "/home/raspberrypi/rk-ai-assistant/.env" || echo "Unknown")
+if [ -f "$SCRIPT_DIR/../rk-auth-app/.env" ]; then
+    SLUG=$(grep -oP "^NEXT_PUBLIC_DEVICE_SLUG=\K.*" "$SCRIPT_DIR/../rk-auth-app/.env" || echo "Unknown")
+elif [ -f "/home/raspberrypi/rk-auth-app/.env" ]; then
+    SLUG=$(grep -oP "^NEXT_PUBLIC_DEVICE_SLUG=\K.*" "/home/raspberrypi/rk-auth-app/.env" || echo "Unknown")
 else
     SLUG="Unknown"
 fi
@@ -28,15 +28,25 @@ fi
 BT_NAME="RK-AI-$SLUG"
 echo "[startup] Setting Bluetooth Name to: $BT_NAME"
 
-# Make discoverable, pairable, and auto-accept pairings via NoInputNoOutput
+# Ensure old agents are killed
+sudo killall -9 bluetooth-agent 2>/dev/null
+sudo killall -9 bt-agent 2>/dev/null
+
+# Make discoverable, pairable via bluetoothctl
 bluetoothctl << BTEOF &>/dev/null
 power on
 system-alias $BT_NAME
 discoverable on
 pairable on
-agent NoInputNoOutput
-default-agent
 BTEOF
+
+echo "[startup] Starting headless Bluetooth auto-pairing agent..."
+# We run a python agent script in the background to explicitly auto-accept PINs
+if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
+    sudo python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
+else
+    echo "[startup] Warning: bt_agent.py not found. Pincodes may prompt."
+fi
 
 # ── Confirm BT is now discoverable ─────────────────────────
 sleep 1
