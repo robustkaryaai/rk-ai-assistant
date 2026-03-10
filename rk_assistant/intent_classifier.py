@@ -60,7 +60,15 @@ TRAINING_DATA = {
     "how_are_you": ["how are you", "how are things", "what's up", "how's it going"],
     "gratitude": ["thank you", "thanks a lot", "many thanks", "I appreciate it"],
     "goodbye": ["goodbye", "bye", "see you later", "catch you later"],
-    "identity": ["who are you", "what is your name", "introduce yourself", "tell me about yourself"]
+    "identity": ["who are you", "what is your name", "introduce yourself", "tell me about yourself"],
+    "joke": ["tell me a joke", "make me laugh", "say something funny"],
+    
+    # Utilities & Hardware
+    "set_alarm": ["set an alarm", "wake me up", "create an alarm", "set a timer"],
+    "task": ["remind me", "create a task", "new reminder", "add to my to do list"],
+    "bluetooth_connect": ["connect bluetooth", "pair speaker", "turn on bluetooth"],
+    "bluetooth_disconnect": ["disconnect bluetooth", "unpair speaker", "turn off bluetooth"],
+    "test_connection": ["test connection", "are you online", "check internet", "diagnostic check", "diagnostics"]
 }
 
 # The global cached pipeline

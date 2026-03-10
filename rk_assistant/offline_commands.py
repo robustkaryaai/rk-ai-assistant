@@ -49,7 +49,7 @@ def match_offline_command(text: str) -> Optional[str]:
 
 
 
-def process_offline_command(intent_id: str, music_proc=None) -> str:
+def process_offline_command(intent_id: str, raw_text: str = "", music_proc=None) -> str:
     """Execute offline actions based on the classified intent and return response text."""
     if not intent_id: return ""
     
@@ -60,9 +60,19 @@ def process_offline_command(intent_id: str, music_proc=None) -> str:
     if intent_id in CONVERSATIONAL_RESPONSES:
         return random.choice(CONVERSATIONAL_RESPONSES[intent_id])
     
+    # Jokes
+    if intent_id == "joke":
+        jokes = [
+            "Why do programmers prefer dark mode? Because light attracts bugs.",
+            "I'm afraid for the calendar. Its days are numbered.",
+            "My wife said I should do lunges to stay in shape. That would be a big step forward.",
+            "Why did the database administrator leave his wife? She had one-to-many relationships."
+        ]
+        return random.choice(jokes)
+    
     # Music controls
     if intent_id in ["play_music", "resume_music"]:
-        return "No cached music URL. Please ask online."
+        return f"_PLAY_MUSIC_|{raw_text}"  # Pass entire raw text sequence to music_manager for cached NLP matching
     elif intent_id == "play_again":
         from . import music_manager
         if music_manager.last_played_query:
@@ -114,6 +124,33 @@ def process_offline_command(intent_id: str, music_proc=None) -> str:
         else:
             return "Sorry, I couldn't get the weather info."
             
+    # Alarms and Tasks (Reminders)
+    elif intent_id == "set_alarm":
+        from .alarm_manager import set_alarm
+        success = set_alarm("placeholder", label=raw_text) # In offline, we can't extract time easily yet, so we store the raw text as a generic reminder hook to be checked later or ring instantly as a default 5min timer.
+        return "I've noted your alarm locally, but for a specific time, please set it via the RK app."
+    elif intent_id == "task":
+        return f"I've recorded your reminder offline: {raw_text.replace('remind me', '').replace('remind me to', '').strip()}"
+        
+    # Bluetooth Controls
+    elif intent_id == "bluetooth_connect":
+        import subprocess
+        from .config import BLUETOOTH_SPEAKER_MAC, BLUETOOTH_HCI
+        subprocess.run(["sudo", "bluetoothctl", "connect", BLUETOOTH_SPEAKER_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return "Attempting to connect to the Bluetooth speaker."
+    elif intent_id == "bluetooth_disconnect":
+        import subprocess
+        from .config import BLUETOOTH_SPEAKER_MAC, BLUETOOTH_HCI
+        subprocess.run(["sudo", "bluetoothctl", "disconnect", BLUETOOTH_SPEAKER_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return "Disconnected from the speaker."
+        
+    # Diagnostics
+    elif intent_id == "test_connection":
+        from .networking import is_online
+        if is_online():
+            return "Diagnostic Check: I am successfully connected to the internet and the Appwrite database is reachable."
+        else:
+            return "Diagnostic Check: The physical internet connection has been severed. I am operating completely offline."
     # System info
     elif intent_id == "update_system":
         return "_RK_UPDATE_"

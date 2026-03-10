@@ -218,6 +218,11 @@ def run_ap_provisioning(slug):
     Blocks until credentials are received or max_wait exceeded.
     Returns True if credentials were received and applied, False otherwise.
     """
+    from .config import FORCE_OFFLINE
+    if FORCE_OFFLINE:
+        print(f"[ap] Dev Mode: Bypassing Hotspot for slug {slug} to prevent SSH drop", flush=True)
+        return False
+
     print(f"[ap] Starting AP provisioning mode for slug: {slug}", flush=True)
 
     try:

@@ -691,9 +691,18 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             fast_cmd = current_command.lower().strip()
                             if any(x in fast_cmd for x in ["louder", "quieter", "volume up", "volume down", "mute", "unmute", "stop", "pause", "resume", "play again", "replay"]):
                                  print(f"[main] ⚡ Fast Track: {fast_cmd}")
-                                 resp = process_offline_command(fast_cmd, music_proc_holder.get("proc"))
+                                 resp = process_offline_command(fast_cmd, current_command, music_proc_holder.get("proc"))
                                  
-                                 if resp == "_RK_UPDATE_":
+                                 if str(resp).startswith("_PLAY_MUSIC_|"):
+                                     query = resp.split("|", 1)[1]
+                                     proc = music_manager.play_music(query)
+                                     if proc: music_proc_holder["proc"] = proc
+                                     return
+                                 elif resp == "_PLAY_AGAIN_":
+                                     query = music_manager.last_played_query
+                                     if query: trigger_music_playback(query, music_proc_holder)
+                                     return
+                                 elif resp == "_RK_UPDATE_":
                                      speak("Checking for updates and restarting.")
                                      import subprocess
                                      subprocess.run(["git", "pull", "origin", "main"], cwd="/home/raspberrypi/rk-ai-assistant-main")
@@ -740,9 +749,17 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             is_conversational = offline_kw in ["hello", "hi", "hey", "how are you", "what's up", "thank you", "thanks", "goodbye", "bye"]
                             
                             if offline_kw and (not online or not is_conversational):
-                                 resp = process_offline_command(offline_kw, music_proc_holder.get("proc"))
+                                 resp = process_offline_command(offline_kw, current_command, music_proc_holder.get("proc"))
                                  if resp:
-                                     speak(resp)
+                                     if str(resp).startswith("_PLAY_MUSIC_|"):
+                                         query = resp.split("|", 1)[1]
+                                         proc = music_manager.play_music(query)
+                                         if proc: music_proc_holder["proc"] = proc
+                                     elif resp == "_PLAY_AGAIN_":
+                                         query = music_manager.last_played_query
+                                         if query: trigger_music_playback(query, music_proc_holder)
+                                     else:
+                                         speak(resp)
                             else:
                                  expect_followup = process_online_command(current_command, slug, music_proc_holder)
                             
@@ -794,8 +811,13 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     offline_kw = match_offline_command(text_lower)
                     
                     if offline_kw:
-                        resp = process_offline_command(offline_kw, music_proc_holder.get("proc"))
-                        if resp == "_RK_UPDATE_":
+                        resp = process_offline_command(offline_kw, text, music_proc_holder.get("proc"))
+                        
+                        if str(resp).startswith("_PLAY_MUSIC_|"):
+                             query = resp.split("|", 1)[1]
+                             proc = music_manager.play_music(query)
+                             if proc: music_proc_holder["proc"] = proc
+                        elif resp == "_RK_UPDATE_":
                              speak("Checking for updates and restarting.")
                              import subprocess
                              subprocess.run(["git", "pull", "origin", "main"], cwd="/home/raspberrypi/rk-ai-assistant-main")
@@ -961,10 +983,19 @@ def main():
         def on_app_command(text):
              print(f"[app] Received command: {text}")
              # Check for offline commands first (e.g. stop music, volume)
-             if match_offline_command(text):
-                 resp = process_offline_command(text, music_proc_holder.get("proc"))
+             offline_id = match_offline_command(text)
+             if offline_id:
+                 resp = process_offline_command(offline_id, text, music_proc_holder.get("proc"))
                  if resp:
-                     handle_local_response(resp)
+                     if str(resp).startswith("_PLAY_MUSIC_|"):
+                         query = resp.split("|", 1)[1]
+                         proc = music_manager.play_music(query)
+                         if proc: music_proc_holder["proc"] = proc
+                     elif resp == "_PLAY_AGAIN_":
+                         query = music_manager.last_played_query
+                         if query: trigger_music_playback(query, music_proc_holder)
+                     else:
+                         handle_local_response(resp)
              else:
                  # Online processing
                  process_online_command(text, slug, music_proc_holder)
@@ -1022,8 +1053,13 @@ def main():
                 print("[main] AP provisioning timed out or failed. Continuing in offline mode...", flush=True)
                 
         # Start AP Provisioning in background so voice loop isn't blocked
-        ap_thread = threading.Thread(target=_bg_ap, daemon=True)
-        ap_thread.start()
+        import os
+        from .config import FORCE_OFFLINE
+        if FORCE_OFFLINE:
+            print("[main] DEV MODE: Skipping AP Provisioning because FORCE_OFFLINE is active (prevents SSH drop).")
+        else:
+            ap_thread = threading.Thread(target=_bg_ap, daemon=True)
+            ap_thread.start()
 
 
     # --- 6. Start Backend Command Polling (Background) ---
