@@ -145,7 +145,7 @@ def test_command_routing():
     cmd = match_offline_command(text)
     if cmd:
         print(f"    ✅ Matched Offline Command: '{cmd}'")
-        resp = process_offline_command(cmd)
+        resp = process_offline_command(cmd, text)
         print(f"    🤖 RK AI Response Action:\n    {resp}")
         print("\nNote: Since an offline command matched, this would NOT be sent to Gemini.")
     else:
