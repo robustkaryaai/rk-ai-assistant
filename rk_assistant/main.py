@@ -905,9 +905,10 @@ def main():
             if mic is not None:
                 print("[stt] Calibrating microphone for ambient noise (10 seconds)...", flush=True)
                 try:
-                    with mic as source:
-                        recognizer.adjust_for_ambient_noise(source, duration=10.0)
-                        # Re-force threshold if calibration drifted too high
+                    with audio_utils.no_alsa_err():
+                        with mic as source:
+                            recognizer.adjust_for_ambient_noise(source, duration=10.0)
+                            # Re-force threshold if calibration drifted too high
                         if recognizer.energy_threshold > 300:
                             print(f"[stt] Calibration result too high ({recognizer.energy_threshold}), clamping to 300 for clean_mic.")
                             recognizer.energy_threshold = 300
@@ -986,7 +987,7 @@ def main():
         # Launch the independent maintenance poller script
         import subprocess
         poller_path = str(Path(__file__).parent / "rk_maintenance_poller.py")
-        subprocess.Popen([sys.executable, "-u", poller_path], stdout=sys.stdout, stderr=sys.stderr, start_new_session=True)
+        poller_proc = subprocess.Popen([sys.executable, "-u", poller_path], stdout=sys.stdout, stderr=sys.stderr, start_new_session=True)
         print("[main] Launched independent maintenance poller background process.")
     except Exception as e:
         print(f"[main] Autoplay/Update monitor error: {e}")
@@ -1046,6 +1047,8 @@ def main():
             voice_flow(decoder_available, music_proc_holder, slug, recognizer=recognizer, mic=mic)
             time.sleep(0.5) # Throttle loop
         except KeyboardInterrupt:
+            if 'poller_proc' in locals() and poller_proc is not None:
+                poller_proc.terminate()
             break
         except Exception as e:
             error_type = type(e).__name__

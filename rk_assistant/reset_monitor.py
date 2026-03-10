@@ -56,9 +56,14 @@ def reset_button_loop():
     if not GPIO_AVAILABLE:
         return
         
-    GPIO.setmode(GPIO.BCM)
-    # Use internal pull-up resistor. Button should connect GPIO 17 to Ground.
-    GPIO.setup(RESET_GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    try:
+        GPIO.setmode(GPIO.BCM)
+        # Use internal pull-up resistor. Button should connect GPIO 17 to Ground.
+        GPIO.setup(RESET_GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    except Exception as e:
+        print(f"[reset_monitor] Failed to acquire GPIO pin (busy/locked): {e}. Disabling hardware button.")
+        return
+        
     
     print(f"[reset_monitor] Listening for 5-second hold on GPIO {RESET_GPIO_PIN}...", flush=True)
     
