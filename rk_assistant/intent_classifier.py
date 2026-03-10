@@ -170,6 +170,15 @@ def classify_local_intent(text: str, confidence_threshold=0.45) -> str | None:
     if max_score < confidence_threshold:
         return None
         
+    # SAFETY LOCK: Prevent ambient noise from fatally manipulating the Pi
+    # TF-IDF can occasionally hallucinate on random short audio static.
+    # We require strict keyword presence for system termination commands.
+    if predicted_intent in ["shutdown_device", "restart_device", "update_system"]:
+        required_words = ["shutdown", "restart", "reboot", "power off", "update"]
+        if not any(w in text for w in required_words):
+            print(f"[intent] 🛑 Blocked false-positive fatal system command: '{text}' -> {predicted_intent}")
+            return None
+            
     return predicted_intent
 
 # Legacy functions preserved for backwards compatibility with main.py online routing
