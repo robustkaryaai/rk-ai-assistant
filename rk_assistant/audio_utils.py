@@ -17,6 +17,8 @@ import math
 from typing import Optional
 from pathlib import Path
 from ctypes import *
+from contextlib import contextmanager
+
 # ALSA Error Handler suppression (CTYPES)
 try:
     ERROR_HANDLER_FUNC = CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int, c_char_p)
