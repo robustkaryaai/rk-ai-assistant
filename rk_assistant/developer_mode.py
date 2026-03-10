@@ -190,6 +190,51 @@ def test_third_party():
          
     input("\nPress Enter to return to menu...")
 
+def test_auto_diagnostics():
+    print_header("7. Fully Automated Diagnostics (No Input)")
+    print("Running Non-Interactive Systems Check...\n")
+    
+    # 1. Network
+    print("[1/3] Checking Physical Network...")
+    online = is_online()
+    print(f"      Status: {'✅ ONLINE' if online else '❌ OFFLINE (Operating locally)'}")
+    
+    # 2. Third Party APIs
+    if online:
+        print("\n[2/3] Checking Weather & News APIs...")
+        w = fetch_weather()
+        print(f"      Weather API: {'✅ PASS' if w else '❌ FAIL'}")
+        n = fetch_news()
+        print(f"      News API:    {'✅ PASS' if len(n) > 50 else '❌ FAIL'}")
+    else:
+        print("\n[2/3] Skipping API tests (Device is Offline).")
+        
+    # 3. Offline Edge Classifier Tests
+    print("\n[3/3] Testing Offline Edge ML Router (No Internet Required)...")
+    test_phrases = [
+        "Play the song shape of you",
+        "Wake me up at 7am",
+        "Tell me a joke",
+        "Remind me to buy groceries",
+        "Connect bluetooth",
+        "Test connection",
+        "What time is it"
+    ]
+    
+    for phrase in test_phrases:
+        print(f"\n      User Input: '{phrase}'")
+        cmd = match_offline_command(phrase)
+        if cmd:
+            print(f"      ✅ Edge Classification: [{cmd}]")
+            resp = process_offline_command(cmd, phrase)
+            print(f"         System Action: -> {resp}")
+        else:
+             print(f"      ❌ Edge Classification Failed (Would fallback to cloud)")
+    
+    print("\n" + "=" * 60)
+    print("✅ Automated Diagnostics Complete.")
+    input("Press Enter to return to menu...")
+
 def main_menu():
     while True:
         os.system('clear' if os.name == 'posix' else 'cls')
@@ -202,6 +247,7 @@ def main_menu():
         print(" 4. Test Text Command Routing & Gemini")
         print(" 5. Test Experimental Offline SmolLM")
         print(" 6. Test Third-Party Integrations")
+        print(" 7. Run Fully Automated Diagnostics (No Input Required)")
         print(" 0. Exit")
         print("-" * 60)
         
@@ -213,6 +259,7 @@ def main_menu():
         elif choice == '4': test_command_routing()
         elif choice == '5': test_offline_smollm()
         elif choice == '6': test_third_party()
+        elif choice == '7': test_auto_diagnostics()
         elif choice == '0':
             print("\nExiting Developer Suite. Run `sudo systemctl restart rk-assistant` to resume normal operation.")
             break
