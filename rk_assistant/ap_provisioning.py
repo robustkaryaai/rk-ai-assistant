@@ -149,11 +149,11 @@ def start_ap(slug):
     print(f"[ap] Creating hotspot: SSID={ssid}  Password={AP_PASSWORD}", flush=True)
 
     # Delete any previous hotspot connection
-    _run_cmd("nmcli con delete 'rk-ai-hotspot' 2>/dev/null || true")
+    _run_cmd("sudo nmcli con delete 'rk-ai-hotspot' 2>/dev/null || true")
 
     # Create AP
     rc, out, err = _run_cmd(
-        f"nmcli con add type wifi ifname wlan0 con-name rk-ai-hotspot autoconnect no "
+        f"sudo nmcli con add type wifi ifname wlan0 con-name rk-ai-hotspot autoconnect no "
         f"ssid '{ssid}' mode ap ipv4.method shared "
         f"wifi-sec.key-mgmt wpa-psk wifi-sec.psk '{AP_PASSWORD}'"
     )
@@ -161,7 +161,7 @@ def start_ap(slug):
         print(f"[ap] nmcli add error: {err}", flush=True)
         raise RuntimeError("Could not create hotspot")
 
-    rc, out, err = _run_cmd("nmcli con up rk-ai-hotspot")
+    rc, out, err = _run_cmd("sudo nmcli con up rk-ai-hotspot")
     if rc != 0:
         print(f"[ap] nmcli up error: {err}", flush=True)
         raise RuntimeError("Could not bring up hotspot")
@@ -171,8 +171,8 @@ def start_ap(slug):
 
 def stop_ap():
     """Bring down and delete the AP connection."""
-    _run_cmd("nmcli con down rk-ai-hotspot 2>/dev/null || true")
-    _run_cmd("nmcli con delete rk-ai-hotspot 2>/dev/null || true")
+    _run_cmd("sudo nmcli con down rk-ai-hotspot 2>/dev/null || true")
+    _run_cmd("sudo nmcli con delete rk-ai-hotspot 2>/dev/null || true")
     print("[ap] Hotspot stopped.", flush=True)
 
 
@@ -181,16 +181,16 @@ def apply_wifi_and_reboot(ssid, password):
     print(f"[ap] Applying Wi-Fi: {ssid}", flush=True)
 
     # Delete any old connection with same SSID to avoid conflicts
-    _run_cmd(f"nmcli con delete '{ssid}' 2>/dev/null || true")
+    _run_cmd(f"sudo nmcli con delete '{ssid}' 2>/dev/null || true")
 
     if password:
         rc, _, err = _run_cmd(
-            f"nmcli con add type wifi ifname wlan0 con-name '{ssid}' ssid '{ssid}' "
+            f"sudo nmcli con add type wifi ifname wlan0 con-name '{ssid}' ssid '{ssid}' "
             f"wifi-sec.key-mgmt wpa-psk wifi-sec.psk '{password}' autoconnect yes"
         )
     else:
         rc, _, err = _run_cmd(
-            f"nmcli con add type wifi ifname wlan0 con-name '{ssid}' ssid '{ssid}' autoconnect yes"
+            f"sudo nmcli con add type wifi ifname wlan0 con-name '{ssid}' ssid '{ssid}' autoconnect yes"
         )
 
     if rc != 0:
@@ -201,7 +201,7 @@ def apply_wifi_and_reboot(ssid, password):
     time.sleep(1)
 
     print(f"[ap] Connecting to {ssid}...", flush=True)
-    rc, _, err = _run_cmd(f"nmcli con up '{ssid}'")
+    rc, _, err = _run_cmd(f"sudo nmcli con up '{ssid}'")
     if rc != 0:
         print(f"[ap] Could not connect to {ssid}: {err} — rebooting to retry", flush=True)
 

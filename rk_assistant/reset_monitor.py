@@ -42,7 +42,7 @@ def perform_factory_reset():
         for uuid in uuids:
             if uuid:
                 print(f"[reset_monitor] Deleting connection UUID: {uuid}")
-                subprocess.run(f"nmcli connection delete {uuid}", shell=True)
+                subprocess.run(f"sudo nmcli connection delete {uuid}", shell=True)
                 
         print("[reset_monitor] Wi-Fi erased. Rebooting in 3 seconds...", flush=True)
         time.sleep(3)

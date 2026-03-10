@@ -427,6 +427,10 @@ def load_vosk_model() -> bool:
     if _vosk_model is not None:
         return True
     
+    import platform
+    if platform.machine() == "armv6l":
+        return False
+        
     try:
         from vosk import Model
         model_path = os.path.join(str(Path(__file__).parent), "model", "vosk-model")
@@ -504,12 +508,16 @@ def wait_for_wake_word(use_offline: bool = True) -> bool:
     Continuously listens for "porcupine" (or configured wake word) 
     and returns True when heard.
     """
+    import platform
+    is_arm = platform.machine() == "armv6l"
+    
     if not PORCUPINE_ACCESS_KEY:
-        print("[porcupine] ❌ ERROR: PORCUPINE_ACCESS_KEY not found in .env files.")
-        print("   Get one for free at console.picovoice.ai and add it to .env")
+        if not is_arm:
+            print("[porcupine] ❌ ERROR: PORCUPINE_ACCESS_KEY not found in .env files.")
+            print("   Get one for free at console.picovoice.ai and add it to .env")
         use_offline = False
         
-    if use_offline:
+    if use_offline and not is_arm:
         try:
             import pvporcupine
             import pyaudio
@@ -596,10 +604,13 @@ def wait_for_wake_word(use_offline: bool = True) -> bool:
                             print(f"   (heard: '{text}')", end="\r")
                             if WAKE_WORD.lower() in text or any(w in text for w in WAKE_WORDS):
                                 print("\n[wake] 🟢 Wake Word Detected!")
-                                subprocess.run(
-                                    ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
-                                    stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
-                                )
+                                try:
+                                    subprocess.run(
+                                        ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
+                                        stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
+                                    )
+                                except FileNotFoundError:
+                                    print("\a", end="", flush=True)
                                 return True
                         except sr.WaitTimeoutError:
                             continue

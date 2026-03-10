@@ -1013,14 +1013,17 @@ def main():
                 speak("I am not connected to the internet. Entering pairing mode.")
             except:
                 pass
-            
-        success = run_ap_provisioning(slug)
-        if success:
-            print("[main] Provisioning success. The device should be rebooting now...", flush=True)
-            time.sleep(10)
-            return  # Will be killed by reboot anyway
-        else:
-            print("[main] AP provisioning timed out or failed. Continuing in offline mode...", flush=True)
+        def _bg_ap():
+            success = run_ap_provisioning(slug)
+            if success:
+                print("[main] Provisioning success. The device should be rebooting now...", flush=True)
+                time.sleep(10)
+            else:
+                print("[main] AP provisioning timed out or failed. Continuing in offline mode...", flush=True)
+                
+        # Start AP Provisioning in background so voice loop isn't blocked
+        ap_thread = threading.Thread(target=_bg_ap, daemon=True)
+        ap_thread.start()
 
 
     # --- 6. Start Backend Command Polling (Background) ---
