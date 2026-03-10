@@ -120,8 +120,11 @@ def run_all_tests():
         cmd = match_offline_command(phrase)
         if cmd == intent:
             edge_passes += 1
-            # We don't want 21 lines of massive terminal spam, so we format tightly
-            print(f"   ✓ [Intent matched]: '{phrase}' -> {cmd}")
+            if cmd in ["shutdown_device", "restart_device", "update_system"]:
+                print(f"   ✓ [Intent matched]: '{phrase}' -> {cmd} (Execution skipped to prevent system exit)")
+            else:
+                resp = process_offline_command(cmd, phrase)
+                print(f"   ✓ [Intent matched]: '{phrase}' -> {cmd} (Exec: {resp})")
         else:
             print(f"   ❌ [Intent FAILED]: '{phrase}' -> Expected {intent}, Got {cmd}")
 
