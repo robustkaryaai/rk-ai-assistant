@@ -418,87 +418,32 @@ record_audio = record_until_silence
 import json
 import wave
 
-# Vosk Model Holder
+# Vosk Model Holder (DEPRECATED FOR ARMV6L POCKETSPHINX)
 _vosk_model = None
 
 def load_vosk_model() -> bool:
-    """Load the Vosk offline model into memory."""
-    global _vosk_model
-    if _vosk_model is not None:
-        return True
-    
-    import platform
-    if platform.machine() == "armv6l":
-        return False
-        
-    try:
-        from vosk import Model
-        model_path = os.path.join(str(Path(__file__).parent), "model", "vosk-model")
-        if not os.path.exists(model_path):
-            print(f"[vosk] Model not found at {model_path}. Offline STT unavailable.")
-            return False
-            
-        print("[vosk] Loading Vosk offline STT model...")
-        _vosk_model = Model(model_path)
-        print("[vosk] Model loaded successfully.")
-        return True
-    except Exception as e:
-        print(f"[vosk] Error loading model: {e}")
-        return False
+    """Legacy stub. Vosk has been replaced by PocketSphinx on ARMv6l architecture."""
+    return False
 
 def quick_stt(audio_path: str) -> str:
     """
-    Perform offline STT using the loaded Vosk model.
+    Perform offline STT using PocketSphinx.
     Reads the given wav file and returns the transcribed text.
     """
-    global _vosk_model
-    if not _vosk_model:
-        if not load_vosk_model():
-            print("[stt] Vosk unavailable. Falling back to offline PocketSphinx...")
-            if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
-                return ""
-            try:
-                recognizer = sr.Recognizer()
-                with sr.AudioFile(str(audio_path)) as source:
-                    audio = recognizer.record(source)
-                    return recognizer.recognize_sphinx(audio)
-            except Exception as e:
-                print(f"[stt] Offline Sphinx Error: {e}")
-                return ""
-            
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return ""
     if not os.path.exists(audio_path):
         return ""
-        
+            
     try:
-        from vosk import KaldiRecognizer
-        
-        wf = wave.open(audio_path, "rb")
-        # Vosk expects mono PCM (which sr.AudioData.get_wav_data provides if mic is mono)
-        if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
-            print("[vosk] Audio file must be WAV format mono PCM.")
-            wf.close()
-            return ""
-            
-        rec = KaldiRecognizer(_vosk_model, wf.getframerate())
-        rec.SetWords(False)
-        
-        while True:
-            data = wf.readframes(4000)
-            if len(data) == 0:
-                break
-            rec.AcceptWaveform(data)
-            
-        result_json = rec.FinalResult()
-        wf.close()
-        
-        res = json.loads(result_json)
-        text = res.get("text", "")
-        if text:
-             print(f"[vosk] Offline Heard: '{text}'")
-        return text
-        
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(str(audio_path)) as source:
+            audio = recognizer.record(source)
+            text = recognizer.recognize_sphinx(audio)
+            print(f"[sphinx] Offline Heard: '{text}'")
+            return text
     except Exception as e:
-        print(f"[vosk] Offline STT error: {e}")
+        print(f"[sphinx] Offline STT Error: {e}")
         return ""
 
 def wait_for_wake_word(use_offline: bool = True) -> bool:

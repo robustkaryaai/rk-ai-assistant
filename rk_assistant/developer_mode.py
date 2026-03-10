@@ -69,7 +69,7 @@ def run_all_tests():
 
     print_header("4. Speech-to-Text (STT)")
     if os.path.exists(LAST_AUDIO):
-        print("\n[A] Executing OFFLINE Transcription on last recording...")
+        print("\n[A] Executing OFFLINE Transcription (PocketSphinx) on last recording...")
         start = time.time()
         try:
             offline_text = audio_utils.quick_stt(LAST_AUDIO)
