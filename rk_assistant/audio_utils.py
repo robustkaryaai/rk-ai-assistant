@@ -52,6 +52,7 @@ from .config import (
     CHANNELS,
     POCKETSPHINX_MODEL_DIR,
     WAKE_WORD,
+    WAKE_WORDS,
     LAST_AUDIO,
     BLUETOOTH_SPEAKER_MAC,
     MIC_DEVICE_INDEX,
@@ -350,8 +351,12 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=N
                 r.energy_threshold = 300 
                 r.dynamic_energy_threshold = True
             
-            # Use provided mic or create new one
-            source_ctx = mic if mic else sr.Microphone(device_index=MIC_DEVICE_INDEX)
+            # Use provided mic or create new one with ALSA suppression
+            if mic:
+                source_ctx = mic
+            else:
+                with no_alsa_err():
+                    source_ctx = sr.Microphone(device_index=MIC_DEVICE_INDEX)
             
             # If we create new mic, we need context manager. If passed, it depends if it's open.
             # Simplify: Always use context manager unless it's an AudioSource
@@ -572,33 +577,37 @@ def wait_for_wake_word(use_offline: bool = True) -> bool:
         recognizer.dynamic_energy_threshold = True
         
         try:
-            with sr.Microphone(device_index=MIC_DEVICE_INDEX) as source:
-                recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                while True:
-                    try:
-                        audio = recognizer.listen(source, timeout=2, phrase_time_limit=3)
-                        
-                        # Routing transcribe engine
-                        if use_offline:
-                             text = recognizer.recognize_sphinx(audio).lower()
-                        else:
-                             text = recognizer.recognize_google(audio).lower()
-                             
-                        print(f"   (heard: '{text}')", end="\r")
-                        if WAKE_WORD.lower() in text or any(w in text for w in WAKE_WORDS):
-                            print("\n[wake] 🟢 Wake Word Detected!")
-                            subprocess.run(
-                                ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
-                                stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
-                            )
-                            return True
-                    except sr.WaitTimeoutError:
-                        continue
-                    except sr.UnknownValueError:
-                        continue
-                    except Exception as loop_e:
-                        print(f"   (Sphinx/Google engine skip: {loop_e})", end="\r")
-                        continue
+            with no_alsa_err():
+                mic_source = sr.Microphone(device_index=MIC_DEVICE_INDEX)
+            
+            with no_alsa_err():
+                with mic_source as source:
+                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                    while True:
+                        try:
+                            audio = recognizer.listen(source, timeout=2, phrase_time_limit=3)
+                            
+                            # Routing transcribe engine
+                            if use_offline:
+                                 text = recognizer.recognize_sphinx(audio).lower()
+                            else:
+                                 text = recognizer.recognize_google(audio).lower()
+                                 
+                            print(f"   (heard: '{text}')", end="\r")
+                            if WAKE_WORD.lower() in text or any(w in text for w in WAKE_WORDS):
+                                print("\n[wake] 🟢 Wake Word Detected!")
+                                subprocess.run(
+                                    ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
+                                    stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
+                                )
+                                return True
+                        except sr.WaitTimeoutError:
+                            continue
+                        except sr.UnknownValueError:
+                            continue
+                        except Exception as loop_e:
+                            print(f"   (Sphinx/Google engine skip: {loop_e})", end="\r")
+                            continue
         except Exception as e:
             print(f"[wake] Mic Error: {e}")
             time.sleep(2)
