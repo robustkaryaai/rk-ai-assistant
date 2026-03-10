@@ -48,22 +48,29 @@ def run_all_tests():
     
     print_header("2. Third Party API Integrations")
     if online:
-        w = fetch_weather()
-        print(f"Weather API: {'✅ PASS' if w else '❌ FAIL'}")
-        n = fetch_news()
-        print(f"News API:    {'✅ PASS' if len(n) > 50 else '❌ FAIL'}")
+        try:
+            w = fetch_weather()
+            print(f"Weather API: {'✅ PASS' if w else '❌ FAIL (returned None)'}")
+        except Exception as e:
+            print(f"Weather API: ❌ FAIL ({e})")
+            
+        try:
+            n = fetch_news()
+            print(f"News API:    {'✅ PASS' if n and len(n.get('articles', [])) > 0 else '❌ FAIL (returned None or empty)'}")
+        except Exception as e:
+            print(f"News API:    ❌ FAIL ({e})")
     else:
         print("Skipping API tests (Device is Offline).")
         
     print_header("3. Text-to-Speech (TTS) Engine Output")
     print("Attempting to synthesize and play an audible notification beep...")
     try:
-        sound_path = str(Path(__file__).parent / "sounds" / "success.mp3")
+        sound_path = str(Path(__file__).parent / "sounds" / "prepared.mp3")
         if os.path.exists(sound_path):
             audio_utils.play_audio_file(sound_path)
             print("✅ Hardware audio playback succeeded.")
         else:
-            print("❌ Test beep sound file missing.")
+            print(f"❌ Test beep sound file missing at: {sound_path}")
     except Exception as e:
         print(f"❌ Audio playback crashed: {e}")
 
