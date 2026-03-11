@@ -9,6 +9,7 @@ and stability.
 import os
 import sys
 import time
+import subprocess
 from pathlib import Path
 
 # Ensure package context so relative imports work
@@ -22,7 +23,8 @@ from rk_assistant import audio_utils
 from rk_assistant.networking import is_online, read_slug
 from rk_assistant.config import (
     LAST_AUDIO, BACKEND_BASE_URL, GEMINI_API_KEY, 
-    GEMINI_API_KEY_BACKUP, STT_ENGINE, MIC_DEVICE_INDEX
+    GEMINI_API_KEY_BACKUP, STT_ENGINE, MIC_DEVICE_INDEX,
+    BLUETOOTH_SPEAKER_MAC, PORCUPINE_ACCESS_KEY
 )
 from rk_assistant.offline_commands import match_offline_command, process_offline_command
 from rk_assistant.gemini_client import classify_intent
@@ -84,6 +86,8 @@ def run_all_tests():
     print_header("4. Speech-to-Text (STT)")
     if os.path.exists(LAST_AUDIO):
         try:
+            print("   ℹ️  Note: PocketSphinx accuracy relies on exact phrasing (best for intents/wake words).")
+            print("       Standard conversational queries are automatically routed to Gemini (Cloud).")
             offline_text = audio_utils.quick_stt(LAST_AUDIO)
             log_result("Offline STT (PocketSphinx)", bool(offline_text), f"Heard: '{offline_text}'")
         except Exception as e:
@@ -137,6 +141,88 @@ def run_all_tests():
             log_result("Gemini Cloud Interface", bool(gemini_resp), "(Successfully parsed JSON)")
         except Exception as e:
             log_result("Gemini Cloud Interface", False, f"({e})")
+
+    print_header("7. Wake Word Engine (Porcupine)")
+    import platform
+    is_arm = platform.machine() == "armv6l"
+    if PORCUPINE_ACCESS_KEY:
+        log_result("Porcupine API Key", True, "(Found in environment)")
+        if is_arm:
+            try:
+                import pvporcupine
+                # Just initialize and delete to verify it works
+                porcupine = pvporcupine.create(
+                    access_key=PORCUPINE_ACCESS_KEY,
+                    keywords=["porcupine"]
+                )
+                porcupine.delete()
+                log_result("Porcupine Initialization", True, "(Library loaded successfully)")
+            except Exception as e:
+                log_result("Porcupine Initialization", False, f"({e})")
+        else:
+            print("   ℹ️  Skipped PyAudio/Porcupine loading test on non-ARM hardware.")
+    else:
+        log_result("Porcupine API Key", False, "(Missing PORCUPINE_ACCESS_KEY in .env)")
+
+    print_header("8. Music Dependencies")
+    yt_check = subprocess.run(["which", "yt-dlp"], capture_output=True, text=True)
+    log_result("yt-dlp Installed", yt_check.returncode == 0, f"({yt_check.stdout.strip() if yt_check.returncode == 0 else 'Not Found'})")
+    ff_check = subprocess.run(["which", "ffmpeg"], capture_output=True, text=True)
+    log_result("ffmpeg Installed", ff_check.returncode == 0, f"({ff_check.stdout.strip() if ff_check.returncode == 0 else 'Not Found'})")
+
+    print_header("9. Volume Control API")
+    vol_func_exists = hasattr(audio_utils, 'set_volume')
+    log_result("Volume Control Module", vol_func_exists, "(audio_utils.set_volume is available)")
+
+    print_header("10. Bluetooth Speaker Status")
+    try:
+        bt_result = subprocess.run(
+            ["bluetoothctl", "info", BLUETOOTH_SPEAKER_MAC],
+            capture_output=True, text=True, timeout=5
+        )
+        is_connected = "Connected: yes" in bt_result.stdout
+        log_result("Bluetooth Connection", is_connected, f"(MAC: {BLUETOOTH_SPEAKER_MAC})")
+    except Exception as e:
+        log_result("Bluetooth Connection", False, f"({e})")
+
+    print_header("11. Music Search Pipeline")
+    if yt_check.returncode == 0:
+        try:
+            test_song = "Sandese aate hai"
+            ms_result = subprocess.run(
+                ["yt-dlp", "--get-title", f"ytsearch1:{test_song}"],
+                capture_output=True, text=True, timeout=120
+            )
+            title_found = ms_result.returncode == 0 and bool(ms_result.stdout.strip())
+            log_result("yt-dlp Search", title_found, f"(Found: {ms_result.stdout.strip()[:50]}...)" if title_found else "(Search timeout or error)")
+        except Exception as e:
+            log_result("yt-dlp Search", False, f"({e})")
+    else:
+        print("   ℹ️  Skipped Music Search due to missing yt-dlp.")
+
+    print_header("12. Context Memory Engine")
+    try:
+        from rk_assistant.memory_engine import store_memory, retrieve_memories
+        test_fact = f"Developer mode test run at {time.time()}"
+        store_memory(test_fact, tags="dev_test")
+        memories = retrieve_memories("developer mode test")
+        found = any(test_fact in m for m in memories)
+        log_result("Memory Storage/Retrieval", found, "(Fact stored and retrieved safely)")
+    except ImportError:
+        log_result("Memory Module", False, "(rk_assistant.memory_engine missing)")
+    except Exception as e:
+        log_result("Memory Sequence", False, f"({e})")
+
+    print_header("13. Automation Engine")
+    try:
+        from rk_assistant.automation import ROUTINES
+        has_routines = "night_protocol" in ROUTINES
+        count = len(ROUTINES)
+        log_result("Routine Parsing", has_routines, f"(Loaded {count} routines, 'night_protocol' present)" if has_routines else "(Missing core routines)")
+    except ImportError:
+        log_result("Automation Module", False, "(rk_assistant.automation missing)")
+    except Exception as e:
+        log_result("Automation System", False, f"({e})")
 
     print_header("AUTOMATED DIAGNOSTICS SUMMARY")
     score = (pass_count / total_count) * 100 if total_count > 0 else 0
