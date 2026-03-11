@@ -74,8 +74,8 @@ if [ ! -f "$FIRST_BOOT_FLAG" ]; then
     fi
 
     # D. Install Packages
-    echo "[startup] Installing system dependencies for PocketSphinx..."
-    sudo apt-get update && sudo apt-get install -y swig libpulse-dev libasound2-dev
+    echo "[startup] Installing system dependencies for Audio & Voice..."
+    sudo apt-get update && sudo apt-get install -y swig libpulse-dev libasound2-dev speex speexdsp-tools libspeexdsp-dev
     
     echo "[startup] Installing requirements.txt. This may take a while..."
     pip install -r "$SCRIPT_DIR/requirements.txt"

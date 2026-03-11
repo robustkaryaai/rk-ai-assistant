@@ -8,6 +8,7 @@ import time
 import subprocess
 import threading
 import shutil
+import tempfile
 try:
     import audioop
 except ModuleNotFoundError:
@@ -241,6 +242,41 @@ def _normalize_audio(audio_data, target_level=25000):
         
     return audio_data
 
+def _apply_speex_denoise(audio_data):
+    """
+    Native SpeexDSP noise suppression using OS binaries for Pi Zero efficiency.
+    Requires 'speexdsp-tools' to be installed (`sudo apt install speexdsp-tools`).
+    """
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return audio_data
+    if not shutil.which("speexenc") or not shutil.which("speexdec"):
+        return audio_data
+
+    try:
+        # Write memory buffer to temporary file
+        raw_path = tempfile.mktemp(suffix=".wav")
+        spx_path = tempfile.mktemp(suffix=".spx")
+        clean_path = tempfile.mktemp(suffix=".wav")
+        
+        with open(raw_path, "wb") as f:
+            f.write(audio_data.get_wav_data())
+            
+        # Denoise: Speex encodes while aggressively denoising, then decodes back
+        subprocess.run(["speexenc", "--denoise", raw_path, spx_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        subprocess.run(["speexdec", spx_path, clean_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
+        with sr.AudioFile(clean_path) as source:
+            clean_audio = sr.Recognizer().record(source)
+            
+        # Cleanup
+        for p in [raw_path, spx_path, clean_path]:
+            if os.path.exists(p): os.remove(p)
+            
+        return clean_audio
+    except Exception as e:
+        print(f"[audio] Speex Denoise error: {e}")
+        return audio_data
+
 def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> str:
     """
     Restore Google STT (Online).
@@ -282,6 +318,7 @@ def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> st
             # RETRY ONCE WITH NORMALIZATION
             try:
                 clean_audio = _apply_webrtc_vad(audio)
+                clean_audio = _apply_speex_denoise(clean_audio)
                 norm_audio = _normalize_audio(clean_audio)
                 text = recognizer.recognize_google(norm_audio)
                 print(f"[stt] (Normalized) Heard: '{text}'", flush=True)
@@ -379,6 +416,9 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=N
             
             # Apply WebRTC VAD to strip pure noise
             clean_audio = _apply_webrtc_vad(audio)
+            
+            # Apply Speex Denoise purely in C space
+            clean_audio = _apply_speex_denoise(clean_audio)
             
             # Save to WAV (Normalized)
             norm_audio = _normalize_audio(clean_audio)
