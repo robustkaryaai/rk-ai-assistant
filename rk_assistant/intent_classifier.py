@@ -143,6 +143,14 @@ def classify_local_intent(text: str, confidence_threshold=0.30) -> str | None:
         
     text = text.lower().strip()
     
+    # Pre-ML Exact Dictionary Match:
+    # If the user says *exactly* a known core phrase (like "pause music"),
+    # we bypass the ML margin entirely to guarantee 100% execution accuracy.
+    # The ML model is only used for off-the-cuff variations.
+    for intent, phrases in TRAINING_DATA.items():
+        if text in phrases:
+            return intent
+            
     if not _ML_AVAILABLE:
         # Fallback to primitive exact-word matching if sklearn fails to load
         for intent, phrases in TRAINING_DATA.items():
