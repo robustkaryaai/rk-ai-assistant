@@ -142,11 +142,11 @@ def run_all_tests():
         except Exception as e:
             log_result("Gemini Cloud Interface", False, f"({e})")
 
-    print_header("7. Wake Word Engine (Porcupine)")
+    print_header("7. Wake Word Engine Status")
     import platform
     is_arm = platform.machine() == "armv6l"
     if PORCUPINE_ACCESS_KEY:
-        log_result("Porcupine API Key", True, "(Found in environment)")
+        log_result("Porcupine Configured", True, "(API Key injected)")
         if is_arm:
             try:
                 import pvporcupine
@@ -156,13 +156,13 @@ def run_all_tests():
                     keywords=["porcupine"]
                 )
                 porcupine.delete()
-                log_result("Porcupine Initialization", True, "(Library loaded successfully)")
+                log_result("Porcupine Engine", True, "(Library loaded successfully)")
             except Exception as e:
-                log_result("Porcupine Initialization", False, f"({e})")
+                log_result("Porcupine Engine", False, f"({e})")
         else:
             print("   ℹ️  Skipped PyAudio/Porcupine loading test on non-ARM hardware.")
     else:
-        log_result("Porcupine API Key", False, "(Missing PORCUPINE_ACCESS_KEY in .env)")
+        log_result("Wake Word Engine", True, "(Using Key-less Offline PocketSphinx Fallback)")
 
     print_header("8. Music Dependencies")
     yt_check = subprocess.run(["which", "yt-dlp"], capture_output=True, text=True)

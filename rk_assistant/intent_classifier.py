@@ -10,6 +10,7 @@ to work reliably without querying Gemini.
 import time
 import pickle
 import os
+import re
 from pathlib import Path
 
 # Add a try-except to gently degrade if scikit-learn is missing
@@ -133,7 +134,7 @@ def get_intent_pipeline():
     _intent_pipeline = _train_model()
     return _intent_pipeline
 
-def classify_local_intent(text: str, confidence_threshold=0.45) -> str | None:
+def classify_local_intent(text: str, confidence_threshold=0.30) -> str | None:
     """
     Classifies a transcribed string into a specific offline intent.
     Returns the intent_id if confident, or None if it's too obscure.
@@ -144,10 +145,13 @@ def classify_local_intent(text: str, confidence_threshold=0.45) -> str | None:
     text = text.lower().strip()
     
     if not _ML_AVAILABLE:
-        # Fallback to primitive matching if sklearn fails to load
+        # Fallback to primitive exact-word matching if sklearn fails to load
         for intent, phrases in TRAINING_DATA.items():
-            if any(p in text for p in phrases):
-                return intent
+            for p in phrases:
+                # Use regex to match exact phrase boundaries to prevent substring overlap 
+                # (e.g. so "unmute" doesn't match "mute")
+                if re.search(r'\b' + re.escape(p) + r'\b', text):
+                    return intent
         return None
 
     pipeline = get_intent_pipeline()
