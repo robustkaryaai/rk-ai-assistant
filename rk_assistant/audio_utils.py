@@ -479,7 +479,10 @@ def quick_stt(audio_path: str) -> str:
         recognizer = sr.Recognizer()
         with sr.AudioFile(str(audio_path)) as source:
             audio = recognizer.record(source)
-            text = recognizer.recognize_sphinx(audio)
+            if _SPHINX_CUSTOM_KEYWORDS:
+                text = recognizer.recognize_sphinx(audio, keyword_entries=_SPHINX_CUSTOM_KEYWORDS)
+            else:
+                text = recognizer.recognize_sphinx(audio)
             print(f"[sphinx] Offline Heard: '{text}'")
             return text
     except Exception as e:
@@ -582,7 +585,10 @@ def wait_for_wake_word(use_offline: bool = True) -> bool:
                             
                             # Routing transcribe engine
                             if use_offline:
-                                 text = recognizer.recognize_sphinx(audio).lower()
+                                 if _SPHINX_CUSTOM_KEYWORDS:
+                                     text = recognizer.recognize_sphinx(audio, keyword_entries=_SPHINX_CUSTOM_KEYWORDS).lower()
+                                 else:
+                                     text = recognizer.recognize_sphinx(audio).lower()
                             else:
                                  text = recognizer.recognize_google(audio).lower()
                                  
