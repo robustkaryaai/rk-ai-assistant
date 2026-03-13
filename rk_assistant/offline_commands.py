@@ -138,11 +138,6 @@ def process_offline_command(intent_id: str, raw_text: str = "", music_proc=None)
         from .config import BLUETOOTH_SPEAKER_MAC, BLUETOOTH_HCI
         subprocess.run(["sudo", "bluetoothctl", "connect", BLUETOOTH_SPEAKER_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return "Attempting to connect to the Bluetooth speaker."
-    elif intent_id == "bluetooth_disconnect":
-        import subprocess
-        from .config import BLUETOOTH_SPEAKER_MAC, BLUETOOTH_HCI
-        subprocess.run(["sudo", "bluetoothctl", "disconnect", BLUETOOTH_SPEAKER_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return "Disconnected from the speaker."
         
     # Diagnostics
     elif intent_id == "test_connection":

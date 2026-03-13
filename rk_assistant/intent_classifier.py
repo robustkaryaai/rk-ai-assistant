@@ -68,7 +68,6 @@ TRAINING_DATA = {
     "set_alarm": ["set an alarm", "wake me up", "create an alarm", "set a timer"],
     "task": ["remind me", "create a task", "new reminder", "add to my to do list"],
     "bluetooth_connect": ["connect bluetooth", "pair speaker", "turn on bluetooth"],
-    "bluetooth_disconnect": ["disconnect bluetooth", "unpair speaker", "turn off bluetooth"],
     "test_connection": ["test connection", "are you online", "check internet", "diagnostic check", "diagnostics"]
 }
 
