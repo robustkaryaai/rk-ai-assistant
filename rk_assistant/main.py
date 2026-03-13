@@ -1055,7 +1055,9 @@ def main():
         # Start AP Provisioning in background so voice loop isn't blocked
         import os
         from .config import FORCE_OFFLINE
-        if FORCE_OFFLINE:
+        
+        # Never skip AP Provisioning on first boot, regardless of FORCE_OFFLINE
+        if (str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True) and not is_first_boot:
             print("[main] DEV MODE: Skipping AP Provisioning because FORCE_OFFLINE is active (prevents SSH drop).")
         else:
             ap_thread = threading.Thread(target=_bg_ap, daemon=True)
