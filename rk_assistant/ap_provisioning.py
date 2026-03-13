@@ -219,7 +219,7 @@ def run_ap_provisioning(slug):
     Returns True if credentials were received and applied, False otherwise.
     """
     from .config import FORCE_OFFLINE
-    if FORCE_OFFLINE:
+    if str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True:
         print(f"[ap] Dev Mode: Bypassing Hotspot for slug {slug} to prevent SSH drop", flush=True)
         return False
 
