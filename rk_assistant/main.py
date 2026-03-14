@@ -1029,39 +1029,38 @@ def main():
     except Exception as e:
         print(f"[main] Failed to start reset monitor: {e}")
 
-    # --- Wi-Fi AP Provisioning (Fallback if Offline) ---
-    # Start the AP hotspot. It blocks until configured or a timeout occurs.
+    # --- Wi-Fi BLE Provisioning (Fallback if Offline) ---
+    # Use BLE so the phone stays on home Wi-Fi — no hotspot needed
     if not is_online() or is_first_boot:
         if is_first_boot:
-            print("[main] First boot detected. Launching AP Provisioning mode...", flush=True)
+            print("[main] First boot detected. Starting BLE provisioning...", flush=True)
         else:
-            print("[main] WARNING: No internet detected on boot. Launching AP Provisioning mode...", flush=True)
-            
-        # Play a sound or say something so the user knows if it's not the first boot
-        # (First boot uses a pre-recorded mp3 from start_rk.sh just before this)
-        if not is_first_boot:
+            print("[main] No internet detected. Starting BLE provisioning...", flush=True)
             try:
                 speak("I am not connected to the internet. Entering pairing mode.")
             except:
                 pass
-        def _bg_ap():
-            success = run_ap_provisioning(slug)
-            if success:
-                print("[main] Provisioning success. The device should be rebooting now...", flush=True)
-                time.sleep(10)
-            else:
-                print("[main] AP provisioning timed out or failed. Continuing in offline mode...", flush=True)
-                
-        # Start AP Provisioning in background so voice loop isn't blocked
+
         import os
         from .config import FORCE_OFFLINE
-        
-        # Never skip AP Provisioning on first boot, regardless of FORCE_OFFLINE
+
+        # Never skip BLE Provisioning on first boot
         if (str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True) and not is_first_boot:
-            print("[main] DEV MODE: Skipping AP Provisioning because FORCE_OFFLINE is active (prevents SSH drop).")
+            print("[main] DEV MODE: Skipping BLE Provisioning (FORCE_OFFLINE active).")
         else:
-            ap_thread = threading.Thread(target=_bg_ap, daemon=True)
-            ap_thread.start()
+            def _bg_ble():
+                try:
+                    from .ble_provisioning import run_ble_provisioning
+                    success = run_ble_provisioning(slug)
+                    if success:
+                        print("[main] BLE provisioning success. Rebooting...", flush=True)
+                    else:
+                        print("[main] BLE provisioning timed out. Continuing offline...", flush=True)
+                except Exception as e:
+                    print(f"[main] BLE provisioning error: {e}", flush=True)
+
+            ble_thread = threading.Thread(target=_bg_ble, daemon=True)
+            ble_thread.start()
 
 
     # --- 6. Start Backend Command Polling (Background) ---
