@@ -76,8 +76,8 @@ async def _run_ble_server(slug, timeout=600):
             BlessGATTCharacteristicProperties,
             GATTAttributePermissions,
         )
-    except ImportError:
-        print("[ble-prov] ERROR: `bless` not installed. Run: venv/bin/pip install bless", flush=True)
+    except Exception as e:
+        print(f"[ble-prov] ERROR importing bless: {e}", flush=True)
         return False
 
     adapter = _get_ble_adapter()
