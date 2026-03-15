@@ -1,33 +1,23 @@
 """
 BLE Provisioning for RK AI Assistant.
 
-Instead of Wi-Fi AP, this module uses Bluetooth Low Energy (BLE) to receive
-Wi-Fi credentials from the companion app. The phone stays on its home Wi-Fi
-throughout the entire process - no internet interruption.
+Uses Bluetooth Low Energy (BLE) GATT server to receive Wi-Fi credentials
+from the companion app. The phone stays on home Wi-Fi throughout - no
+internet interruption, no hotspot needed.
 
-Flow:
-  1. Pi advertises a BLE GATT service "RK-AI-Provision"
-  2. App scans for it, connects, and writes JSON: {"ssid": "...", "password": "..."}
-  3. Pi reads the written value, saves credentials via nmcli, and reboots networking.
-
-Uses the `bless` library (pip install bless) for GATT server (peripheral role).
+Uses `bless` library — must be installed in venv: venv/bin/pip install bless
 """
 
 import json
-import logging
 import asyncio
 import threading
 import time
 import subprocess
 import os
-import sys
 
-logger = logging.getLogger(__name__)
-
-# ---- BLE / GATT UUIDs (fixed, must match the app) ----
-PROVISION_SERVICE_UUID     = "12345678-1234-1234-1234-123456789abc"
-CREDENTIALS_CHAR_UUID      = "12345678-1234-1234-1234-123456789abd"  # write
-STATUS_CHAR_UUID           = "12345678-1234-1234-1234-123456789abe"  # read/notify
+# BLE / GATT UUIDs — must match WifiSetup.js in the app
+PROVISION_SERVICE_UUID = "12345678-1234-1234-1234-123456789abc"
+CREDENTIALS_CHAR_UUID  = "12345678-1234-1234-1234-123456789abd"
 
 _received_credentials = None
 _provision_done = threading.Event()
@@ -38,9 +28,22 @@ def _run_cmd(cmd):
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
+def _get_ble_adapter():
+    """Return the name of the first UP BLE adapter (e.g. hci1)."""
+    rc, out, _ = _run_cmd("hciconfig")
+    # Find all 'hciX:' blocks and return the first one that is UP
+    import re
+    blocks = re.split(r'\n(?=hci\d+:)', out)
+    for block in blocks:
+        m = re.match(r'(hci\d+):', block)
+        if m and 'UP' in block:
+            return m.group(1)
+    return None
+
+
 def apply_wifi(ssid, password):
-    """Save Wi-Fi credentials via nmcli and reboot networking."""
-    logger.info(f"[ble-prov] Applying Wi-Fi: {ssid}")
+    """Save Wi-Fi credentials via nmcli and reboot."""
+    print(f"[ble-prov] Applying Wi-Fi: {ssid}", flush=True)
     _run_cmd(f"sudo nmcli con delete '{ssid}' 2>/dev/null || true")
     if password:
         rc, _, err = _run_cmd(
@@ -52,19 +55,19 @@ def apply_wifi(ssid, password):
             f"sudo nmcli con add type wifi ifname wlan0 con-name '{ssid}' ssid '{ssid}' autoconnect yes"
         )
     if rc != 0:
-        logger.error(f"[ble-prov] Failed to add Wi-Fi: {err}")
+        print(f"[ble-prov] ERROR adding Wi-Fi: {err}", flush=True)
         return False
 
-    logger.info(f"[ble-prov] Connecting to {ssid}...")
+    print(f"[ble-prov] Connecting to {ssid}...", flush=True)
     _run_cmd(f"sudo nmcli con up '{ssid}'")
-    logger.info("[ble-prov] Rebooting...")
-    time.sleep(2)
+    print("[ble-prov] Rebooting in 3s...", flush=True)
+    time.sleep(3)
     os.system("sudo reboot")
     return True
 
 
 async def _run_ble_server(slug, timeout=600):
-    """Async BLE GATT server using bless."""
+    """Async BLE GATT server using bless, binding to the first UP adapter."""
     global _received_credentials
 
     try:
@@ -74,72 +77,88 @@ async def _run_ble_server(slug, timeout=600):
             GATTAttributePermissions,
         )
     except ImportError:
-        logger.error("[ble-prov] `bless` not installed. Run: pip install bless")
+        print("[ble-prov] ERROR: `bless` not installed. Run: venv/bin/pip install bless", flush=True)
         return False
 
+    adapter = _get_ble_adapter()
+    print(f"[ble-prov] Using BLE adapter: {adapter}", flush=True)
+
     device_name = f"RK-AI-{slug}"
-    logger.info(f"[ble-prov] Starting BLE GATT server: {device_name}")
+    print(f"[ble-prov] Starting BLE GATT server as: {device_name}", flush=True)
 
-    server = BlessServer(name=device_name)
+    # Pass adapter to BlessServer if supported (bless >=0.3 supports it)
+    try:
+        server = BlessServer(name=device_name, adapter=adapter)
+    except TypeError:
+        server = BlessServer(name=device_name)
 
-    # Add service
-    await server.add_new_service(PROVISION_SERVICE_UUID)
+    try:
+        await server.add_new_service(PROVISION_SERVICE_UUID)
 
-    # Writable credentials characteristic
-    char_flags = (
-        BlessGATTCharacteristicProperties.write |
-        BlessGATTCharacteristicProperties.write_without_response
-    )
-    permissions = GATTAttributePermissions.writeable
+        char_flags = (
+            BlessGATTCharacteristicProperties.write |
+            BlessGATTCharacteristicProperties.write_without_response
+        )
+        permissions = GATTAttributePermissions.writeable
 
-    await server.add_new_characteristic(
-        PROVISION_SERVICE_UUID,
-        CREDENTIALS_CHAR_UUID,
-        char_flags,
-        None,
-        permissions,
-    )
+        await server.add_new_characteristic(
+            PROVISION_SERVICE_UUID,
+            CREDENTIALS_CHAR_UUID,
+            char_flags,
+            None,
+            permissions,
+        )
 
-    def on_write(characteristic, value, **kwargs):
-        global _received_credentials
-        try:
-            data = json.loads(bytes(value).decode("utf-8"))
-            ssid = data.get("ssid", "").strip()
-            password = data.get("password", "").strip()
-            if ssid:
-                logger.info(f"[ble-prov] Received credentials for SSID: {ssid}")
-                _received_credentials = (ssid, password)
-                _provision_done.set()
-        except Exception as e:
-            logger.error(f"[ble-prov] Failed to parse credentials: {e}")
+        def on_write(characteristic, value, **kwargs):
+            global _received_credentials
+            try:
+                raw = bytes(value).decode("utf-8")
+                data = json.loads(raw)
+                ssid = data.get("ssid", "").strip()
+                password = data.get("password", "").strip()
+                if ssid:
+                    print(f"[ble-prov] Received Wi-Fi credentials for SSID: {ssid}", flush=True)
+                    _received_credentials = (ssid, password)
+                    _provision_done.set()
+            except Exception as e:
+                print(f"[ble-prov] ERROR parsing credentials: {e}", flush=True)
 
-    server.write_request_func = on_write
+        server.write_request_func = on_write
 
-    await server.start()
-    logger.info(f"[ble-prov] BLE server advertising as '{device_name}'...")
+        await server.start()
+        print(f"[ble-prov] ✓ BLE server advertising as '{device_name}' — waiting for app...", flush=True)
 
-    # Wait for credentials to arrive (with timeout)
-    end_time = time.time() + timeout
-    while not _provision_done.is_set():
-        await asyncio.sleep(1)
-        if time.time() > end_time:
-            logger.warning("[ble-prov] BLE provisioning timed out.")
-            break
+        end_time = time.time() + timeout
+        while not _provision_done.is_set():
+            await asyncio.sleep(1)
+            if time.time() > end_time:
+                print("[ble-prov] Timed out waiting for credentials.", flush=True)
+                break
 
-    await server.stop()
+        await server.stop()
+
+    except Exception as e:
+        print(f"[ble-prov] GATT server error: {e}", flush=True)
+        return False
+
     return _provision_done.is_set()
 
 
 def run_ble_provisioning(slug, timeout=600):
     """
-    Run BLE provisioning synchronously (blocks until done or timeout).
-    Returns True if credentials were received and applied.
+    Run BLE provisioning (blocks until done or timeout).
+    Called in a daemon thread by main.py on first boot.
     """
+    print(f"[ble-prov] Starting for slug: {slug}", flush=True)
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     try:
         received = loop.run_until_complete(_run_ble_server(slug, timeout))
+    except Exception as e:
+        print(f"[ble-prov] Fatal error: {e}", flush=True)
+        received = False
     finally:
         loop.close()
 
@@ -148,7 +167,7 @@ def run_ble_provisioning(slug, timeout=600):
         apply_wifi(ssid, password)
         return True
 
-    logger.warning("[ble-prov] No credentials received. Continuing without provisioning.")
+    print("[ble-prov] No credentials received. Continuing without provisioning.", flush=True)
     return False
 
 
