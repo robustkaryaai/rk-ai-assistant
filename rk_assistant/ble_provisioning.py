@@ -71,11 +71,7 @@ async def _run_ble_server(slug, timeout=600):
     global _received_credentials
 
     try:
-        from bless import (
-            BlessServer,
-            BlessGATTCharacteristicProperties,
-            GATTAttributePermissions,
-        )
+        from bless import BlessServer
     except Exception as e:
         print(f"[ble-prov] ERROR importing bless: {e}", flush=True)
         return False
@@ -95,11 +91,12 @@ async def _run_ble_server(slug, timeout=600):
     try:
         await server.add_new_service(PROVISION_SERVICE_UUID)
 
-        char_flags = (
-            BlessGATTCharacteristicProperties.write |
-            BlessGATTCharacteristicProperties.write_without_response
-        )
-        permissions = GATTAttributePermissions.writeable
+        # In older bless versions, properties and permissions might not be exported as enums.
+        # We use the raw bluez integers instead:
+        # Properties: write (0x08) | write-without-response (0x04)
+        char_flags = 0x08 | 0x04 
+        # Permissions: writable (0x02)
+        permissions = 0x02
 
         await server.add_new_characteristic(
             PROVISION_SERVICE_UUID,
