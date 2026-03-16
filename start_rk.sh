@@ -130,9 +130,18 @@ fi
 
 # Prevent multiple resets in the same boot
 if [ ! -f "/tmp/.bt_setup_done" ]; then
-    echo "[startup] Initializing Bluetooth hardware..."
+    echo "[startup] Initializing hardware identity..."
     
-    # Stop any conflicting services/agents
+    # 1. Nuclear Name Fix: Hostname + /etc/hosts
+    # This prevents the "unable to resolve host" warning and makes BT visibility stick
+    CURRENT_HOSTNAME=$(hostname)
+    if [ "$CURRENT_HOSTNAME" != "$BT_NAME" ]; then
+        echo "[startup] Updating hostname to $BT_NAME..."
+        sudo hostnamectl set-hostname "$BT_NAME"
+        sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$BT_NAME/g" /etc/hosts
+    fi
+
+    # 2. Bluetooth Prep
     sudo killall -9 bluetooth-agent 2>/dev/null || true
     sudo killall -9 bt-agent 2>/dev/null || true
     sudo killall -9 python3 rk_assistant/bt_agent.py 2>/dev/null || true
@@ -143,32 +152,22 @@ if [ ! -f "/tmp/.bt_setup_done" ]; then
         HCI_DEV="hci0"
     fi
 
-    # 1. Disable Audio Profiles (Fixes the "Headphones" icon)
-    # This prevents the phone from thinking we are a speaker
-    echo "[startup] Disabling Bluetooth audio profiles..."
-    sudo bluetoothctl << BTEOF &>/dev/null
-power on
-select $(hciconfig $HCI_DEV | grep 'BD Address' | awk '{print $3}' | tr -d ' ')
-# Unregister any audio-related profiles
-# (Note: This is aggressive, but ensures we look like a Data device)
-BTEOF
-
-    # 2. Configure Hardware for "Just Works" (No PIN)
+    # 3. Disable Audio Profiles & Configure for "Just Works"
+    echo "[startup] Configuring Bluetooth on $HCI_DEV..."
     sudo hciconfig $HCI_DEV up 2>/dev/null || true
     sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true # Computer/Generic
-    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true     # Secure Simple Pairing
-    sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true        # No authentication required
-    sudo hciconfig $HCI_DEV piscan 2>/dev/null || true        # Discoverable
+    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
+    sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
+    sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
 
-    # 3. Start our custom "Yes-Man" Agent
+    # 4. Start our custom "Yes-Man" Agent
     if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
-        echo "[startup] Starting Auto-Pairing Agent..."
         sudo python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
         sleep 2
     fi
 
-    # 4. Final Adapter settings
+    # 5. Final Adapter settings
     sudo bluetoothctl << BTEOF &>/dev/null
 power on
 discoverable on
@@ -176,13 +175,11 @@ pairable on
 discoverable-timeout 0
 BTEOF
 
-    # 5. Register Serial Port Profile
     sudo sdptool add SP 2>/dev/null || true
-
     touch /tmp/.bt_setup_done
-    echo "[startup] Bluetooth visibility configured for $BT_NAME."
+    echo "[startup] Identity and Bluetooth configured."
 else
-    echo "[startup] Bluetooth already configured, skipping hardware reset."
+    echo "[startup] Hardware already configured, skipping."
 fi
 
 if [ -f "$PAIRING_FILE" ]; then

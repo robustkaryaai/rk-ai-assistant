@@ -71,6 +71,8 @@ from .networking import (
     write_slug,
     setup_microphone_volume,
     wait_for_internet,
+    try_join_setup_hotspot,
+    sync_wifi_from_appwrite,
 )
 from .offline_commands import match_offline_command, process_offline_command
 from .weather_news import fetch_news, fetch_weather
@@ -871,61 +873,62 @@ def main():
 
     is_first_boot = "--first-boot" in sys.argv
 
-    # 1. Alexa-like Setup Mode (If Offline)
-    # Check internet connectivity immediately
+    # 1. Check internet connectivity immediately
     online = is_online()
     if not online:
-        print("[main] Device is OFFLINE. Entering Setup Mode...", flush=True)
+        print("[main] Device is OFFLINE. Entering '3rd Way' Setup Mode...", flush=True)
         
-        # Start all provisioning services in background
-        # BLE
+        # Voice Guidance for the "3rd Way"
         try:
-            from .ble_provisioning import run_ble_provisioning
-            threading.Thread(target=run_ble_provisioning, args=(slug_val,), daemon=True).start()
-            print(f"[main] BLE setup active (RK-AI-{slug_val})", flush=True)
-        except Exception as e:
-            print(f"[main] BLE start error: {e}", flush=True)
-            
-        # Classic BT
-        try:
-            from .classic_bluetooth_server import start_classic_bt_server
-            threading.Thread(target=start_classic_bt_server, args=(slug_val,), daemon=True).start()
-            print(f"[main] Classic BT setup active (RK-AI-{slug_val})", flush=True)
-        except Exception as e:
-            print(f"[main] Classic BT start error: {e}", flush=True)
-
-        # AP Hotspot
-        try:
-            from .ap_provisioning import run_ap_provisioning
-            threading.Thread(target=run_ap_provisioning, args=(slug_val,), daemon=True).start()
-            print(f"[main] AP Hotspot active (RK-AI-{slug_val})", flush=True)
-        except Exception as e:
-            print(f"[main] AP start error: {e}", flush=True)
-
-        # Voice Guidance
-        try:
-            setup_msg = "Hello! I am ready for setup. Please open the R K A I app on your phone to connect me to your Wi-Fi."
+            setup_msg = (
+                "Hello! I am ready for setup. I cannot connect to the internet. "
+                "Please open your phone's personal hotspot and name it R K A I S E T U P "
+                "with password r k a i setup. Then, open the R K A I app on your phone "
+                "to connect me to your home Wi-Fi."
+            )
             speak(setup_msg)
             print("[main] Setup instructions spoken.", flush=True)
-            
-            # Play a distinct "pairing" sound if available
-            sound_path = str(Path(__file__).parent / "sounds" / "pairing_start.mp3")
-            if os.path.exists(sound_path):
-                play_audio_url(sound_path)
         except:
             pass
 
-        # Wait loop - check for internet every 30s while providing guidance
+        # "3rd Way" Logic: Try to connect to the Phone's Setup Hotspot
+        from .networking import try_join_setup_hotspot, sync_wifi_from_appwrite
+        
         wait_count = 0
         while not is_online():
             wait_count += 1
-            time.sleep(30)
-            if wait_count % 10 == 0: # Every 5 mins
+            print(f"[main] Attempting to join setup hotspot (RK-AI-SETUP)... Attempt {wait_count}", flush=True)
+            
+            # This function tries to join "RK-AI-SETUP" / "rkaisetup"
+            try_join_setup_hotspot()
+            
+            time.sleep(10) # Wait for connection to stabilize
+            
+            if is_online():
+                print("[main] Connected to Setup Hotspot! Syncing Wi-Fi credentials...", flush=True)
                 try:
-                    speak("I am still waiting for setup. Please use the app to configure my Wi-Fi.")
+                    speak("I am connected to your setup hotspot. Getting your home Wi-Fi details now.")
                 except: pass
-            if wait_count > 60: # 30 mins timeout, continue in degraded mode
-                print("[main] Setup timeout. Continuing in offline mode.", flush=True)
+                
+                # Once we have internet from the phone, pull the real Wi-Fi update from the command queue
+                success = sync_wifi_from_appwrite(slug_val)
+                if success:
+                    print("[main] Home Wi-Fi received! Rebooting to apply...", flush=True)
+                    try:
+                        speak("I have received your home Wi-Fi details. I will now restart and connect to your home network.")
+                    except: pass
+                    time.sleep(3)
+                    os.system("sudo reboot")
+                else:
+                    print("[main] No Wi-Fi update command found in Appwrite queue. Retrying...", flush=True)
+            
+            if wait_count % 30 == 0: # Every 5 mins
+                try:
+                    speak("I am still waiting for setup. Please make sure your hotspot is named R K A I S E T U P.")
+                except: pass
+            
+            if wait_count > 120: # ~20 mins timeout
+                print("[main] Setup timeout. Continuing offline.", flush=True)
                 break
             
         # If we got online during the loop, proceed
@@ -1099,74 +1102,6 @@ def main():
         start_reset_monitor()
     except Exception as e:
         print(f"[main] Failed to start reset monitor: {e}")
-
-    # --- Wi-Fi Provisioning (Always Available Fallbacks) ---
-    import os
-    from .config import FORCE_OFFLINE
-    from .networking import try_join_setup_hotspot, sync_wifi_from_appwrite
-
-    # 1. Reverse Hotspot Setup (The "3rd Way")
-    # If the device is offline, it will search for a hotspot named "RK-AI-SETUP"
-    # and pull the real credentials from Appwrite.
-    def _bg_reverse_hotspot():
-        if not is_online():
-            print("[main] Device is OFFLINE. Starting '3rd Way' setup (Reverse Hotspot)...", flush=True)
-            try:
-                setup_msg = (
-                    "Hello! I am ready for setup. I cannot connect to the internet. "
-                    "Please turn on your phone's personal hotspot and name it R K A I S E T U P "
-                    "with password r k a i setup. Then, open the R K A I app on your phone "
-                    "to connect me to your home Wi-Fi."
-                )
-                speak(setup_msg)
-            except: pass
-
-            wait_count = 0
-            while not is_online():
-                wait_count += 1
-                print(f"[main] Attempting to join setup hotspot (RK-AI-SETUP)... Attempt {wait_count}", flush=True)
-                
-                # This function tries to join "RK-AI-SETUP" / "rkaisetup"
-                try_join_setup_hotspot()
-                
-                time.sleep(15) # Wait for connection to stabilize
-                
-                if is_online():
-                    print("[main] Connected to Setup Hotspot! Syncing Wi-Fi credentials...", flush=True)
-                    try:
-                        speak("I am connected to your setup hotspot. Getting your home Wi-Fi details now.")
-                    except: pass
-                    
-                    # Once we have internet from the phone, pull the real Wi-Fi from Appwrite
-                    success = sync_wifi_from_appwrite(slug)
-                    if success:
-                        print("[main] Home Wi-Fi synced! Rebooting to apply...", flush=True)
-                        try:
-                            speak("I have received your home Wi-Fi details. I will now restart and connect to your home network.")
-                        except: pass
-                        time.sleep(3)
-                        os.system("sudo reboot")
-                    else:
-                        print("[main] No Wi-Fi update found in Appwrite yet. Retrying...", flush=True)
-                
-                if wait_count % 20 == 0: # Every ~5 mins
-                    try:
-                        speak("I am still waiting for setup. Please make sure your hotspot is named R K A I S E T U P.")
-                    except: pass
-                
-                if wait_count > 120: # 30 mins timeout
-                    print("[main] Setup timeout. Continuing offline.", flush=True)
-                    break
-
-    # Launch background provisioning thread
-    if (str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True) and not is_first_boot:
-        print("[main] DEV MODE: Skipping Provisioning Fallbacks.")
-    else:
-        threading.Thread(target=_bg_reverse_hotspot, daemon=True).start()
-        print("[main] Background provisioning service (Reverse Hotspot) started.")
-
-
-
 
     # --- 6. Start Backend Command Polling (Background) ---
     # Disabled to stop 500 error spam while debugging voice
