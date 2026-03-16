@@ -20,17 +20,19 @@ echo "[startup] --- STARTING RK AI STARTUP SEQUENCE ---"
 echo "[startup] Target Name: $BT_NAME"
 
 # ─── 0. Hostname & Sudo Deadlock Fix ──────────────────────
-# We fix /etc/hosts IMMEDIATELY to stop sudo from hanging.
+# Fix /etc/hosts IMMEDIATELY to stop sudo from hanging.
 CURRENT_HOSTNAME=$(hostname)
 echo "[startup] Current Hostname: $CURRENT_HOSTNAME"
 
 # Add entry to /etc/hosts if missing to prevent sudo delay
+# We do this without sudo first to a temp file
 if ! grep -q "$CURRENT_HOSTNAME" /etc/hosts; then
     echo "[startup] Fixing /etc/hosts for $CURRENT_HOSTNAME..."
-    # We use a temporary script to do the sudo stuff at once
-    echo "127.0.1.1 $CURRENT_HOSTNAME $BT_NAME" >> /tmp/hosts_line
-    sudo -n sh -c "cat /tmp/hosts_line >> /etc/hosts" 2>/dev/null
-    rm -f /tmp/hosts_line
+    # Create entry
+    echo "127.0.1.1 $CURRENT_HOSTNAME $BT_NAME" > /tmp/hosts_entry
+    # Try to append with sudo -n (non-blocking)
+    sudo -n sh -c "cat /tmp/hosts_entry >> /etc/hosts" 2>/dev/null
+    rm -f /tmp/hosts_entry
 fi
 
 # ─── 1. Hardware Initialization ───────────────────────────
