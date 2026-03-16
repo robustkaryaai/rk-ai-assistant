@@ -133,7 +133,7 @@ def post_text_to_backend(text: str, slug: str) -> Dict[str, Any]:
     url = f"{BACKEND_BASE_URL}/text/{slug}"
     payload = {"text": text}
     try:
-        resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
+        resp = requests.post(url, json=payload, timeout=45)
         if resp.ok:
             try:
                 return resp.json()
@@ -141,7 +141,7 @@ def post_text_to_backend(text: str, slug: str) -> Dict[str, Any]:
                 return {}
         return {"error": "http_error", "message": f"HTTP {resp.status_code}"}
     except requests.exceptions.Timeout:
-        print(f"[network] Backend request timed out after {REQUEST_TIMEOUT}s", flush=True)
+        print(f"[network] Backend request timed out after 45s", flush=True)
         return {"error": "timeout", "message": "Backend request timed out"}
     except Exception as e:
         print(f"[network] Error posting text: {e}", flush=True)

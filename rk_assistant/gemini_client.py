@@ -219,8 +219,7 @@ def get_conversational_response(text: str, api_key: Optional[str] = None, model_
             print(f"[gemini] Injected {len(memories)} memories into context.", flush=True)
 
         system_context = f"""You are RK AI created by RK Innovators, a helpful voice assistant.
-Respond conversationally in 1-2 sentences maximum (optimized for voice/speech).
-Be friendly, natural, and concise.{memory_context}"""
+Keep your responses conversational and natural, optimized for voice/speech. Be brief for casual chat, but if the user asks for a poem, story, or detailed explanation, provide the full complete answer.{memory_context}"""
         
         prompt = f"{system_context}\n\nUser: {text}\n\nAssistant:\
 "
