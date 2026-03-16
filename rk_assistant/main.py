@@ -1030,27 +1030,35 @@ def main():
     except Exception as e:
         print(f"[main] Failed to start reset monitor: {e}")
 
-    # --- Wi-Fi BLE Provisioning (Alexa-like Always Available) ---
-    # Start BLE provisioning every boot in background so the app can always find it
-    # to update Wi-Fi credentials (like Alexa).
+    # --- Wi-Fi Provisioning (Always Available Fallbacks) ---
     import os
     from .config import FORCE_OFFLINE
 
+    # 1. BLE GATT Provisioning (Modern)
     def _bg_ble():
         try:
             from .ble_provisioning import run_ble_provisioning
-            print(f"[main] Starting background BLE provisioning service (RK-AI-{slug})...", flush=True)
+            print(f"[main] Starting background BLE service (RK-AI-{slug})...", flush=True)
             run_ble_provisioning(slug)
         except Exception as e:
-            print(f"[main] BLE provisioning error: {e}", flush=True)
+            print(f"[main] BLE error: {e}", flush=True)
 
-    # Never skip BLE Provisioning in dev mode if FORCE_OFFLINE is active
+    # 2. Classic Bluetooth RFCOMM (Robust Fallback)
+    def _bg_classic_bt():
+        try:
+            from .classic_bluetooth_server import start_classic_bt_server
+            print(f"[main] Starting background Classic BT service (RK-AI-{slug})...", flush=True)
+            start_classic_bt_server(slug)
+        except Exception as e:
+            print(f"[main] Classic BT error: {e}", flush=True)
+
+    # Launch background provisioning threads unless explicitly disabled in dev mode
     if (str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True) and not is_first_boot:
-        print("[main] DEV MODE: Skipping BLE Provisioning (FORCE_OFFLINE active).")
+        print("[main] DEV MODE: Skipping Provisioning Fallbacks.")
     else:
-        ble_thread = threading.Thread(target=_bg_ble, daemon=True)
-        ble_thread.start()
-        print("[main] Background BLE provisioning thread started.")
+        threading.Thread(target=_bg_ble, daemon=True).start()
+        threading.Thread(target=_bg_classic_bt, daemon=True).start()
+        print("[main] Background provisioning services (BLE + Classic BT) started.")
 
 
 
