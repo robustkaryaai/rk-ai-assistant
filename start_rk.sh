@@ -1,6 +1,6 @@
 #!/bin/bash
-# RK AI Assistant Startup Script
-# Optimized for stability and "Just Works" provisioning.
+# RK AI Assistant Startup Script - STABILITY VERSION
+# This script is designed to fail fast, log everything, and avoid sudo deadlocks.
 
 export XDG_RUNTIME_DIR=/run/user/1000
 export PULSE_RUNTIME_PATH=/run/user/1000/pulse
@@ -16,100 +16,121 @@ if [ -f "$SCRIPT_DIR/rk_assistant/slug.txt" ]; then
 fi
 BT_NAME="RK-AI-$SLUG"
 
-echo "[startup] Starting RK AI Assistant ($BT_NAME)..."
+echo "[startup] --- STARTING RK AI STARTUP SEQUENCE ---"
+echo "[startup] Target Name: $BT_NAME"
 
-# ─── 0. Hostname & Sudo Fix ────────────────────────────────
-# Fix /etc/hosts to prevent 'unable to resolve host' delay/errors.
-# We do this as the very first sudo command.
+# ─── 0. Hostname & Sudo Deadlock Fix ──────────────────────
+# We fix /etc/hosts IMMEDIATELY to stop sudo from hanging.
 CURRENT_HOSTNAME=$(hostname)
+echo "[startup] Current Hostname: $CURRENT_HOSTNAME"
+
 if ! grep -q "$CURRENT_HOSTNAME" /etc/hosts; then
-    echo "[startup] Fixing /etc/hosts for $CURRENT_HOSTNAME..."
-    # Add to hosts file if missing. We use a temp file to avoid sudo delays during piping.
-    echo "127.0.1.1\t$CURRENT_HOSTNAME $BT_NAME" > /tmp/hosts_fix
-    sudo sh -c "cat /tmp/hosts_fix >> /etc/hosts"
+    echo "[startup] CRITICAL: Hostname $CURRENT_HOSTNAME not in /etc/hosts. Fixing..."
+    # We use a trick: 'sudo -n' fails if it needs a password or hangs.
+    # We also use 'localhost' to ensure the command itself doesn't hang.
+    echo "127.0.1.1\t$CURRENT_HOSTNAME $BT_NAME" > /tmp/hosts_update
+    sudo -n sh -c "cat /tmp/hosts_update >> /etc/hosts" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "[startup] Hostname resolved in /etc/hosts."
+    else
+        echo "[startup] Warning: Could not update /etc/hosts automatically."
+    fi
 fi
 
-# ─── 1. Identity & Bluetooth Setup ────────────────────────
-# We only do hardware reset once per boot to prevent service loop issues.
+# ─── 1. Hardware Initialization ───────────────────────────
+# Only do this once per boot to prevent service loops.
 if [ ! -f "/tmp/.bt_setup_done" ]; then
-    echo "[startup] Configuring hardware identity..."
+    echo "[startup] Step 1: Configuring Hardware Identity..."
     
-    # Sync hostname if it changed
+    # Sync hostname
     if [ "$CURRENT_HOSTNAME" != "$BT_NAME" ]; then
-        sudo hostnamectl set-hostname "$BT_NAME"
+        echo "[startup] Setting system hostname to $BT_NAME..."
+        sudo -n hostnamectl set-hostname "$BT_NAME" 2>/dev/null
     fi
 
-    # Kill old agents
-    sudo killall -9 bluetooth-agent 2>/dev/null || true
-    sudo killall -9 bt-agent 2>/dev/null || true
-    sudo killall -9 python3 rk_assistant/bt_agent.py 2>/dev/null || true
-
-    # Find adapter (prefer hci1)
+    echo "[startup] Step 2: Cleaning up old Bluetooth processes..."
+    sudo -n killall -9 bluetooth-agent bt-agent 2>/dev/null || true
+    
+    # Find adapter
     HCI_DEV="hci1"
     if ! hciconfig $HCI_DEV &>/dev/null; then
         HCI_DEV="hci0"
     fi
+    echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
 
-    echo "[startup] Configuring Bluetooth on $HCI_DEV..."
-    sudo hciconfig $HCI_DEV up 2>/dev/null || true
-    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
-    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
-    sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
-    sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
+    echo "[startup] Step 3: Powering up $HCI_DEV..."
+    sudo -n hciconfig $HCI_DEV up 2>/dev/null || true
+    sudo -n hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
+    sudo -n hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+    sudo -n hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
+    sudo -n hciconfig $HCI_DEV auth 0 2>/dev/null || true
+    sudo -n hciconfig $HCI_DEV piscan 2>/dev/null || true
 
-    # Start our "Yes-Man" Agent in background
+    echo "[startup] Step 4: Launching Auto-Pairing Agent..."
     if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
-        sudo python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
+        sudo -n python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
         sleep 2
     fi
 
-    # Lock in visibility
-    sudo bluetoothctl << BTEOF &>/dev/null
+    echo "[startup] Step 5: Finalizing Bluetooth visibility..."
+    # Timeout bluetoothctl to prevent hangs
+    timeout 5s sudo -n bluetoothctl << BTEOF &>/dev/null
 power on
 discoverable on
 pairable on
 discoverable-timeout 0
 BTEOF
 
-    sudo sdptool add SP 2>/dev/null || true
+    sudo -n sdptool add SP 2>/dev/null || true
     touch /tmp/.bt_setup_done
-    echo "[startup] Hardware identity configured."
+    echo "[startup] Hardware initialization complete."
+else
+    echo "[startup] Hardware already initialized, skipping setup."
 fi
 
-# ─── 2. Background Connection Monitor ─────────────────────
-# Periodically check for connections to log paired devices
+# ─── 2. Background Tasks ──────────────────────────────────
+echo "[startup] Step 6: Starting background monitors..."
 (
   while true; do
-    bluetoothctl info | grep "Connected: yes" -B 10 | grep "Device" | awk '{print $2}' > "$PAIRING_FILE"
-    sleep 30
+    bluetoothctl info 2>/dev/null | grep "Connected: yes" -B 10 | grep "Device" | awk '{print $2}' > "$PAIRING_FILE" 2>/dev/null
+    sleep 60
   done
 ) &
 
-# ─── 3. Update Check (Non-blocking) ───────────────────────
-echo "[startup] Checking for updates..."
+# Update check (Non-blocking)
 (
     cd "$SCRIPT_DIR" || exit
     git fetch origin 2>/dev/null
     LOCAL=$(git rev-parse HEAD 2>/dev/null)
     REMOTE=$(git rev-parse @{u} 2>/dev/null)
     if [ "$LOCAL" != "$REMOTE" ] && [ -n "$REMOTE" ]; then
-        echo "[startup] New update found. Pulling..."
-        git pull origin main
+        echo "[startup] Update available. Pulling in background..."
+        git pull origin main 2>/dev/null
     fi
 ) &
 
-# ─── 4. Launch Application ────────────────────────────────
+# ─── 3. Launching Python Application ──────────────────────
+echo "[startup] Step 7: Preparing Python environment..."
 VENV_DIR="$SCRIPT_DIR/venv"
 if [ -d "$VENV_DIR" ]; then
     source "$VENV_DIR/bin/activate"
 fi
 
-echo "[startup] Launching main.py..."
+# Final check for main.py
+if [ ! -f "$SCRIPT_DIR/rk_assistant/main.py" ]; then
+    echo "[startup] ERROR: main.py not found at $SCRIPT_DIR/rk_assistant/main.py"
+    exit 1
+fi
+
+echo "[startup] Step 8: Launching main.py..."
 # If first boot flag exists, it's NOT first boot anymore.
 if [ -f "$FIRST_BOOT_FLAG" ]; then
+    echo "[startup] Mode: Standard Boot"
     exec python3 -u -m rk_assistant.main
 else
-    # No flag file = First boot
+    echo "[startup] Mode: First Boot"
     exec python3 -u -m rk_assistant.main --first-boot
 fi
+
+echo "[startup] ERROR: exec failed!"
+exit 1
