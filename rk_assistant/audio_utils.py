@@ -71,6 +71,18 @@ from .config import (
 ALSA_DEVICE = "pulse" 
 BUFFER_TIME = "500000" # 0.5s buffer
 
+def setup_microphone_volume():
+    """Force hardware capture gain to 100% using amixer."""
+    try:
+        # Standard USB Mic / Pi Zero mic control names
+        controls = ["Capture", "Mic", "Internal Mic", "Digital"]
+        for control in controls:
+            subprocess.run(["amixer", "sset", control, "100%"], capture_output=True)
+        print("[audio] Hardware capture gain set to 100%.")
+    except Exception as e:
+        print(f"[audio] Failed to set hardware volume: {e}")
+
+
 def play_audio_file(file_path: str):
     """Ultra-smooth WAV playback using ffplay (Bluetooth-safe)."""
     if not os.path.exists(file_path):

@@ -62,6 +62,7 @@ live_stt_listen = getattr(audio_utils, "live_stt_listen", _live_stt_stub)
 from .audio_utils_simple import speak
 
 from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD, WAKE_WORDS, BACKEND_BASE_URL, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, GEMINI_MODEL, USE_GEMINI_DIRECT
+from .audio_utils import setup_microphone_volume
 from .networking import (
     generate_slug,
     is_online,
@@ -69,7 +70,6 @@ from .networking import (
     post_text_to_backend,
     read_slug,
     write_slug,
-    setup_microphone_volume,
     wait_for_internet,
     try_join_setup_hotspot,
     sync_wifi_from_appwrite,
