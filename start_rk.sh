@@ -140,29 +140,40 @@ fi
 # Get the controller MAC for the selected adapter
 CONTROLLER_MAC=$(hciconfig $HCI_DEV | grep 'BD Address' | awk '{print $3}' | tr -d ' ')
 
-echo "[startup] Configuring Bluetooth on $HCI_DEV ($CONTROLLER_MAC)..."
+echo "[startup] Configuring Bluetooth on $HCI_DEV ($CONTROLLER_MAC) as $BT_NAME..."
 
-# Enable "Compatibility Mode" for Classic BT/SDP support on modern BlueZ
+# 1. Set System Hostname (The "Nuclear" option - BlueZ defaults to this)
+sudo hostnamectl set-hostname --pretty "$BT_NAME"
+sudo hostnamectl set-hostname "$BT_NAME"
+
+# 2. Enable "Compatibility Mode" for Classic BT/SDP support on modern BlueZ
 if ! grep -q "ExecStart=.*--compat" /lib/systemd/system/bluetooth.service; then
-    echo "[startup] Enabling BlueZ compatibility mode for Classic BT..."
+    echo "[startup] Enabling BlueZ compatibility mode..."
     sudo sed -i 's|ExecStart=/usr/lib/bluetooth/bluetoothd|ExecStart=/usr/lib/bluetooth/bluetoothd --compat|' /lib/systemd/system/bluetooth.service
     sudo systemctl daemon-reload
     sudo systemctl restart bluetooth
+    sleep 2
 fi
 
-# Ensure the adapter is powered up and discoverable
+# 3. Force Adapter Name and Discoverability
 sudo hciconfig $HCI_DEV up 2>/dev/null || true
+sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
 sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
 
+# 4. Use bluetoothctl to lock in the Alias and settings
 sudo bluetoothctl << BTEOF &>/dev/null
 select $CONTROLLER_MAC
 power on
-system-alias $BT_NAME
+system-alias "$BT_NAME"
+name "$BT_NAME"
 discoverable on
 pairable on
+discoverable-timeout 0
 agent on
 default-agent
 BTEOF
+
+echo "[startup] Bluetooth visibility configured for $BT_NAME."
 
 if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
     sudo python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
