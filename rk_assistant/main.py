@@ -1038,9 +1038,9 @@ def main():
 
     def _bg_ble():
         try:
-            from .provisioning_service import start_ble_service
+            from .ble_provisioning import run_ble_provisioning
             print(f"[main] Starting background BLE provisioning service (RK-AI-{slug})...", flush=True)
-            start_ble_service(slug)
+            run_ble_provisioning(slug)
         except Exception as e:
             print(f"[main] BLE provisioning error: {e}", flush=True)
 

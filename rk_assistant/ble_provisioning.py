@@ -16,8 +16,9 @@ import subprocess
 import os
 
 # BLE / GATT UUIDs — must match WifiSetup.js in the app
-PROVISION_SERVICE_UUID = "12345678-1234-1234-1234-123456789abc"
-CREDENTIALS_CHAR_UUID  = "12345678-1234-1234-1234-123456789abd"
+# Use Nordic UART Service UUIDs to match the mobile app (WifiSetup.js)
+PROVISION_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+CREDENTIALS_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
 
 _received_credentials = None
 _provision_done = threading.Event()
