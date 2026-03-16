@@ -6,6 +6,12 @@ SCRIPT_DIR="/home/raspberrypi/Documents/rk-ai-assistant-main"
 PAIRING_FILE="$SCRIPT_DIR/.last_bt_device"
 FIRST_BOOT_FLAG="$SCRIPT_DIR/.first_boot_done"
 
+SLUG="000000000"
+if [ -f "$SCRIPT_DIR/rk_assistant/slug.txt" ]; then
+    SLUG=$(head -n1 "$SCRIPT_DIR/rk_assistant/slug.txt" | tr -d '[:space:]')
+fi
+BT_NAME="RK-AI-$SLUG"
+
 echo "[startup] Starting RK AI Assistant..."
 
 # ─── 0. Hardware Prep ──────────────────────────────────────

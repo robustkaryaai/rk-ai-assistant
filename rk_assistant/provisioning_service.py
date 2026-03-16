@@ -310,12 +310,12 @@ def find_adapter(bus):
 
 def power_adapter(bus, adapter_path, slug):
     adapter_props = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter_path), DBUS_PROP_IFACE)
-    print(f"[ble] Ensuring {adapter_path} is powered on and aliased to rk-ai-{slug}...", flush=True)
+    print(f"[ble] Ensuring {adapter_path} is powered on and aliased to RK-AI-{slug}...", flush=True)
     adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(1))
     adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(1))
     adapter_props.Set('org.bluez.Adapter1', 'Pairable', dbus.Boolean(1))
     # Alias is helpful for some devices, but LocalName in Advert overrides it usually
-    adapter_props.Set('org.bluez.Adapter1', 'Alias', dbus.String(f'rk-ai-{slug}')) 
+    adapter_props.Set('org.bluez.Adapter1', 'Alias', dbus.String(f'RK-AI-{slug}')) 
 
 def start_ble_service(slug):
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -355,12 +355,12 @@ def start_ble_service(slug):
 
         # 4. Advertise
         ad_manager = dbus.Interface(adapter_obj, LE_ADVERTISING_MANAGER_IFACE)
-        ad = ProvisioningAdvertisement(bus, 0, f"rk-ai-{slug}")
+        ad = ProvisioningAdvertisement(bus, 0, f"RK-AI-{slug}")
         ad_manager.RegisterAdvertisement(ad.get_path(), {},
                                          reply_handler=register_ad_cb,
                                          error_handler=register_ad_error_cb)
 
-        print(f"[ble] Running provisioning service `rk-ai-{slug}` on {adapter}")
+        print(f"[ble] Running provisioning service `RK-AI-{slug}` on {adapter}")
         mainloop = GLib.MainLoop()
         mainloop.run()
 

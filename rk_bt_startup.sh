@@ -13,6 +13,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PAIRING_FILE="$SCRIPT_DIR/.last_bt_device"
 LOG_PREFIX="[rk_bt_startup]"
 
+SLUG="000000000"
+if [ -f "$SCRIPT_DIR/rk_assistant/slug.txt" ]; then
+    SLUG=$(head -n1 "$SCRIPT_DIR/rk_assistant/slug.txt" | tr -d '[:space:]')
+fi
+BT_NAME="RK-AI-$SLUG"
+
 echo "$LOG_PREFIX Starting RK AI Bluetooth Manager..."
 
 # ─── Step 1: Ensure bluetooth service is running ───────────
@@ -36,6 +42,9 @@ agent on
 default-agent
 EOF
 echo "$LOG_PREFIX Pi is now discoverable as BT device."
+
+# Also set a user-friendly alias that includes the device slug
+sudo bluetoothctl system-alias "$BT_NAME" 2>/dev/null || true
 
 # ─── Step 4: Try to reconnect to last paired phone ─────────
 if [ -f "$PAIRING_FILE" ]; then
