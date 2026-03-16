@@ -49,8 +49,10 @@ def start_classic_bt_server(slug):
                 # Receive data
                 data = client_sock.recv(1024).decode('utf-8')
                 if data:
+                    data = data.strip()
                     print(f"[classic-bt] Received raw data: {data}", flush=True)
                     try:
+                        # Attempt to parse as JSON
                         payload = json.loads(data)
                         ssid = payload.get("ssid")
                         password = payload.get("password")

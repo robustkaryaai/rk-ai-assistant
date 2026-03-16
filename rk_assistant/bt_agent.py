@@ -7,35 +7,35 @@ from gi.repository import GLib
 class Agent(dbus.service.Object):
     @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
-        print(f"AuthorizeService ({device}, {uuid})")
+        print(f"[agent] AuthorizeService ({device}, {uuid}) - Accepted")
         return
 
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="s")
     def RequestPinCode(self, device):
-        print(f"RequestPinCode ({device}) - Auto returning 0000")
+        print(f"[agent] RequestPinCode ({device}) - Auto returning 0000")
         return "0000"
 
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="u")
     def RequestPasskey(self, device):
-        print(f"RequestPasskey ({device}) - Auto returning 000000")
+        print(f"[agent] RequestPasskey ({device}) - Auto returning 0")
         return dbus.UInt32(0)
 
     @dbus.service.method("org.bluez.Agent1", in_signature="ouq", out_signature="")
     def DisplayPasskey(self, device, passkey, entered):
-        print(f"DisplayPasskey ({device}, {passkey:06d} entered {entered})")
+        print(f"[agent] DisplayPasskey ({device}, {passkey:06d} entered {entered})")
 
     @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
     def DisplayPinCode(self, device, pincode):
-        print(f"DisplayPinCode ({device}, {pincode})")
+        print(f"[agent] DisplayPinCode ({device}, {pincode})")
 
     @dbus.service.method("org.bluez.Agent1", in_signature="ou", out_signature="")
     def RequestConfirmation(self, device, passkey):
-        print(f"RequestConfirmation ({device}, passkey {passkey:06d}) - Auto Accepted")
+        print(f"[agent] RequestConfirmation ({device}, passkey {passkey:06d}) - Auto Accepted")
         return
 
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="")
     def RequestAuthorization(self, device):
-        print(f"RequestAuthorization ({device}) - Auto Accepted")
+        print(f"[agent] RequestAuthorization ({device}) - Auto Accepted")
         return
 
     @dbus.service.method("org.bluez.Agent1", out_signature="")
