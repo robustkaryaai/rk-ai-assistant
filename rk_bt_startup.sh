@@ -41,6 +41,7 @@ sleep 1
 
 # ─── Step 3: Make discoverable and pairable ────────────────
 echo "$LOG_PREFIX Setting adapter discoverable + pairable..."
+sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
 sudo bluetoothctl << 'EOF'
 power on
 discoverable on

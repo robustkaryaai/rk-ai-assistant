@@ -165,10 +165,14 @@ if [ ! -f "/tmp/.bt_setup_done" ]; then
     fi
 
     # 4. Configure Adapter via bluetoothctl (The correct way)
-    echo "[startup] Configuring $HCI_DEV ($CONTROLLER_MAC)..."
-    sudo bluetoothctl << BTEOF &>/dev/null
+echo "[startup] Configuring $HCI_DEV ($CONTROLLER_MAC)..."
+# Force Class to Computer/Generic before bluetoothctl
+sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+sudo bluetoothctl << BTEOF &>/dev/null
 select $CONTROLLER_MAC
 power on
+agent on
+default-agent
 system-alias "$BT_NAME"
 name "$BT_NAME"
 discoverable on
@@ -176,7 +180,11 @@ pairable on
 discoverable-timeout 0
 BTEOF
 
-    # 5. Legacy SDP registration for Classic BT Serial (RFCOMM)
+    # 5. Force Adapter Name, Class, and Discoverability
+    sudo hciconfig $HCI_DEV up 2>/dev/null || true
+    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
+    # Set Class of Device to "Computer/Uncategorized" (0x000100) instead of Headphones
+    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
     sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
     sudo sdptool add SP 2>/dev/null || true
 

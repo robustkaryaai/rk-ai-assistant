@@ -277,7 +277,8 @@ class ProvisioningAdvertisement(dbus.service.Object):
                 'Type': 'peripheral',
                 'ServiceUUIDs': dbus.Array([PROVISIONING_SVC_UUID], signature='s'),
                 'LocalName': dbus.String(self.local_name),
-                'IncludeTxPower': dbus.Boolean(True)
+                'IncludeTxPower': dbus.Boolean(True),
+                'Appearance': dbus.UInt16(0x0080) # Generic Computer
             }
         }
 
