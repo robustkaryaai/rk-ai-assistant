@@ -74,6 +74,7 @@ from .networking import (
 )
 from .offline_commands import match_offline_command, process_offline_command
 from .weather_news import fetch_news, fetch_weather
+from .intent_classifier import guess_fallback_intent, start_pending_request_msg
 from .ap_provisioning import run_ap_provisioning
 from .reset_monitor import start_reset_monitor
 from . import gemini_client
