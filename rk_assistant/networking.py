@@ -148,9 +148,6 @@ def post_text_to_backend(text: str, slug: str) -> Dict[str, Any]:
         return {"error": "network_error", "message": str(e)}
 
 
-
-
-
 def fetch_url(url: str) -> Optional[str]:
     try:
         resp = requests.get(url, timeout=REQUEST_TIMEOUT)
@@ -175,15 +172,21 @@ def apply_wifi_credentials(ssid: str, password: str) -> bool:
 
         # Set SSID
         subprocess.check_call(
-            ["sudo", "wpa_cli", "-i", "wlan0", "set_network", net_id, "ssid", ssid],
+            ["sudo", "wpa_cli", "-i", "wlan0", "set_network", net_id, "ssid", f'"{ssid}"'],
             timeout=5
         )
 
         # Set PSK
-        subprocess.check_call(
-            ["sudo", "wpa_cli", "-i", "wlan0", "set_network", net_id, "psk", password],
-            timeout=5
-        )
+        if password:
+            subprocess.check_call(
+                ["sudo", "wpa_cli", "-i", "wlan0", "set_network", net_id, "psk", f'"{password}"'],
+                timeout=5
+            )
+        else:
+            subprocess.check_call(
+                ["sudo", "wpa_cli", "-i", "wlan0", "set_network", net_id, "key_mgmt", "NONE"],
+                timeout=5
+            )
 
         # Enable
         subprocess.check_call(
@@ -199,88 +202,66 @@ def apply_wifi_credentials(ssid: str, password: str) -> bool:
 
         return True
     except Exception as e:
-        print("Error:", e)
+        print(f"[network] Error applying Wi-Fi: {e}", flush=True)
         return False
 
 
-def send_to_backend_async(text: str, slug: str) -> None:
+def try_join_setup_hotspot(ssid="RK-AI-SETUP", password="rkaisetup"):
     """
-    Send command to backend asynchronously (fire and forget).
-    Simple wrapper for voice_simple.py compatibility.
+    Attempts to join the phone's setup hotspot using nmcli.
     """
-    import threading
-    
-    def _send():
-        try:
-            post_text_to_backend(text, slug)
-        except Exception as e:
-            print(f"[network] Async backend error: {e}", flush=True)
-    
-    thread = threading.Thread(target=_send, daemon=True)
-    thread.start()
-
-
-def check_network_health() -> None:
-    """
-    Log current network latency and signal strength (if wifi).
-    Designed to be fast and non-blocking (informative only).
-    """
+    print(f"[network] Attempting to join setup hotspot '{ssid}'...", flush=True)
     try:
-        # 1. Ping Check (Google DNS)
-        # -c 1 = count 1, -W 1 = timeout 1s
-        res = subprocess.run(["ping", "-c", "1", "-W", "1", "8.8.8.8"], 
-                           capture_output=True, text=True)
-        
-        latency = "Timeout"
-        if res.returncode == 0:
-            # Parse output: "time=14.2 ms"
-            import re
-            match = re.search(r"time=([\d\.]+)", res.stdout)
-            if match:
-                latency = f"{match.group(1)}ms"
-        
-        # 2. Wifi Signal Check (if wlan0 is active)
-        signal = "N/A"
-        try:
-            # iwconfig wlan0 | grep "Signal level"
-            # Output: Link Quality=70/70  Signal level=-40 dBm
-            iw = subprocess.run(["iwconfig", "wlan0"], capture_output=True, text=True)
-            if iw.returncode == 0:
-                match = re.search(r"Signal level=(-\d+)", iw.stdout)
-                if match:
-                    signal = f"{match.group(1)}dBm"
-        except:
-            pass
-            
-        print(f"[network] Status 📶 | Latency: {latency} | Signal: {signal}", flush=True)
-        
+        # 1. Use nmcli to try and join the hotspot
+        # This is very robust on Pi OS with NetworkManager
+        cmd = ["sudo", "nmcli", "dev", "wifi", "connect", ssid, "password", password]
+        subprocess.run(cmd, timeout=20, capture_output=True)
+        return is_online()
     except Exception as e:
-        print(f"[network] Health check failed: {e}", flush=True)
+        print(f"[network] Error joining setup hotspot: {e}", flush=True)
+        return False
 
 
-def setup_microphone_volume() -> None:
+def sync_wifi_from_appwrite(slug: str) -> bool:
     """
-    Force microphone capture volume to 100% using amixer.
-    Tried 'Capture' first, then 'Mic'.
+    Polls Appwrite for a 'wifi_update' document for this slug.
+    If found, applies the Wi-Fi and returns True.
     """
+    if not is_online():
+        return False
+
+    url = f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DB_ID}/collections/{APPWRITE_USERS_COLLECTION}/documents"
+    headers = {
+        "X-Appwrite-Project": APPWRITE_PROJECT_ID,
+        "X-Appwrite-Key": APPWRITE_API_KEY,
+    }
+    params = {
+        "queries[]": f'equal("slug", "{slug}")'
+    }
+
     try:
-        print("[audio] Setting hardware microphone gain to 100%...", flush=True)
-        # Try 'Capture' (common for USB mics)
-        res = subprocess.run(["amixer", "sset", "Capture", "100%"], 
-                           capture_output=True, text=True)
-        if res.returncode != 0:
-            # Fallback to 'Mic'
-            res = subprocess.run(["amixer", "sset", "Mic", "100%"], 
-                               capture_output=True, text=True)
-            
-        if res.returncode == 0:
-            print("[audio] Hardware gain set! 🎚️", flush=True)
-        else:
-            print(f"[audio] Warning: Could not set volume: {res.stderr.strip()}", flush=True)
-            
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        if resp.ok:
+            data = resp.json()
+            if data.get("total", 0) > 0:
+                doc = data["documents"][0]
+                # Look for a pending wifi update
+                new_ssid = doc.get("wifi_ssid_update")
+                new_pass = doc.get("wifi_pass_update")
+                
+                if new_ssid:
+                    print(f"[network] Found Wi-Fi update: {new_ssid}", flush=True)
+                    # Apply and clear the update field in Appwrite
+                    success = apply_wifi_credentials(new_ssid, new_pass or "")
+                    if success:
+                        # Clear the update fields so we don't reboot forever
+                        update_url = f"{url}/{doc['$id']}"
+                        requests.patch(update_url, headers=headers, json={
+                            "wifi_ssid_update": "",
+                            "wifi_pass_update": ""
+                        }, timeout=5)
+                        return True
     except Exception as e:
-        print(f"[audio] Volume setup error: {e}", flush=True)
-
-
-
-
+        print(f"[network] Error syncing Wi-Fi from Appwrite: {e}", flush=True)
+    
+    return False

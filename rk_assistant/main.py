@@ -1103,32 +1103,67 @@ def main():
     # --- Wi-Fi Provisioning (Always Available Fallbacks) ---
     import os
     from .config import FORCE_OFFLINE
+    from .networking import try_join_setup_hotspot, sync_wifi_from_appwrite
 
-    # 1. BLE GATT Provisioning (Modern)
-    def _bg_ble():
-        try:
-            from .ble_provisioning import run_ble_provisioning
-            print(f"[main] Starting background BLE service (RK-AI-{slug})...", flush=True)
-            run_ble_provisioning(slug)
-        except Exception as e:
-            print(f"[main] BLE error: {e}", flush=True)
+    # 1. Reverse Hotspot Setup (The "3rd Way")
+    # If the device is offline, it will search for a hotspot named "RK-AI-SETUP"
+    # and pull the real credentials from Appwrite.
+    def _bg_reverse_hotspot():
+        if not is_online():
+            print("[main] Device is OFFLINE. Starting '3rd Way' setup (Reverse Hotspot)...", flush=True)
+            try:
+                setup_msg = (
+                    "Hello! I am ready for setup. I cannot connect to the internet. "
+                    "Please turn on your phone's personal hotspot and name it R K A I S E T U P "
+                    "with password r k a i setup. Then, open the R K A I app on your phone "
+                    "to connect me to your home Wi-Fi."
+                )
+                speak(setup_msg)
+            except: pass
 
-    # 2. Classic Bluetooth RFCOMM (Robust Fallback)
-    def _bg_classic_bt():
-        try:
-            from .classic_bluetooth_server import start_classic_bt_server
-            print(f"[main] Starting background Classic BT service (RK-AI-{slug})...", flush=True)
-            start_classic_bt_server(slug)
-        except Exception as e:
-            print(f"[main] Classic BT error: {e}", flush=True)
+            wait_count = 0
+            while not is_online():
+                wait_count += 1
+                print(f"[main] Attempting to join setup hotspot (RK-AI-SETUP)... Attempt {wait_count}", flush=True)
+                
+                # This function tries to join "RK-AI-SETUP" / "rkaisetup"
+                try_join_setup_hotspot()
+                
+                time.sleep(15) # Wait for connection to stabilize
+                
+                if is_online():
+                    print("[main] Connected to Setup Hotspot! Syncing Wi-Fi credentials...", flush=True)
+                    try:
+                        speak("I am connected to your setup hotspot. Getting your home Wi-Fi details now.")
+                    except: pass
+                    
+                    # Once we have internet from the phone, pull the real Wi-Fi from Appwrite
+                    success = sync_wifi_from_appwrite(slug)
+                    if success:
+                        print("[main] Home Wi-Fi synced! Rebooting to apply...", flush=True)
+                        try:
+                            speak("I have received your home Wi-Fi details. I will now restart and connect to your home network.")
+                        except: pass
+                        time.sleep(3)
+                        os.system("sudo reboot")
+                    else:
+                        print("[main] No Wi-Fi update found in Appwrite yet. Retrying...", flush=True)
+                
+                if wait_count % 20 == 0: # Every ~5 mins
+                    try:
+                        speak("I am still waiting for setup. Please make sure your hotspot is named R K A I S E T U P.")
+                    except: pass
+                
+                if wait_count > 120: # 30 mins timeout
+                    print("[main] Setup timeout. Continuing offline.", flush=True)
+                    break
 
-    # Launch background provisioning threads unless explicitly disabled in dev mode
+    # Launch background provisioning thread
     if (str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True) and not is_first_boot:
         print("[main] DEV MODE: Skipping Provisioning Fallbacks.")
     else:
-        threading.Thread(target=_bg_ble, daemon=True).start()
-        threading.Thread(target=_bg_classic_bt, daemon=True).start()
-        print("[main] Background provisioning services (BLE + Classic BT) started.")
+        threading.Thread(target=_bg_reverse_hotspot, daemon=True).start()
+        print("[main] Background provisioning service (Reverse Hotspot) started.")
 
 
 
