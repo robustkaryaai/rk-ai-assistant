@@ -224,44 +224,42 @@ def try_join_setup_hotspot(ssid="RK-AI-SETUP", password="rkaisetup"):
 
 def sync_wifi_from_appwrite(slug: str) -> bool:
     """
-    Polls Appwrite for a 'wifi_update' document for this slug.
+    Polls the backend for a pending 'set_wifi' command for this slug.
     If found, applies the Wi-Fi and returns True.
     """
     if not is_online():
         return False
 
-    url = f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DB_ID}/collections/{APPWRITE_USERS_COLLECTION}/documents"
-    headers = {
-        "X-Appwrite-Project": APPWRITE_PROJECT_ID,
-        "X-Appwrite-Key": APPWRITE_API_KEY,
-    }
-    params = {
-        "queries[]": f'equal("slug", "{slug}")'
-    }
-
+    url = f"{BACKEND_BASE_URL}/device/{slug}/commands/pending"
+    
     try:
-        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        resp = requests.get(url, timeout=10)
         if resp.ok:
             data = resp.json()
-            if data.get("total", 0) > 0:
-                doc = data["documents"][0]
-                # Look for a pending wifi update
-                new_ssid = doc.get("wifi_ssid_update")
-                new_pass = doc.get("wifi_pass_update")
-                
-                if new_ssid:
-                    print(f"[network] Found Wi-Fi update: {new_ssid}", flush=True)
-                    # Apply and clear the update field in Appwrite
-                    success = apply_wifi_credentials(new_ssid, new_pass or "")
-                    if success:
-                        # Clear the update fields so we don't reboot forever
-                        update_url = f"{url}/{doc['$id']}"
-                        requests.patch(update_url, headers=headers, json={
-                            "wifi_ssid_update": "",
-                            "wifi_pass_update": ""
-                        }, timeout=5)
-                        return True
+            commands = data.get('commands', [])
+            for cmd in commands:
+                if cmd.get('command_type') == 'set_wifi':
+                    payload = cmd.get('payload', {})
+                    new_ssid = payload.get('ssid')
+                    new_pass = payload.get('password')
+                    
+                    if new_ssid:
+                        print(f"[network] Found Wi-Fi update command: {new_ssid}", flush=True)
+                        
+                        # Mark command as complete so it doesn't trigger again
+                        cmd_id = cmd.get('$id')
+                        try:
+                            requests.post(
+                                f"{BACKEND_BASE_URL}/device/{slug}/commands/{cmd_id}/complete",
+                                json={"result": f"Applying Wi-Fi credentials for {new_ssid} via Setup Hotspot", "success": True},
+                                timeout=5
+                            )
+                        except: pass
+
+                        # Apply credentials
+                        success = apply_wifi_credentials(new_ssid, new_pass or "")
+                        return success
     except Exception as e:
-        print(f"[network] Error syncing Wi-Fi from Appwrite: {e}", flush=True)
+        print(f"[network] Error syncing Wi-Fi from backend: {e}", flush=True)
     
     return False
