@@ -253,28 +253,33 @@ def _apply_speex_denoise(audio_data):
         return audio_data
 
     try:
-        # Write memory buffer to temporary file
         raw_path = tempfile.mktemp(suffix=".wav")
         spx_path = tempfile.mktemp(suffix=".spx")
         clean_path = tempfile.mktemp(suffix=".wav")
-        
+
         with open(raw_path, "wb") as f:
             f.write(audio_data.get_wav_data())
-            
-        # Denoise: Speex encodes while aggressively denoising, then decodes back
-        subprocess.run(["speexenc", "--denoise", raw_path, spx_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        subprocess.run(["speexdec", spx_path, clean_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        
+
+        # Try with --denoise flag first; fall back to plain encode if unsupported
+        try:
+            subprocess.run(["speexenc", "--denoise", raw_path, spx_path],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        except subprocess.CalledProcessError:
+            subprocess.run(["speexenc", raw_path, spx_path],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+        subprocess.run(["speexdec", spx_path, clean_path],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
         with sr.AudioFile(clean_path) as source:
             clean_audio = sr.Recognizer().record(source)
-            
-        # Cleanup
+
         for p in [raw_path, spx_path, clean_path]:
             if os.path.exists(p): os.remove(p)
-            
+
         return clean_audio
-    except Exception as e:
-        print(f"[audio] Speex Denoise error: {e}")
+    except Exception:
+        # Speex denoising is optional — silently fall back to original audio
         return audio_data
 
 def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> str:
