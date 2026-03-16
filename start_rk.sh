@@ -131,15 +131,26 @@ fi
 sudo killall -9 bluetooth-agent 2>/dev/null
 sudo killall -9 bt-agent 2>/dev/null
 
-# Get the controller MAC for the selected adapter
-CONTROLLER_MAC=$(hciconfig $HCI_DEV | grep 'BD Address' | awk '{print $3}')
+# Prefer hci1, fallback to hci0
+HCI_DEV="hci1"
+if ! hciconfig $HCI_DEV &>/dev/null; then
+    HCI_DEV="hci0"
+fi
 
-bluetoothctl << BTEOF &>/dev/null
+# Get the controller MAC for the selected adapter
+CONTROLLER_MAC=$(hciconfig $HCI_DEV | grep 'BD Address' | awk '{print $3}' | tr -d ' ')
+
+echo "[startup] Configuring Bluetooth on $HCI_DEV ($CONTROLLER_MAC)..."
+
+# Ensure the adapter is powered up via bluetoothctl for better reliability
+sudo bluetoothctl << BTEOF &>/dev/null
 select $CONTROLLER_MAC
 power on
 system-alias $BT_NAME
 discoverable on
 pairable on
+agent on
+default-agent
 BTEOF
 
 if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then

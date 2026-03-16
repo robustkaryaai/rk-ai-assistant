@@ -1030,49 +1030,59 @@ def main():
     except Exception as e:
         print(f"[main] Failed to start reset monitor: {e}")
 
-    # --- Wi‑Fi Provisioning when offline or first boot ---
+    # --- Wi-Fi BLE Provisioning (Alexa-like Always Available) ---
+    # Start BLE provisioning every boot in background so the app can always find it
+    # to update Wi-Fi credentials (like Alexa).
+    import os
+    from .config import FORCE_OFFLINE
+
+    def _bg_ble():
+        try:
+            from .provisioning_service import start_ble_service
+            print(f"[main] Starting background BLE provisioning service (RK-AI-{slug})...", flush=True)
+            start_ble_service(slug)
+        except Exception as e:
+            print(f"[main] BLE provisioning error: {e}", flush=True)
+
+    # Never skip BLE Provisioning in dev mode if FORCE_OFFLINE is active
+    if (str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True) and not is_first_boot:
+        print("[main] DEV MODE: Skipping BLE Provisioning (FORCE_OFFLINE active).")
+    else:
+        ble_thread = threading.Thread(target=_bg_ble, daemon=True)
+        ble_thread.start()
+        print("[main] Background BLE provisioning thread started.")
+
+    # --- Wi-Fi AP Fallback (Only if Offline or First Boot) ---
     if not is_online() or is_first_boot:
         if is_first_boot:
-            print("[main] First boot detected. Starting BLE provisioning...", flush=True)
+            print("[main] First boot detected. Starting AP fallback...", flush=True)
         else:
-            print("[main] No internet detected. Starting BLE provisioning...", flush=True)
+            print("[main] No internet detected. Starting AP fallback...", flush=True)
             try:
-                speak("I am not connected to the internet. Entering pairing mode.")
+                speak("I am not connected to the internet. Starting setup hotspot.")
             except:
                 pass
 
-        import os
-        from .config import FORCE_OFFLINE
+        try:
+            msg = f"If Bluetooth setup fails, connect to hotspot R K A I {slug} with password r k a i setup, then open 192 dot 168 dot 4 dot 1."
+            speak(msg)
+        except:
+            pass
 
-        if (str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True) and not is_first_boot:
-            print("[main] DEV MODE: Skipping provisioning (FORCE_OFFLINE active).")
-        else:
-            # Start robust BlueZ D‑Bus GATT provisioning in background
-            def _start_dbus_ble():
-                try:
-                    from .provisioning_service import start_ble_service
-                    start_ble_service(slug)
-                except Exception as e:
-                    print(f"[main] BLE (dbus) provisioning error: {e}", flush=True)
+        def _bg_ap():
             try:
-                threading.Thread(target=_start_dbus_ble, daemon=True).start()
-            except Exception as e:
-                print(f"[main] Failed to start BLE provisioning thread: {e}", flush=True)
-
-            # Start AP fallback concurrently (BLE stays advertising)
-            try:
-                msg = f"If Bluetooth setup fails, connect to hotspot R K A I {slug} with password r k a i setup, then open 192 dot 168 dot 4 dot 1."
-                speak(msg)
-            except:
-                pass
-            try:
+                from .ap_provisioning import run_ap_provisioning
                 ap_ok = run_ap_provisioning(slug)
                 if ap_ok:
                     print("[main] AP provisioning success. Rebooting...", flush=True)
                 else:
-                    print("[main] AP provisioning timed out. Continuing without provisioning.", flush=True)
+                    print("[main] AP provisioning timed out.", flush=True)
             except Exception as e:
                 print(f"[main] AP provisioning error: {e}", flush=True)
+
+        ap_thread = threading.Thread(target=_bg_ap, daemon=True)
+        ap_thread.start()
+        print("[main] Background AP provisioning thread started.")
 
 
     # --- 6. Start Backend Command Polling (Background) ---
