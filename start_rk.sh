@@ -24,17 +24,13 @@ echo "[startup] Target Name: $BT_NAME"
 CURRENT_HOSTNAME=$(hostname)
 echo "[startup] Current Hostname: $CURRENT_HOSTNAME"
 
+# Add entry to /etc/hosts if missing to prevent sudo delay
 if ! grep -q "$CURRENT_HOSTNAME" /etc/hosts; then
-    echo "[startup] CRITICAL: Hostname $CURRENT_HOSTNAME not in /etc/hosts. Fixing..."
-    # We use a trick: 'sudo -n' fails if it needs a password or hangs.
-    # We also use 'localhost' to ensure the command itself doesn't hang.
-    echo "127.0.1.1\t$CURRENT_HOSTNAME $BT_NAME" > /tmp/hosts_update
-    sudo -n sh -c "cat /tmp/hosts_update >> /etc/hosts" 2>/dev/null
-    if [ $? -eq 0 ]; then
-        echo "[startup] Hostname resolved in /etc/hosts."
-    else
-        echo "[startup] Warning: Could not update /etc/hosts automatically."
-    fi
+    echo "[startup] Fixing /etc/hosts for $CURRENT_HOSTNAME..."
+    # We use a temporary script to do the sudo stuff at once
+    echo "127.0.1.1 $CURRENT_HOSTNAME $BT_NAME" >> /tmp/hosts_line
+    sudo -n sh -c "cat /tmp/hosts_line >> /etc/hosts" 2>/dev/null
+    rm -f /tmp/hosts_line
 fi
 
 # ─── 1. Hardware Initialization ───────────────────────────
