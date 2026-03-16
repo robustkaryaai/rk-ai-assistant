@@ -168,11 +168,11 @@ if [ ! -f "/tmp/.bt_setup_done" ]; then
 echo "[startup] Configuring $HCI_DEV ($CONTROLLER_MAC)..."
 # Force Class to Computer/Generic before bluetoothctl
 sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+# 5. Use bluetoothctl to lock in settings
+# We DON'T start an agent here because bt_agent.py is already running as the default agent
 sudo bluetoothctl << BTEOF &>/dev/null
 select $CONTROLLER_MAC
 power on
-agent on
-default-agent
 system-alias "$BT_NAME"
 name "$BT_NAME"
 discoverable on

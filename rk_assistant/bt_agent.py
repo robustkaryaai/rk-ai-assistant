@@ -30,13 +30,23 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method("org.bluez.Agent1", in_signature="ou", out_signature="")
     def RequestConfirmation(self, device, passkey):
-        print(f"[agent] RequestConfirmation ({device}, passkey {passkey:06d}) - Auto Accepted")
+        print(f"[agent] RequestConfirmation for {device} (code {passkey:06d}) - Auto Accepted (Just Works)", flush=True)
         return
 
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="")
     def RequestAuthorization(self, device):
-        print(f"[agent] RequestAuthorization ({device}) - Auto Accepted")
+        print(f"[agent] RequestAuthorization for {device} - Auto Accepted", flush=True)
         return
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="u")
+    def RequestPasskey(self, device):
+        print(f"[agent] RequestPasskey for {device} - Returning 0", flush=True)
+        return dbus.UInt32(0)
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="s")
+    def RequestPinCode(self, device):
+        print(f"[agent] RequestPinCode for {device} - Returning 0000", flush=True)
+        return "0000"
 
     @dbus.service.method("org.bluez.Agent1", out_signature="")
     def Cancel(self):
