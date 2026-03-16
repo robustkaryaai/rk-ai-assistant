@@ -907,6 +907,11 @@ def main():
             setup_msg = "Hello! I am ready for setup. Please open the R K A I app on your phone to connect me to your Wi-Fi."
             speak(setup_msg)
             print("[main] Setup instructions spoken.", flush=True)
+            
+            # Play a distinct "pairing" sound if available
+            sound_path = str(Path(__file__).parent / "sounds" / "pairing_start.mp3")
+            if os.path.exists(sound_path):
+                play_audio_url(sound_path)
         except:
             pass
 
