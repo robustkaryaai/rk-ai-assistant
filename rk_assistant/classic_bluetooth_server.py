@@ -24,18 +24,21 @@ def start_classic_bt_server(slug):
     print(f"[classic-bt] Starting RFCOMM server for RK-AI-{slug}...", flush=True)
     
     try:
+        # Standard RFCOMM port
+        RFCOMM_PORT = 1
+        
         # Create the server socket
         server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
         server_sock.bind(("", RFCOMM_PORT))
         server_sock.listen(1)
         
-        # Make the service discoverable via SDP
-        # Note: This requires 'bluez-utils' and 'sdptool' or proper dbus registration.
-        # For simplicity on Pi, we assume the startup script made the adapter discoverable.
+        # Register the Serial Port Profile (SPP) using D-Bus if possible, or sdptool fallback
+        print(f"[classic-bt] Registering Serial Port Service...", flush=True)
         try:
+            # On modern Pi OS, we need to add the SP profile to SDP
             subprocess.run(["sudo", "sdptool", "add", "SP"], capture_output=True)
-        except:
-            pass
+        except Exception as e:
+            print(f"[classic-bt] sdptool warning: {e}", flush=True)
 
         while True:
             print(f"[classic-bt] Waiting for connection on RFCOMM channel {RFCOMM_PORT}...", flush=True)

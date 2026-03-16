@@ -142,9 +142,17 @@ CONTROLLER_MAC=$(hciconfig $HCI_DEV | grep 'BD Address' | awk '{print $3}' | tr 
 
 echo "[startup] Configuring Bluetooth on $HCI_DEV ($CONTROLLER_MAC)..."
 
+# Enable "Compatibility Mode" for Classic BT/SDP support on modern BlueZ
+if ! grep -q "ExecStart=.*--compat" /lib/systemd/system/bluetooth.service; then
+    echo "[startup] Enabling BlueZ compatibility mode for Classic BT..."
+    sudo sed -i 's|ExecStart=/usr/lib/bluetooth/bluetoothd|ExecStart=/usr/lib/bluetooth/bluetoothd --compat|' /lib/systemd/system/bluetooth.service
+    sudo systemctl daemon-reload
+    sudo systemctl restart bluetooth
+fi
+
 # Ensure the adapter is powered up and discoverable
 sudo hciconfig $HCI_DEV up 2>/dev/null || true
-sudo hciconfig $HCI_DEV piscan 2>/dev/null || true # Page scan + Inquiry scan (Discoverable)
+sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
 
 sudo bluetoothctl << BTEOF &>/dev/null
 select $CONTROLLER_MAC
