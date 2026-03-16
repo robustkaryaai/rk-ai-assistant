@@ -1052,37 +1052,7 @@ def main():
         ble_thread.start()
         print("[main] Background BLE provisioning thread started.")
 
-    # --- Wi-Fi AP Fallback (Only if Offline or First Boot) ---
-    if not is_online() or is_first_boot:
-        if is_first_boot:
-            print("[main] First boot detected. Starting AP fallback...", flush=True)
-        else:
-            print("[main] No internet detected. Starting AP fallback...", flush=True)
-            try:
-                speak("I am not connected to the internet. Starting setup hotspot.")
-            except:
-                pass
 
-        try:
-            msg = f"If Bluetooth setup fails, connect to hotspot R K A I {slug} with password r k a i setup, then open 192 dot 168 dot 4 dot 1."
-            speak(msg)
-        except:
-            pass
-
-        def _bg_ap():
-            try:
-                from .ap_provisioning import run_ap_provisioning
-                ap_ok = run_ap_provisioning(slug)
-                if ap_ok:
-                    print("[main] AP provisioning success. Rebooting...", flush=True)
-                else:
-                    print("[main] AP provisioning timed out.", flush=True)
-            except Exception as e:
-                print(f"[main] AP provisioning error: {e}", flush=True)
-
-        ap_thread = threading.Thread(target=_bg_ap, daemon=True)
-        ap_thread.start()
-        print("[main] Background AP provisioning thread started.")
 
 
     # --- 6. Start Backend Command Polling (Background) ---
