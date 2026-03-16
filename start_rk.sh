@@ -16,11 +16,14 @@ echo "[startup] Starting RK AI Assistant..."
 
 # ─── 0. Hardware Prep ──────────────────────────────────────
 sudo rfkill unblock bluetooth 2>/dev/null
-for HCI in hci1 hci0; do
-    if hciconfig $HCI &>/dev/null; then
-        sudo hciconfig $HCI up 2>/dev/null && echo "[startup] $HCI is UP." && break
-    fi
-done
+# Prefer hci1 (common for external/secondary), fallback to hci0
+HCI_DEV="hci1"
+if ! hciconfig $HCI_DEV &>/dev/null; then
+    HCI_DEV="hci0"
+fi
+
+echo "[startup] Powering up $HCI_DEV..."
+sudo hciconfig $HCI_DEV up 2>/dev/null && echo "[startup] $HCI_DEV is UP."
 
 # ─── 1. First Boot Hook ────────────────────────────────────
 if [ ! -f "$FIRST_BOOT_FLAG" ]; then
@@ -128,7 +131,11 @@ fi
 sudo killall -9 bluetooth-agent 2>/dev/null
 sudo killall -9 bt-agent 2>/dev/null
 
+# Get the controller MAC for the selected adapter
+CONTROLLER_MAC=$(hciconfig $HCI_DEV | grep 'BD Address' | awk '{print $3}')
+
 bluetoothctl << BTEOF &>/dev/null
+select $CONTROLLER_MAC
 power on
 system-alias $BT_NAME
 discoverable on

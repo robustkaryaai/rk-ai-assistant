@@ -29,7 +29,14 @@ if ! systemctl is-active --quiet bluetooth; then
 fi
 
 # ─── Step 2: Power on the adapter ──────────────────────────
-sudo hciconfig hci0 up 2>/dev/null || true
+# Try hci1 first (common for external/secondary), then hci0 (internal)
+HCI_DEV="hci1"
+if ! hciconfig $HCI_DEV &>/dev/null; then
+    HCI_DEV="hci0"
+fi
+
+echo "$LOG_PREFIX Powering up $HCI_DEV..."
+sudo hciconfig $HCI_DEV up 2>/dev/null || true
 sleep 1
 
 # ─── Step 3: Make discoverable and pairable ────────────────
