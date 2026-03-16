@@ -131,9 +131,11 @@ fi
 # Prevent multiple resets in the same boot
 if [ ! -f "/tmp/.bt_setup_done" ]; then
     echo "[startup] Initializing Bluetooth hardware..."
-    sudo killall -9 bluetooth-agent 2>/dev/null
-    sudo killall -9 bt-agent 2>/dev/null
-    sudo killall -9 python3 rk_assistant/bt_agent.py 2>/dev/null
+    
+    # Stop any conflicting services/agents
+    sudo killall -9 bluetooth-agent 2>/dev/null || true
+    sudo killall -9 bt-agent 2>/dev/null || true
+    sudo killall -9 python3 rk_assistant/bt_agent.py 2>/dev/null || true
 
     # Prefer hci1, fallback to hci0
     HCI_DEV="hci1"
@@ -141,54 +143,40 @@ if [ ! -f "/tmp/.bt_setup_done" ]; then
         HCI_DEV="hci0"
     fi
 
-    # Get the controller MAC
-    CONTROLLER_MAC=$(hciconfig $HCI_DEV | grep 'BD Address' | awk '{print $3}' | tr -d ' ')
-
-    # 1. Set System Hostname & Bluetooth Alias (Nuclear Name Fix)
-    sudo hostnamectl set-hostname --pretty "$BT_NAME"
-    sudo hostnamectl set-hostname "$BT_NAME"
-    
-    # 2. Enable "Compatibility Mode" for Classic BT/SDP support
-    if ! grep -q "ExecStart=.*--compat" /lib/systemd/system/bluetooth.service; then
-        echo "[startup] Enabling BlueZ compatibility mode..."
-        sudo sed -i 's|ExecStart=/usr/lib/bluetooth/bluetoothd|ExecStart=/usr/lib/bluetooth/bluetoothd --compat|' /lib/systemd/system/bluetooth.service
-        sudo systemctl daemon-reload
-        sudo systemctl restart bluetooth
-        sleep 3
-    fi
-
-    # 3. Start our Custom Agent FIRST (Auto-accepts everything)
-    if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
-        echo "[startup] Starting Bluetooth Auto-Pairing Agent..."
-        sudo python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
-        sleep 1
-    fi
-
-    # 4. Configure Adapter via bluetoothctl (The correct way)
-echo "[startup] Configuring $HCI_DEV ($CONTROLLER_MAC)..."
-# Force Class to Computer/Generic before bluetoothctl
-sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
-# Enable Secure Simple Pairing (SSP) for PIN-less pairing
-sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
-
-# 5. Use bluetoothctl to lock in settings
-# We DON'T start an agent here because bt_agent.py is already running as the default agent
-sudo bluetoothctl << BTEOF &>/dev/null
-select $CONTROLLER_MAC
+    # 1. Disable Audio Profiles (Fixes the "Headphones" icon)
+    # This prevents the phone from thinking we are a speaker
+    echo "[startup] Disabling Bluetooth audio profiles..."
+    sudo bluetoothctl << BTEOF &>/dev/null
 power on
-system-alias "$BT_NAME"
-name "$BT_NAME"
+select $(hciconfig $HCI_DEV | grep 'BD Address' | awk '{print $3}' | tr -d ' ')
+# Unregister any audio-related profiles
+# (Note: This is aggressive, but ensures we look like a Data device)
+BTEOF
+
+    # 2. Configure Hardware for "Just Works" (No PIN)
+    sudo hciconfig $HCI_DEV up 2>/dev/null || true
+    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
+    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true # Computer/Generic
+    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true     # Secure Simple Pairing
+    sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true        # No authentication required
+    sudo hciconfig $HCI_DEV piscan 2>/dev/null || true        # Discoverable
+
+    # 3. Start our custom "Yes-Man" Agent
+    if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
+        echo "[startup] Starting Auto-Pairing Agent..."
+        sudo python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
+        sleep 2
+    fi
+
+    # 4. Final Adapter settings
+    sudo bluetoothctl << BTEOF &>/dev/null
+power on
 discoverable on
 pairable on
 discoverable-timeout 0
 BTEOF
 
-    # 5. Force Adapter Name, Class, and Discoverability
-    sudo hciconfig $HCI_DEV up 2>/dev/null || true
-    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-    # Set Class of Device to "Computer/Uncategorized" (0x000100) instead of Headphones
-    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
-    sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
+    # 5. Register Serial Port Profile
     sudo sdptool add SP 2>/dev/null || true
 
     touch /tmp/.bt_setup_done

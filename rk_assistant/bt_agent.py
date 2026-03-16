@@ -5,6 +5,10 @@ import dbus.mainloop.glib
 from gi.repository import GLib
 
 class Agent(dbus.service.Object):
+    @dbus.service.method("org.bluez.Agent1", out_signature="")
+    def Release(self):
+        print("[agent] Release", flush=True)
+
     @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
         print(f"[agent] Authorizing service {uuid} for {device} - Accepted", flush=True)
