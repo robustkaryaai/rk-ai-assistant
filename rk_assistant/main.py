@@ -1046,27 +1046,32 @@ def main():
         if (str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True) and not is_first_boot:
             print("[main] DEV MODE: Skipping provisioning (FORCE_OFFLINE active).")
         else:
-            try:
-                from .ble_provisioning import run_ble_provisioning
-                ble_ok = run_ble_provisioning(slug)
-            except Exception as e:
-                print(f"[main] BLE provisioning error: {e}", flush=True)
-                ble_ok = False
-
-            if not ble_ok:
+            # Start robust BlueZ D‑Bus GATT provisioning in background
+            def _start_dbus_ble():
                 try:
-                    msg = f"If Bluetooth setup fails, connect to hotspot R K A I {slug} with password r k a i setup, then open 192 dot 168 dot 4 dot 1."
-                    speak(msg)
-                except:
-                    pass
-                try:
-                    ap_ok = run_ap_provisioning(slug)
-                    if ap_ok:
-                        print("[main] AP provisioning success. Rebooting...", flush=True)
-                    else:
-                        print("[main] AP provisioning timed out. Continuing without provisioning.", flush=True)
+                    from .provisioning_service import start_ble_service
+                    start_ble_service(slug)
                 except Exception as e:
-                    print(f"[main] AP provisioning error: {e}", flush=True)
+                    print(f"[main] BLE (dbus) provisioning error: {e}", flush=True)
+            try:
+                threading.Thread(target=_start_dbus_ble, daemon=True).start()
+            except Exception as e:
+                print(f"[main] Failed to start BLE provisioning thread: {e}", flush=True)
+
+            # Start AP fallback concurrently (BLE stays advertising)
+            try:
+                msg = f"If Bluetooth setup fails, connect to hotspot R K A I {slug} with password r k a i setup, then open 192 dot 168 dot 4 dot 1."
+                speak(msg)
+            except:
+                pass
+            try:
+                ap_ok = run_ap_provisioning(slug)
+                if ap_ok:
+                    print("[main] AP provisioning success. Rebooting...", flush=True)
+                else:
+                    print("[main] AP provisioning timed out. Continuing without provisioning.", flush=True)
+            except Exception as e:
+                print(f"[main] AP provisioning error: {e}", flush=True)
 
 
     # --- 6. Start Backend Command Polling (Background) ---

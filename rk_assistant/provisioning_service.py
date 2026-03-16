@@ -26,10 +26,10 @@ GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
 GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 
-# Nordic UART Service UUIDs
-PROVISIONING_SVC_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
-RX_CHRC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'  # Write (Mobile -> Pi)
-TX_CHRC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'  # Notify (Pi -> Mobile)
+# BLE Provisioning UUIDs (must match rk-auth-app WifiSetup.js)
+PROVISIONING_SVC_UUID = '12345678-1234-1234-1234-123456789abc'
+RX_CHRC_UUID = '12345678-1234-1234-1234-123456789abd'  # Write (Mobile -> Pi)
+TX_CHRC_UUID = '12345678-1234-1234-1234-123456789abe'  # Notify (Pi -> Mobile, optional)
 
 class Application(dbus.service.Object):
     def __init__(self, bus):
@@ -162,6 +162,13 @@ class RxCharacteristic(Characteristic):
                     print(f"[ble] Successfully applied {ssid}", flush=True)
                     # Notify success on main loop
                     GLib.idle_add(self.tx.send_status, "ok")
+                    try:
+                        import os, time
+                        print("[ble] Rebooting in 3s to finalize Wi‑Fi setup...", flush=True)
+                        time.sleep(3)
+                        os.system("sudo reboot")
+                    except Exception as _e:
+                        pass
                 else:
                     print(f"[ble] Failed to apply {ssid}", flush=True)
                     GLib.idle_add(self.tx.send_status, "fail", "Apply failed")
