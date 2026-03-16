@@ -142,7 +142,10 @@ CONTROLLER_MAC=$(hciconfig $HCI_DEV | grep 'BD Address' | awk '{print $3}' | tr 
 
 echo "[startup] Configuring Bluetooth on $HCI_DEV ($CONTROLLER_MAC)..."
 
-# Ensure the adapter is powered up via bluetoothctl for better reliability
+# Ensure the adapter is powered up and discoverable
+sudo hciconfig $HCI_DEV up 2>/dev/null || true
+sudo hciconfig $HCI_DEV piscan 2>/dev/null || true # Page scan + Inquiry scan (Discoverable)
+
 sudo bluetoothctl << BTEOF &>/dev/null
 select $CONTROLLER_MAC
 power on

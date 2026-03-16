@@ -856,27 +856,92 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
 
 
 def main():
-    """Main entry point - asks for mode selection."""
+    """Main entry point for the assistant."""
+    global is_first_boot
+    
     print("\n" + "="*30)
     print("Initializing RK AI Assistant...")
-    print("="*30)
-    
+    print("="*30 + "\n")
+
+    # 0. Basic Setup & Identity
     slug_val, _ = read_slug()
+    if not slug_val:
+        print("[main] No slug found! Using default 000000000", flush=True)
+        slug_val = "000000000"
+
     is_first_boot = "--first-boot" in sys.argv
-    if is_first_boot:
-        print("[main] First boot detected.")
-        sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
-        proc = play_audio_url(sound_path)
-        if proc: proc.wait()
+
+    # 1. Alexa-like Setup Mode (If Offline)
+    # Check internet connectivity immediately
+    online = is_online()
+    if not online:
+        print("[main] Device is OFFLINE. Entering Setup Mode...", flush=True)
+        
+        # Start all provisioning services in background
+        # BLE
+        try:
+            from .ble_provisioning import run_ble_provisioning
+            threading.Thread(target=run_ble_provisioning, args=(slug_val,), daemon=True).start()
+            print(f"[main] BLE setup active (RK-AI-{slug_val})", flush=True)
+        except Exception as e:
+            print(f"[main] BLE start error: {e}", flush=True)
+            
+        # Classic BT
+        try:
+            from .classic_bluetooth_server import start_classic_bt_server
+            threading.Thread(target=start_classic_bt_server, args=(slug_val,), daemon=True).start()
+            print(f"[main] Classic BT setup active (RK-AI-{slug_val})", flush=True)
+        except Exception as e:
+            print(f"[main] Classic BT start error: {e}", flush=True)
+
+        # AP Hotspot
+        try:
+            from .ap_provisioning import run_ap_provisioning
+            threading.Thread(target=run_ap_provisioning, args=(slug_val,), daemon=True).start()
+            print(f"[main] AP Hotspot active (RK-AI-{slug_val})", flush=True)
+        except Exception as e:
+            print(f"[main] AP start error: {e}", flush=True)
+
+        # Voice Guidance
+        try:
+            setup_msg = "Hello! I am ready for setup. Please open the R K A I app on your phone to connect me to your Wi-Fi."
+            speak(setup_msg)
+            print("[main] Setup instructions spoken.", flush=True)
+        except:
+            pass
+
+        # Wait loop - check for internet every 30s while providing guidance
+        wait_count = 0
+        while not is_online():
+            wait_count += 1
+            time.sleep(30)
+            if wait_count % 10 == 0: # Every 5 mins
+                try:
+                    speak("I am still waiting for setup. Please use the app to configure my Wi-Fi.")
+                except: pass
+            if wait_count > 60: # 30 mins timeout, continue in degraded mode
+                print("[main] Setup timeout. Continuing in offline mode.", flush=True)
+                break
+            
+        # If we got online during the loop, proceed
+        online = is_online()
+        if online:
+            print("[main] Internet connected! Proceeding with startup.", flush=True)
+            try:
+                speak("I am now connected to the internet. Starting up.")
+            except: pass
     else:
-        # 2. INITIAL SPEECH (before waiting for internet, so user hears it immediately)
-        start_msg = "Radhe Radhe RK AI assistant is starting up"
-        print(f"[main] {start_msg}")
-        speak(start_msg)
-        time.sleep(1) # Give it a second
-    
-    # 3. WAIT FOR INTERNET (User requested 2m max)
-    wait_for_internet(max_minutes=2.0)
+        # 2. Normal Startup Greeting (If already online)
+        if is_first_boot:
+            print("[main] First boot detected.")
+            sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
+            proc = play_audio_url(sound_path)
+            if proc: proc.wait()
+        else:
+            start_msg = "Radhe Radhe RK AI assistant is starting up"
+            print(f"[main] {start_msg}")
+            speak(start_msg)
+            time.sleep(1)
     
 
 
