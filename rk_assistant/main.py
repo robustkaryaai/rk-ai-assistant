@@ -171,41 +171,28 @@ def ensure_valid_slug() -> Optional[str]:
 
     if not slug:
         slug = generate_slug()
-        # New slugs are not verified yet
         write_slug(slug, verified=False)
         print(f"[slug] Generated new slug: {slug}")
     
+    # Check if we are online before trying the backend
+    if not is_online():
+        print(f"[slug] Offline: Skipping backend ensure for slug: {slug}")
+        return slug
+
     # Use backend ensure endpoint (auto-creates if needed)
-    # Note: Render free tier has cold starts, can take 30-60s on first request
     try:
         url = f"{BACKEND_BASE_URL}/device/ensure/{slug}"
-        print(f"[slug] Ensuring device exists: {url}", flush=True)
-        print(f"[slug] This may take up to 60s if backend is sleeping...", flush=True)
-        
-        resp = requests.post(url, timeout=60)  # Long timeout for Render cold start
-        
+        print(f"[slug] Ensuring device exists in backend...", flush=True)
+        resp = requests.post(url, timeout=30)
         if resp.ok:
-            data = resp.json()
-            if data.get("created"):
-                print(f"[slug] ✓ Device created in backend for slug: {slug}")
-            else:
-                print(f"[slug] ✓ Device already exists for slug: {slug}")
-            
-            # Update local file to mark as verified
             write_slug(slug, verified=True)
-            print(f"[slug] Marked slug as verified locally.")
-            return slug
+            print(f"[slug] ✓ Device verified in backend.")
         else:
-            print(f"[slug] Backend ensure failed: HTTP {resp.status_code}", file=sys.stderr)
-            print(f"[slug] Continuing anyway with slug: {slug}")
-            return slug  # Continue anyway
-    except requests.exceptions.Timeout:
-        print(f"[slug] Backend ensure timed out (60s), continuing with slug: {slug}", file=sys.stderr)
-        return slug
+            print(f"[slug] Backend ensure failed (HTTP {resp.status_code}), continuing...")
     except Exception as e:
-        print(f"[slug] Could not ensure device: {e}", file=sys.stderr)
-        print(f"[slug] Continuing with slug: {slug}")
-        return slug
+        print(f"[slug] Could not ensure device: {e}, continuing...")
+    
+    return slug
 
 
 
@@ -880,42 +867,45 @@ def main():
     # We run this in a background thread so it doesn't block the main assistant loop.
     # This allows the device to speak/respond while waiting for setup.
     def _bg_setup_hotspot():
-        if not is_online():
-            print("[main] Device is OFFLINE. Starting '3rd Way' setup thread...", flush=True)
-            try:
-                setup_msg = (
-                    "Hello! I am ready for setup. I cannot connect to the internet. "
-                    "Please turn on your phone's personal hotspot and name it R K A I S E T U P "
-                    "with password r k a i setup. Then, open the R K A I app on your phone."
-                )
-                speak(setup_msg)
-            except: pass
+        try:
+            if not is_online():
+                print("[main] Device is OFFLINE. Starting '3rd Way' setup thread...", flush=True)
+                try:
+                    setup_msg = (
+                        "Hello! I am ready for setup. I cannot connect to the internet. "
+                        "Please turn on your phone's personal hotspot and name it R K A I S E T U P "
+                        "with password r k a i setup. Then, open the R K A I app on your phone."
+                    )
+                    speak(setup_msg)
+                except: pass
 
-            wait_count = 0
-            while not is_online():
-                wait_count += 1
-                print(f"[setup] Attempting to join 'RK-AI-SETUP'... (Attempt {wait_count})", flush=True)
-                try_join_setup_hotspot()
-                time.sleep(20) 
-                
-                if is_online():
-                    print("[setup] Connected to Setup Hotspot! Syncing Wi-Fi...", flush=True)
-                    try:
-                        speak("I am connected to your setup hotspot. Getting home Wi-Fi details now.")
-                    except: pass
+                wait_count = 0
+                while not is_online():
+                    wait_count += 1
+                    print(f"[setup] Attempting to join 'RK-AI-SETUP'... (Attempt {wait_count})", flush=True)
+                    try_join_setup_hotspot()
+                    time.sleep(20) 
                     
-                    if sync_wifi_from_appwrite(slug_val):
-                        print("[setup] Home Wi-Fi received! Rebooting...", flush=True)
+                    if is_online():
+                        print("[setup] Connected to Setup Hotspot! Syncing Wi-Fi...", flush=True)
                         try:
-                            speak("I have received your home Wi-Fi details. I will now restart.")
+                            speak("I am connected to your setup hotspot. Getting home Wi-Fi details now.")
                         except: pass
-                        time.sleep(2)
-                        os.system("sudo reboot")
-                
-                if wait_count % 15 == 0: # Every ~5 mins
-                    try: speak("I am still waiting for setup. Check your hotspot settings.")
-                    except: pass
-                if wait_count > 100: break
+                        
+                        if sync_wifi_from_appwrite(slug_val):
+                            print("[setup] Home Wi-Fi received! Rebooting...", flush=True)
+                            try:
+                                speak("I have received your home Wi-Fi details. I will now restart.")
+                            except: pass
+                            time.sleep(2)
+                            os.system("sudo reboot")
+                    
+                    if wait_count % 15 == 0: # Every ~5 mins
+                        try: speak("I am still waiting for setup. Check your hotspot settings.")
+                        except: pass
+                    if wait_count > 100: break
+        except Exception as e:
+            print(f"[setup] Background setup thread error: {e}", flush=True)
 
     # Start setup thread if offline
     if not online:
@@ -933,6 +923,8 @@ def main():
             print(f"[main] {start_msg}")
             speak(start_msg)
             time.sleep(1)
+        
+        # ... REST OF THE FUNCTION CONTINUES ...
     
 
 
@@ -997,7 +989,18 @@ def main():
                      print(f"[stt] Warning: Ambient calibration failed: {e}", flush=True)
 
         except Exception as e:
-            print(f"[stt] Failed to initialize microphone: {e}", flush=True)
+            print(f"[stt] CRITICAL: Failed to initialize microphone: {e}", flush=True)
+            # Register error
+            register_error(
+                error_type="mic_init_error",
+                message=str(e),
+                severity="critical",
+                traceback=tb.format_exc(),
+                file_path=__file__
+            )
+            # If we are offline and mic fails, we are in trouble, but let's try to keep the process alive
+            # for the background hotspot thread.
+            print("[main] Warning: Mic failed, but keeping process alive for setup threads.", flush=True)
 
     
     slug = ensure_valid_slug()
@@ -1105,11 +1108,13 @@ def main():
         speak(ready_msg)
 
     # Voice mode: standard wake word loop (with robust self-diagnosis)
+    print(f"[main] Entering voice loop for slug: {slug}")
     while True:
         try:
             voice_flow(decoder_available, music_proc_holder, slug, recognizer=recognizer, mic=mic)
             time.sleep(0.5) # Throttle loop
         except KeyboardInterrupt:
+            print("[main] KeyboardInterrupt received, exiting...")
             if 'poller_proc' in locals() and poller_proc is not None:
                 poller_proc.terminate()
             break
@@ -1117,6 +1122,8 @@ def main():
             error_type = type(e).__name__
             error_msg = str(e)
             print(f"[main] Error in voice loop: {error_msg}")
+            # Log the full traceback for debugging (to stdout so it shows in journalctl)
+            tb.print_exc()
             
             # Register error for monitoring
             register_error(
@@ -1136,7 +1143,7 @@ def main():
                     daemon=True
                 ).start()
             
-            time.sleep(1)
+            time.sleep(2)
 
 
 if __name__ == "__main__":

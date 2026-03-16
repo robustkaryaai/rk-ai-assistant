@@ -12,6 +12,17 @@ if [ -f "$SCRIPT_DIR/rk_assistant/slug.txt" ]; then
 fi
 BT_NAME="RK-AI-$SLUG"
 
+# ─── 0. Hostname & Network Fix ──────────────────────────────
+# Fix /etc/hosts to prevent sudo warnings and delays.
+# We do this before any other sudo commands.
+CURRENT_HOSTNAME=$(hostname)
+if ! grep -q "$CURRENT_HOSTNAME" /etc/hosts; then
+    echo "[startup] Fixing /etc/hosts for $CURRENT_HOSTNAME..."
+    # Use a clever way to add it without needing a 'sudo' that resolves the hostname
+    # We use 'sh -c' to minimize the number of sudo calls.
+    sudo sh -c "echo '127.0.1.1\t$CURRENT_HOSTNAME $BT_NAME' >> /etc/hosts"
+fi
+
 echo "[startup] Starting RK AI Assistant..."
 
 # ─── 0. Hardware Prep ──────────────────────────────────────
