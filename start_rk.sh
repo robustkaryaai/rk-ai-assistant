@@ -25,14 +25,10 @@ CURRENT_HOSTNAME=$(hostname)
 echo "[startup] Current Hostname: $CURRENT_HOSTNAME"
 
 # Add entry to /etc/hosts if missing to prevent sudo delay
-# We do this without sudo first to a temp file
 if ! grep -q "$CURRENT_HOSTNAME" /etc/hosts; then
     echo "[startup] Fixing /etc/hosts for $CURRENT_HOSTNAME..."
-    # Create entry
-    echo "127.0.1.1 $CURRENT_HOSTNAME $BT_NAME" > /tmp/hosts_entry
-    # Try to append with sudo -n (non-blocking)
-    sudo -n sh -c "cat /tmp/hosts_entry >> /etc/hosts" 2>/dev/null
-    rm -f /tmp/hosts_entry
+    # Now that we have NOPASSWD, we can use standard sudo
+    echo "127.0.1.1 $CURRENT_HOSTNAME $BT_NAME" | sudo tee -a /etc/hosts > /dev/null
 fi
 
 # ─── 1. Hardware Initialization ───────────────────────────
@@ -43,11 +39,11 @@ if [ ! -f "/tmp/.bt_setup_done" ]; then
     # Sync hostname
     if [ "$CURRENT_HOSTNAME" != "$BT_NAME" ]; then
         echo "[startup] Setting system hostname to $BT_NAME..."
-        sudo -n hostnamectl set-hostname "$BT_NAME" 2>/dev/null
+        sudo hostnamectl set-hostname "$BT_NAME"
     fi
 
     echo "[startup] Step 2: Cleaning up old Bluetooth processes..."
-    sudo -n killall -9 bluetooth-agent bt-agent 2>/dev/null || true
+    sudo killall -9 bluetooth-agent bt-agent 2>/dev/null || true
     
     # Find adapter
     HCI_DEV="hci1"
@@ -57,29 +53,29 @@ if [ ! -f "/tmp/.bt_setup_done" ]; then
     echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
 
     echo "[startup] Step 3: Powering up $HCI_DEV..."
-    sudo -n hciconfig $HCI_DEV up 2>/dev/null || true
-    sudo -n hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-    sudo -n hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
-    sudo -n hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
-    sudo -n hciconfig $HCI_DEV auth 0 2>/dev/null || true
-    sudo -n hciconfig $HCI_DEV piscan 2>/dev/null || true
+    sudo hciconfig $HCI_DEV up 2>/dev/null || true
+    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
+    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
+    sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
+    sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
 
     echo "[startup] Step 4: Launching Auto-Pairing Agent..."
     if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
-        sudo -n python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
+        sudo python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
         sleep 2
     fi
 
     echo "[startup] Step 5: Finalizing Bluetooth visibility..."
-    # Timeout bluetoothctl to prevent hangs
-    timeout 5s sudo -n bluetoothctl << BTEOF &>/dev/null
+    # No longer using -n as we have NOPASSWD
+    sudo bluetoothctl << BTEOF &>/dev/null
 power on
 discoverable on
 pairable on
 discoverable-timeout 0
 BTEOF
 
-    sudo -n sdptool add SP 2>/dev/null || true
+    sudo sdptool add SP 2>/dev/null || true
     touch /tmp/.bt_setup_done
     echo "[startup] Hardware initialization complete."
 else
