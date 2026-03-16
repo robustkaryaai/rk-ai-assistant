@@ -1029,8 +1029,7 @@ def main():
     except Exception as e:
         print(f"[main] Failed to start reset monitor: {e}")
 
-    # --- Wi-Fi BLE Provisioning (Fallback if Offline) ---
-    # Use BLE so the phone stays on home Wi-Fi — no hotspot needed
+    # --- Wi‑Fi Provisioning when offline or first boot ---
     if not is_online() or is_first_boot:
         if is_first_boot:
             print("[main] First boot detected. Starting BLE provisioning...", flush=True)
@@ -1044,23 +1043,30 @@ def main():
         import os
         from .config import FORCE_OFFLINE
 
-        # Never skip BLE Provisioning on first boot
         if (str(FORCE_OFFLINE).lower() == 'true' or FORCE_OFFLINE is True) and not is_first_boot:
-            print("[main] DEV MODE: Skipping BLE Provisioning (FORCE_OFFLINE active).")
+            print("[main] DEV MODE: Skipping provisioning (FORCE_OFFLINE active).")
         else:
-            def _bg_ble():
-                try:
-                    from .ble_provisioning import run_ble_provisioning
-                    success = run_ble_provisioning(slug)
-                    if success:
-                        print("[main] BLE provisioning success. Rebooting...", flush=True)
-                    else:
-                        print("[main] BLE provisioning timed out. Continuing offline...", flush=True)
-                except Exception as e:
-                    print(f"[main] BLE provisioning error: {e}", flush=True)
+            try:
+                from .ble_provisioning import run_ble_provisioning
+                ble_ok = run_ble_provisioning(slug)
+            except Exception as e:
+                print(f"[main] BLE provisioning error: {e}", flush=True)
+                ble_ok = False
 
-            ble_thread = threading.Thread(target=_bg_ble, daemon=True)
-            ble_thread.start()
+            if not ble_ok:
+                try:
+                    msg = f"If Bluetooth setup fails, connect to hotspot R K A I {slug} with password r k a i setup, then open 192 dot 168 dot 4 dot 1."
+                    speak(msg)
+                except:
+                    pass
+                try:
+                    ap_ok = run_ap_provisioning(slug)
+                    if ap_ok:
+                        print("[main] AP provisioning success. Rebooting...", flush=True)
+                    else:
+                        print("[main] AP provisioning timed out. Continuing without provisioning.", flush=True)
+                except Exception as e:
+                    print(f"[main] AP provisioning error: {e}", flush=True)
 
 
     # --- 6. Start Backend Command Polling (Background) ---
