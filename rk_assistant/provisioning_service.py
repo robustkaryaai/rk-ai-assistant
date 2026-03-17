@@ -278,7 +278,8 @@ class ProvisioningAdvertisement(dbus.service.Object):
                 'ServiceUUIDs': dbus.Array([PROVISIONING_SVC_UUID], signature='s'),
                 'LocalName': dbus.String(self.local_name),
                 'IncludeTxPower': dbus.Boolean(True),
-                'Appearance': dbus.UInt16(0x0080) # Generic Computer
+                'Appearance': dbus.UInt16(0x0080), # Generic Computer
+                'Discoverable': dbus.Boolean(True)
             }
         }
 

@@ -43,33 +43,37 @@ if ! hciconfig $HCI_DEV &>/dev/null; then
 fi
 echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
 
-echo "[startup] Step 3: Powering up $HCI_DEV..."
-    sudo hciconfig $HCI_DEV up 2>/dev/null || true
-    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+echo "[startup] Step 3: Powering up $HCI_DEV in BLE-ONLY mode..."
+    # Force interface down to apply low-level changes
+    sudo hciconfig $HCI_DEV down 2>/dev/null || true
     
-    # Try using btmgmt (Modern way) to force settings
+    # Try using btmgmt (Modern way) to force LE and disable BR/EDR
     if command -v btmgmt &> /dev/null; then
-        echo "[startup] Using btmgmt to force Just-Works settings..."
-        sudo btmgmt -i $HCI_DEV ssp on &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV bondable on &>/dev/null || true
+        echo "[startup] Using btmgmt to force BLE-only settings..."
+        sudo btmgmt -i $HCI_DEV power off &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV le on &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV bredr off &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV ssp off &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV bondable off &>/dev/null || true
         sudo btmgmt -i $HCI_DEV connectable on &>/dev/null || true
         sudo btmgmt -i $HCI_DEV discov on &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV le on &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV power on &>/dev/null || true
     fi
 
     # Legacy fallbacks
-    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
+    sudo hciconfig $HCI_DEV up 2>/dev/null || true
+    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
+    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+    sudo hciconfig $HCI_DEV sspmode 0 2>/dev/null || true
     sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
-    sudo hciconfig $HCI_DEV encrypt 0 2>/dev/null || true
     sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
 
 echo "[startup] Step 4: Launching Auto-Pairing Agent & Provisioning Service..."
 # Set PYTHONPATH so we can run modules
 export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
 
+# Note: Agent is still run but won't be triggered much in BLE-only mode
 if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
-    # Make sure we use the system python that has dbus/gi
     sudo PYTHONPATH="$SCRIPT_DIR" python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
     sleep 2
 fi
@@ -77,15 +81,14 @@ fi
 # Start the BLE Provisioning Service (DBus-based)
 if [ -f "$SCRIPT_DIR/rk_assistant/provisioning_service.py" ]; then
     echo "[startup] Launching BLE Provisioning Service..."
-    # This also needs system python with dbus/gi
     sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.provisioning_service &
     sleep 2
 fi
 
 # Start the Classic Bluetooth Server (Fallback)
+# (Keeping this but it may not work if BR/EDR is disabled above)
 if [ -f "$SCRIPT_DIR/rk_assistant/classic_bluetooth_server.py" ]; then
     echo "[startup] Launching Classic Bluetooth Server..."
-    # This can use the venv if needed, but system python is fine too
     sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.classic_bluetooth_server &
     sleep 1
 fi
@@ -94,7 +97,7 @@ echo "[startup] Step 5: Finalizing Bluetooth visibility..."
 sudo bluetoothctl << BTEOF &>/dev/null
 power on
 discoverable on
-pairable on
+pairable off
 agent NoInputNoOutput
 default-agent
 discoverable-timeout 0
