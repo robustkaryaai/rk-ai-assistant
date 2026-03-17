@@ -1010,9 +1010,22 @@ def main():
 
     if is_first_boot:
         print("[main] First boot preparation complete.")
+        # Create flag to indicate first boot setup is finished
+        try:
+            flag_path = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / ".first_boot_done"
+            flag_path.touch()
+            print(f"[main] Standard mode enabled for future boots.")
+        except Exception as e:
+            print(f"[main] Warning: Could not create first boot flag: {e}")
+
         sound_path = str(Path(__file__).parent / "sounds" / "prepared.mp3")
         proc = play_audio_url(sound_path)
         if proc: proc.wait()
+        time.sleep(1)
+        
+        # FINAL CELEBRATION!
+        print("[main] LOUD AND CLEAR: WE DID IT!")
+        speak("We did it!")
         time.sleep(1)
 
     print("\n" + "="*60)
