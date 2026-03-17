@@ -37,6 +37,10 @@ class Application(dbus.service.Object):
         self.services = []
         dbus.service.Object.__init__(self, bus, self.path)
 
+    @dbus.service.method(GATT_MANAGER_IFACE, in_signature='o')
+    def UnregisterApplication(self, app):
+        print("[ble] GATT application unregistered", flush=True)
+
     def get_path(self):
         return dbus.ObjectPath(self.path)
 
@@ -45,6 +49,8 @@ class Application(dbus.service.Object):
 
     @dbus.service.method(DBUS_OM_IFACE, out_signature='a{oa{sa{sv}}}')
     def GetManagedObjects(self):
+        # Log when objects are requested (usually by BlueZ on connection)
+        print("[ble] GATT Managed Objects requested - Client connection likely", flush=True)
         response = {}
         for service in self.services:
             response[service.get_path()] = service.get_properties()
