@@ -160,49 +160,37 @@ def fetch_url(url: str) -> Optional[str]:
 
 def apply_wifi_credentials(ssid: str, password: str) -> bool:
     """
-    Append Wi‑Fi credentials using wpa_cli (avoids rewriting file).
+    Apply Wi‑Fi credentials using nmcli (NetworkManager).
     Requires sudo privileges. Returns True on success.
     """
     try:
-        # Add network
-        net_id = subprocess.check_output(
-            ["sudo", "wpa_cli", "-i", "wlan0", "add_network"],
-            timeout=5
-        ).decode().strip()
-
-        # Set SSID
-        subprocess.check_call(
-            ["sudo", "wpa_cli", "-i", "wlan0", "set_network", net_id, "ssid", f'"{ssid}"'],
-            timeout=5
-        )
-
-        # Set PSK
+        print(f"[network] Applying Wi-Fi via nmcli: {ssid}", flush=True)
+        # Delete existing connection if it exists
+        subprocess.run(["sudo", "nmcli", "con", "delete", ssid], capture_output=True)
+        
+        # Add and connect
         if password:
-            subprocess.check_call(
-                ["sudo", "wpa_cli", "-i", "wlan0", "set_network", net_id, "psk", f'"{password}"'],
-                timeout=5
-            )
+            cmd = [
+                "sudo", "nmcli", "dev", "wifi", "connect", ssid, 
+                "password", password, "name", ssid
+            ]
         else:
-            subprocess.check_call(
-                ["sudo", "wpa_cli", "-i", "wlan0", "set_network", net_id, "key_mgmt", "NONE"],
-                timeout=5
-            )
-
-        # Enable
-        subprocess.check_call(
-            ["sudo", "wpa_cli", "-i", "wlan0", "enable_network", net_id],
-            timeout=5
-        )
-
-        # Save config
-        subprocess.check_call(
-            ["sudo", "wpa_cli", "-i", "wlan0", "save_config"],
-            timeout=5
-        )
-
-        return True
+            cmd = [
+                "sudo", "nmcli", "dev", "wifi", "connect", ssid, 
+                "name", ssid
+            ]
+            
+        result = subprocess.run(cmd, timeout=30, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            print(f"[network] Successfully connected to {ssid}", flush=True)
+            return True
+        else:
+            print(f"[network] Failed to connect to {ssid}: {result.stderr}", flush=True)
+            return False
+            
     except Exception as e:
-        print(f"[network] Error applying Wi-Fi: {e}", flush=True)
+        print(f"[network] Error applying Wi-Fi via nmcli: {e}", flush=True)
         return False
 
 

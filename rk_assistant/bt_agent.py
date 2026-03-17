@@ -34,12 +34,12 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method("org.bluez.Agent1", in_signature="ou", out_signature="")
     def RequestConfirmation(self, device, passkey):
-        print(f"[agent] Confirming pairing for {device} (Code: {passkey:06d}) - AUTO ACCEPTED", flush=True)
+        print(f"[agent] RequestConfirmation for {device} (Code: {passkey:06d}) - AUTO ACCEPTED", flush=True)
         return
 
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="")
     def RequestAuthorization(self, device):
-        print(f"[agent] Authorizing pairing for {device} - AUTO ACCEPTED", flush=True)
+        print(f"[agent] RequestAuthorization for {device} - AUTO ACCEPTED", flush=True)
         return
 
     @dbus.service.method("org.bluez.Agent1", out_signature="")
@@ -50,15 +50,21 @@ if __name__ == '__main__':
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
     
-    agent = Agent(bus, "/test/agent")
+    agent = Agent(bus, "/rk/ai/agent")
     
     obj = bus.get_object("org.bluez", "/org/bluez")
     manager = dbus.Interface(obj, "org.bluez.AgentManager1")
     
     # "NoInputNoOutput" is the key for "Just Works" pairing.
-    manager.RegisterAgent("/test/agent", "NoInputNoOutput")
-    manager.RequestDefaultAgent("/test/agent")
-    print("[agent] Yes-Man Agent registered and running...", flush=True)
+    # We use a unique path to avoid conflicts.
+    try:
+        manager.UnregisterAgent("/rk/ai/agent")
+    except:
+        pass
+        
+    manager.RegisterAgent("/rk/ai/agent", "NoInputNoOutput")
+    manager.RequestDefaultAgent("/rk/ai/agent")
+    print("[agent] RK AI 'Just Works' Agent registered and running...", flush=True)
     
     loop = GLib.MainLoop()
     loop.run()

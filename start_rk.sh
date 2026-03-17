@@ -32,7 +32,61 @@ if ! grep -q "$CURRENT_HOSTNAME" /etc/hosts; then
 fi
 
 # ─── 1. Hardware Initialization ───────────────────────────
-# Only do this once per boot to prevent service loops.
+# Clean up and ensure Bluetooth agent is running every time.
+echo "[startup] Step 2: Cleaning up old Bluetooth processes..."
+sudo killall -9 bluetooth-agent bt-agent 2>/dev/null || true
+
+# Find adapter
+HCI_DEV="hci1"
+if ! hciconfig $HCI_DEV &>/dev/null; then
+    HCI_DEV="hci0"
+fi
+echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
+
+echo "[startup] Step 3: Powering up $HCI_DEV..."
+sudo hciconfig $HCI_DEV up 2>/dev/null || true
+sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
+sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
+sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
+sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
+
+echo "[startup] Step 4: Launching Auto-Pairing Agent & Provisioning Service..."
+# Set PYTHONPATH so we can run modules
+export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
+
+if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
+    # Make sure we use the system python that has dbus/gi
+    sudo PYTHONPATH="$SCRIPT_DIR" python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
+    sleep 2
+fi
+
+# Start the BLE Provisioning Service (DBus-based)
+if [ -f "$SCRIPT_DIR/rk_assistant/provisioning_service.py" ]; then
+    echo "[startup] Launching BLE Provisioning Service..."
+    # This also needs system python with dbus/gi
+    sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.provisioning_service &
+    sleep 2
+fi
+
+# Start the Classic Bluetooth Server (Fallback)
+if [ -f "$SCRIPT_DIR/rk_assistant/classic_bluetooth_server.py" ]; then
+    echo "[startup] Launching Classic Bluetooth Server..."
+    # This can use the venv if needed, but system python is fine too
+    sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.classic_bluetooth_server &
+    sleep 1
+fi
+
+echo "[startup] Step 5: Finalizing Bluetooth visibility..."
+sudo bluetoothctl << BTEOF &>/dev/null
+power on
+discoverable on
+pairable on
+discoverable-timeout 0
+BTEOF
+
+sudo sdptool add SP 2>/dev/null || true
+
 if [ ! -f "/tmp/.bt_setup_done" ]; then
     echo "[startup] Step 1: Configuring Hardware Identity..."
     
@@ -42,44 +96,10 @@ if [ ! -f "/tmp/.bt_setup_done" ]; then
         sudo hostnamectl set-hostname "$BT_NAME"
     fi
 
-    echo "[startup] Step 2: Cleaning up old Bluetooth processes..."
-    sudo killall -9 bluetooth-agent bt-agent 2>/dev/null || true
-    
-    # Find adapter
-    HCI_DEV="hci1"
-    if ! hciconfig $HCI_DEV &>/dev/null; then
-        HCI_DEV="hci0"
-    fi
-    echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
-
-    echo "[startup] Step 3: Powering up $HCI_DEV..."
-    sudo hciconfig $HCI_DEV up 2>/dev/null || true
-    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
-    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
-    sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
-    sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
-
-    echo "[startup] Step 4: Launching Auto-Pairing Agent..."
-    if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
-        sudo python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
-        sleep 2
-    fi
-
-    echo "[startup] Step 5: Finalizing Bluetooth visibility..."
-    # No longer using -n as we have NOPASSWD
-    sudo bluetoothctl << BTEOF &>/dev/null
-power on
-discoverable on
-pairable on
-discoverable-timeout 0
-BTEOF
-
-    sudo sdptool add SP 2>/dev/null || true
     touch /tmp/.bt_setup_done
     echo "[startup] Hardware initialization complete."
 else
-    echo "[startup] Hardware already initialized, skipping setup."
+    echo "[startup] Hardware already initialized, skipping hostname/identity setup."
 fi
 
 # ─── 2. Background Tasks ──────────────────────────────────
