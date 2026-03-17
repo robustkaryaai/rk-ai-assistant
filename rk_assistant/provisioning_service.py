@@ -279,7 +279,9 @@ class ProvisioningAdvertisement(dbus.service.Object):
                 'LocalName': dbus.String(self.local_name),
                 'IncludeTxPower': dbus.Boolean(True),
                 'Appearance': dbus.UInt16(0x0080), # Generic Computer
-                'Discoverable': dbus.Boolean(True)
+                'Discoverable': dbus.Boolean(True),
+                'Duration': dbus.UInt16(0),
+                'Timeout': dbus.UInt16(0)
             }
         }
 

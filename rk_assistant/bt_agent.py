@@ -11,6 +11,9 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
+        # A2DP Sink: 0000110b-0000-1000-8000-00805f9b34fb
+        # A2DP Source: 0000110a-0000-1000-8000-00805f9b34fb
+        # AVRCP: 0000110e-0000-1000-8000-00805f9b34fb
         print(f"[agent] Authorizing service {uuid} for {device} - Accepted", flush=True)
         return
 

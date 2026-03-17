@@ -43,36 +43,42 @@ if ! hciconfig $HCI_DEV &>/dev/null; then
 fi
 echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
 
-echo "[startup] Step 3: Powering up $HCI_DEV in BLE-ONLY mode..."
+echo "[startup] Step 3: Powering up $HCI_DEV in HYBRID mode (BLE + Classic)..."
     # Force interface down to apply low-level changes
     sudo hciconfig $HCI_DEV down 2>/dev/null || true
     
-    # Try using btmgmt (Modern way) to force LE and disable BR/EDR
+    # Use btmgmt to enable both LE (for phone) and BR/EDR (for speaker)
     if command -v btmgmt &> /dev/null; then
-        echo "[startup] Using btmgmt to force BLE-only settings..."
+        echo "[startup] Using btmgmt to configure hybrid settings..."
         sudo btmgmt -i $HCI_DEV power off &>/dev/null || true
         sudo btmgmt -i $HCI_DEV le on &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV bredr off &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV ssp off &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV bondable off &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV bredr on &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV ssp on &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV bondable on &>/dev/null || true
         sudo btmgmt -i $HCI_DEV connectable on &>/dev/null || true
         sudo btmgmt -i $HCI_DEV discov on &>/dev/null || true
         sudo btmgmt -i $HCI_DEV power on &>/dev/null || true
     fi
 
-    # Legacy fallbacks
+    # Legacy fallbacks & Identity
     sudo hciconfig $HCI_DEV up 2>/dev/null || true
     sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
-    sudo hciconfig $HCI_DEV sspmode 0 2>/dev/null || true
+    # Set class to Computer/Audio (0x000414) or similar to allow both
+    sudo hciconfig $HCI_DEV class 0x000414 2>/dev/null || true
+    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
     sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
     sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
+    # Ensure page scan and inquiry scan are on for classic discovery/connection
+    sudo hciconfig $HCI_DEV pscan 2>/dev/null || true
+    sudo hciconfig $HCI_DEV iscan 2>/dev/null || true
+    # Force master mode for classic connections (helps with speakers)
+    sudo hciconfig $HCI_DEV lm master 2>/dev/null || true
 
 echo "[startup] Step 4: Launching Auto-Pairing Agent & Provisioning Service..."
 # Set PYTHONPATH so we can run modules
 export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
 
-# Note: Agent is still run but won't be triggered much in BLE-only mode
+# Start the Yes-Man Agent (Crucial for speaker and phone "Just Works")
 if [ -f "$SCRIPT_DIR/rk_assistant/bt_agent.py" ]; then
     sudo PYTHONPATH="$SCRIPT_DIR" python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &
     sleep 2
@@ -86,7 +92,6 @@ if [ -f "$SCRIPT_DIR/rk_assistant/provisioning_service.py" ]; then
 fi
 
 # Start the Classic Bluetooth Server (Fallback)
-# (Keeping this but it may not work if BR/EDR is disabled above)
 if [ -f "$SCRIPT_DIR/rk_assistant/classic_bluetooth_server.py" ]; then
     echo "[startup] Launching Classic Bluetooth Server..."
     sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.classic_bluetooth_server &
@@ -97,7 +102,7 @@ echo "[startup] Step 5: Finalizing Bluetooth visibility..."
 sudo bluetoothctl << BTEOF &>/dev/null
 power on
 discoverable on
-pairable off
+pairable on
 agent NoInputNoOutput
 default-agent
 discoverable-timeout 0
@@ -123,18 +128,27 @@ fi
 
 # ─── 2. Background Tasks ──────────────────────────────────
 echo "[startup] Step 6: Starting background monitors..."
-# Auto-trust paired devices loop
+# Auto-trust and Speaker Reconnect loop
 (
-  echo "[startup] Auto-trust monitor started."
+  echo "[startup] Bluetooth monitor started."
+  SPEAKER_MAC="D0:78:1D:4F:F4:1E"
+  
   while true; do
-    # Get list of paired devices and trust them
+    # 1. Trust all paired devices
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r dev; do
         bluetoothctl trust "$dev" &>/dev/null
     done
     
-    # Also save currently connected device
+    # 2. Try reconnecting to speaker if disconnected
+    if ! bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
+        echo "[startup] Speaker disconnected, attempting reconnect to $SPEAKER_MAC..."
+        bluetoothctl connect "$SPEAKER_MAC" &>/dev/null
+    fi
+    
+    # 3. Save currently connected device for main.py logic
     bluetoothctl info 2>/dev/null | grep "Connected: yes" -B 10 | grep "Device" | awk '{print $2}' > "$PAIRING_FILE" 2>/dev/null
-    sleep 10
+    
+    sleep 15
   done
 ) &
 
