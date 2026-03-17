@@ -103,7 +103,8 @@ sudo bluetoothctl << BTEOF &>/dev/null
 power on
 discoverable on
 pairable on
-agent NoInputNoOutput
+# Use KeyboardDisplay here as well to match the agent script
+agent KeyboardDisplay
 default-agent
 discoverable-timeout 0
 BTEOF

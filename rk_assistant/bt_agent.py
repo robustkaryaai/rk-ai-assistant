@@ -11,9 +11,6 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
-        # A2DP Sink: 0000110b-0000-1000-8000-00805f9b34fb
-        # A2DP Source: 0000110a-0000-1000-8000-00805f9b34fb
-        # AVRCP: 0000110e-0000-1000-8000-00805f9b34fb
         print(f"[agent] Authorizing service {uuid} for {device} - Accepted", flush=True)
         return
 
@@ -64,11 +61,12 @@ if __name__ == '__main__':
     except:
         pass
         
-    # We use NoInputNoOutput to signal "Just Works", but our methods above
-    # handle fallbacks gracefully.
-    manager.RegisterAgent(agent_path, "NoInputNoOutput")
+    # We use KeyboardDisplay as a middle ground: 
+    # It allows phone-style "Just Works" (RequestConfirmation) 
+    # AND speaker-style legacy PINs (RequestPinCode).
+    manager.RegisterAgent(agent_path, "KeyboardDisplay")
     manager.RequestDefaultAgent(agent_path)
-    print("[agent] RK AI 'Yes-Man' Agent registered and running...", flush=True)
+    print("[agent] RK AI 'Hybrid-Ready' Agent (KeyboardDisplay) registered...", flush=True)
     
     loop = GLib.MainLoop()
     loop.run()
