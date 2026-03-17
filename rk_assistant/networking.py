@@ -40,24 +40,34 @@ def get_ip_address():
         return "127.0.0.1"
 
 
-def is_online(host: str = "8.8.8.8", port: int = 53, timeout: float = 3.0) -> bool:
-    """Cheap online check using UDP socket. Fakes offline if FORCE_OFFLINE is True."""
+def is_online() -> bool:
+    """Check if the system has an active internet connection."""
     if FORCE_OFFLINE:
         return False
     try:
-        socket.setdefaulttimeout(timeout)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.connect((host, port))
+        # Check if we have an IP address other than localhost
+        # This is faster than pinging
+        output = subprocess.check_output(["hostname", "-I"]).decode().strip()
+        if not output:
+            return False
+        
+        # Also try to ping a reliable server to confirm actual internet access
+        subprocess.check_call(
+            ["ping", "-c", "1", "8.8.8.8"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2
+        )
         return True
-    except OSError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, Exception):
         return False
 
 
-def wait_for_internet(max_minutes: float = 2.0) -> bool:
-    """Wait for internet connection for up to max_minutes."""
-    print(f"[network] Waiting {max_minutes}m for internet connection...", flush=True)
+def wait_for_internet(timeout: int = 60) -> bool:
+    """Wait for internet connection for up to timeout seconds."""
+    print(f"[network] Waiting {timeout}s for internet connection...", flush=True)
     start_time = time.time()
-    while time.time() - start_time < (max_minutes * 60):
+    while time.time() - start_time < timeout:
         if is_online():
             print("[network] Connected to internet!", flush=True)
             return True

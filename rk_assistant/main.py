@@ -71,13 +71,11 @@ from .networking import (
     read_slug,
     write_slug,
     wait_for_internet,
-    try_join_setup_hotspot,
     sync_wifi_from_appwrite,
 )
 from .offline_commands import match_offline_command, process_offline_command
 from .weather_news import fetch_news, fetch_weather
 from .intent_classifier import guess_fallback_intent, start_pending_request_msg
-from .ap_provisioning import run_ap_provisioning
 from .reset_monitor import start_reset_monitor
 from . import gemini_client
 from . import local_handlers
@@ -863,58 +861,14 @@ def main():
     # 1. Check internet connectivity immediately
     online = is_online()
     
-    # "3rd Way" Setup Mode (Reverse Hotspot)
-    # We run this in a background thread so it doesn't block the main assistant loop.
-    # This allows the device to speak/respond while waiting for setup.
-    def _bg_setup_hotspot():
-        try:
-            if not is_online():
-                print("[main] Device is OFFLINE. Starting '3rd Way' setup thread...", flush=True)
-                try:
-                    setup_msg = (
-                        "Hello! I am ready for setup. I cannot connect to the internet. "
-                        "Please turn on your phone's personal hotspot and name it R K A I S E T U P "
-                        "with password r k a i setup. Then, open the R K A I app on your phone."
-                    )
-                    speak(setup_msg)
-                except: pass
-
-                wait_count = 0
-                while not is_online():
-                    wait_count += 1
-                    print(f"[setup] Attempting to join 'RK-AI-SETUP'... (Attempt {wait_count})", flush=True)
-                    try_join_setup_hotspot()
-                    time.sleep(20) 
-                    
-                    if is_online():
-                        print("[setup] Connected to Setup Hotspot! Syncing Wi-Fi...", flush=True)
-                        try:
-                            speak("I am connected to your setup hotspot. Getting home Wi-Fi details now.")
-                        except: pass
-                        
-                        if sync_wifi_from_appwrite(slug_val):
-                            print("[setup] Home Wi-Fi received! Rebooting...", flush=True)
-                            try:
-                                speak("I have received your home Wi-Fi details. I will now restart.")
-                            except: pass
-                            time.sleep(2)
-                            os.system("sudo reboot")
-                    
-                    if wait_count % 15 == 0: # Every ~5 mins
-                        try: speak("I am still waiting for setup. Check your hotspot settings.")
-                        except: pass
-                    if wait_count > 100: break
-        except Exception as e:
-            print(f"[setup] Background setup thread error: {e}", flush=True)
-
-    # Start setup thread if offline
-    if not online:
-        threading.Thread(target=_bg_setup_hotspot, daemon=True).start()
-    
     # 2. Normal Startup Greeting
     if online:
         if is_first_boot:
             print("[main] First boot detected.")
+            # Move the Wi-Fi connected announcement here so it plays through the speaker
+            speak("I have connected to the internet now let me setup my things")
+            time.sleep(1)
+            
             sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
             proc = play_audio_url(sound_path)
             if proc: proc.wait()
