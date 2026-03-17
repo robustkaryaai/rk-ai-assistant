@@ -173,13 +173,14 @@ class RxCharacteristic(Characteristic):
                 print(f"[ble] Applying credentials for {ssid}...", flush=True)
                 success = apply_wifi_credentials(ssid, password or "")
                 if success:
-                    print(f"[ble] Successfully applied {ssid}", flush=True)
+                    print(f"[ble] Successfully applied {ssid}. Waiting 10s for app sync...", flush=True)
                     # Notify success on main loop
                     GLib.idle_add(self.tx.send_status, "ok")
                     try:
                         import os, time
-                        print("[ble] Rebooting in 3s to finalize Wi‑Fi setup...", flush=True)
-                        time.sleep(3)
+                        # Wait longer so the app can finish its logic and show the homepage
+                        time.sleep(10)
+                        print("[ble] Rebooting now to finalize Wi‑Fi setup...", flush=True)
                         os.system("sudo reboot")
                     except Exception as _e:
                         pass
