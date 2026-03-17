@@ -131,17 +131,25 @@ class RxCharacteristic(Characteristic):
             ['write', 'write-without-response'],
             service)
         self.tx = tx_characteristic
+        self.buffer = ""
 
     def WriteValue(self, value, options):
         try:
-            json_str = bytearray(value).decode('utf-8')
-            print(f"[ble] RX received {len(json_str)} bytes", flush=True)
+            chunk = bytearray(value).decode('utf-8')
+            print(f"[ble] Received chunk: {chunk}", flush=True)
             
+            self.buffer += chunk
+            
+            # Check if buffer is valid JSON
             try:
-                data = json.loads(json_str)
+                data = json.loads(self.buffer)
+                print(f"[ble] Complete JSON received: {data}", flush=True)
+                # Clear buffer on success
+                json_str = self.buffer
+                self.buffer = ""
             except json.JSONDecodeError:
-                print("[ble] Invalid JSON received", flush=True)
-                self.tx.send_status("fail", "Invalid JSON")
+                # Still waiting for more chunks
+                print(f"[ble] Buffer incomplete, waiting for more chunks...", flush=True)
                 return
 
             ssid = data.get('ssid')
