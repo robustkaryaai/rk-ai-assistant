@@ -210,6 +210,22 @@ def try_join_setup_hotspot(ssid="RK-AI-SETUP", password="rkaisetup"):
         return False
 
 
+def check_network_health():
+    """Diagnostic check for network health."""
+    online = is_online()
+    ip = get_ip_address()
+    print(f"[network-health] Online: {online}, IP: {ip}", flush=True)
+    
+    if not online:
+        # Try to ping google
+        try:
+            subprocess.run(["ping", "-c", "1", "8.8.8.8"], capture_output=True, timeout=2)
+            print("[network-health] Ping 8.8.8.8: SUCCESS (DNS might be broken)", flush=True)
+        except:
+            print("[network-health] Ping 8.8.8.8: FAILED", flush=True)
+    return online
+
+
 def sync_wifi_from_appwrite(slug: str) -> bool:
     """
     Polls the backend for a pending 'set_wifi' command for this slug.

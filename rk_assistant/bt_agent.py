@@ -16,17 +16,17 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="s")
     def RequestPinCode(self, device):
-        print(f"[agent] PIN Request for {device} - REJECTED (Legacy pairing not supported, use SSP)", flush=True)
-        raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Legacy pairing not supported')
+        print(f"[agent] PIN Request for {device} - Auto-returning 0000", flush=True)
+        return "0000"
 
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="u")
     def RequestPasskey(self, device):
-        print(f"[agent] Passkey Request for {device} - REJECTED (Use SSP 'Just Works')", flush=True)
-        raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Passkey not supported')
+        print(f"[agent] Passkey Request for {device} - Auto-returning 0", flush=True)
+        return dbus.UInt32(0)
 
     @dbus.service.method("org.bluez.Agent1", in_signature="ouq", out_signature="")
     def DisplayPasskey(self, device, passkey, entered):
-        print(f"[agent] DisplayPasskey for {device}: {passkey:06d} (User should just accept if prompted)", flush=True)
+        print(f"[agent] DisplayPasskey for {device}: {passkey:06d}", flush=True)
 
     @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
     def DisplayPinCode(self, device, pincode):
@@ -61,10 +61,11 @@ if __name__ == '__main__':
     except:
         pass
         
-    # "NoInputNoOutput" forces "Just Works" pairing on modern devices.
+    # We use NoInputNoOutput to signal "Just Works", but our methods above
+    # handle fallbacks gracefully.
     manager.RegisterAgent(agent_path, "NoInputNoOutput")
     manager.RequestDefaultAgent(agent_path)
-    print("[agent] RK AI 'Just Works' Yes-Man Agent registered and running...", flush=True)
+    print("[agent] RK AI 'Yes-Man' Agent registered and running...", flush=True)
     
     loop = GLib.MainLoop()
     loop.run()

@@ -44,14 +44,25 @@ fi
 echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
 
 echo "[startup] Step 3: Powering up $HCI_DEV..."
-sudo hciconfig $HCI_DEV up 2>/dev/null || true
-sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
-# Enable SSP and disable auth to force Just Works
-sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
-sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
-sudo hciconfig $HCI_DEV encrypt 0 2>/dev/null || true
-sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
+    sudo hciconfig $HCI_DEV up 2>/dev/null || true
+    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
+    sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+    
+    # Try using btmgmt (Modern way) to force settings
+    if command -v btmgmt &> /dev/null; then
+        echo "[startup] Using btmgmt to force Just-Works settings..."
+        sudo btmgmt -i $HCI_DEV ssp on &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV bondable on &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV connectable on &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV discov on &>/dev/null || true
+        sudo btmgmt -i $HCI_DEV le on &>/dev/null || true
+    fi
+
+    # Legacy fallbacks
+    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
+    sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
+    sudo hciconfig $HCI_DEV encrypt 0 2>/dev/null || true
+    sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
 
 echo "[startup] Step 4: Launching Auto-Pairing Agent & Provisioning Service..."
 # Set PYTHONPATH so we can run modules
