@@ -41,6 +41,16 @@ HCI_DEV="hci1"
 if ! hciconfig $HCI_DEV &>/dev/null; then
     HCI_DEV="hci0"
 fi
+
+# CHECK ADAPTER HEALTH (Detect 00:00:00:00:00:00)
+BD_ADDR=$(hciconfig $HCI_DEV 2>/dev/null | grep "BD Address" | awk '{print $3}')
+if [[ "$BD_ADDR" == "00:00:00:00:00:00" ]]; then
+    echo "[startup] ERROR: Bluetooth Adapter $HCI_DEV is DEAD (BD Address: $BD_ADDR)"
+    echo "[startup] Triggering emergency reboot to recover hardware..."
+    sudo reboot
+    exit 1
+fi
+
 echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
 
 echo "[startup] Step 3: Powering up $HCI_DEV in HYBRID mode (BLE + Classic)..."
