@@ -16,17 +16,17 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="s")
     def RequestPinCode(self, device):
-        print(f"[agent] PIN Request for {device} - Auto-returning 0000", flush=True)
-        return "0000"
+        print(f"[agent] PIN Request for {device} - REJECTED (Legacy pairing not supported, use SSP)", flush=True)
+        raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Legacy pairing not supported')
 
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="u")
     def RequestPasskey(self, device):
-        print(f"[agent] Passkey Request for {device} - Auto-returning 0", flush=True)
-        return dbus.UInt32(0)
+        print(f"[agent] Passkey Request for {device} - REJECTED (Use SSP 'Just Works')", flush=True)
+        raise dbus.exceptions.DBusException('org.bluez.Error.Rejected', 'Passkey not supported')
 
     @dbus.service.method("org.bluez.Agent1", in_signature="ouq", out_signature="")
     def DisplayPasskey(self, device, passkey, entered):
-        print(f"[agent] DisplayPasskey for {device}: {passkey:06d}", flush=True)
+        print(f"[agent] DisplayPasskey for {device}: {passkey:06d} (User should just accept if prompted)", flush=True)
 
     @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
     def DisplayPinCode(self, device, pincode):
@@ -50,21 +50,21 @@ if __name__ == '__main__':
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
     
-    agent = Agent(bus, "/rk/ai/agent")
+    agent_path = "/rk/ai/agent"
+    agent = Agent(bus, agent_path)
     
     obj = bus.get_object("org.bluez", "/org/bluez")
     manager = dbus.Interface(obj, "org.bluez.AgentManager1")
     
-    # "NoInputNoOutput" is the key for "Just Works" pairing.
-    # We use a unique path to avoid conflicts.
     try:
-        manager.UnregisterAgent("/rk/ai/agent")
+        manager.UnregisterAgent(agent_path)
     except:
         pass
         
-    manager.RegisterAgent("/rk/ai/agent", "NoInputNoOutput")
-    manager.RequestDefaultAgent("/rk/ai/agent")
-    print("[agent] RK AI 'Just Works' Agent registered and running...", flush=True)
+    # "NoInputNoOutput" forces "Just Works" pairing on modern devices.
+    manager.RegisterAgent(agent_path, "NoInputNoOutput")
+    manager.RequestDefaultAgent(agent_path)
+    print("[agent] RK AI 'Just Works' Yes-Man Agent registered and running...", flush=True)
     
     loop = GLib.MainLoop()
     loop.run()

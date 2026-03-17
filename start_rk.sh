@@ -47,8 +47,10 @@ echo "[startup] Step 3: Powering up $HCI_DEV..."
 sudo hciconfig $HCI_DEV up 2>/dev/null || true
 sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
 sudo hciconfig $HCI_DEV class 0x000100 2>/dev/null || true
+# Enable SSP and disable auth to force Just Works
 sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
 sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
+sudo hciconfig $HCI_DEV encrypt 0 2>/dev/null || true
 sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
 
 echo "[startup] Step 4: Launching Auto-Pairing Agent & Provisioning Service..."
@@ -82,11 +84,14 @@ sudo bluetoothctl << BTEOF &>/dev/null
 power on
 discoverable on
 pairable on
+agent NoInputNoOutput
+default-agent
 discoverable-timeout 0
 BTEOF
 
 sudo sdptool add SP 2>/dev/null || true
 
+# ─── 1. Hardware Identity ─────────────────────────────────
 if [ ! -f "/tmp/.bt_setup_done" ]; then
     echo "[startup] Step 1: Configuring Hardware Identity..."
     
@@ -104,10 +109,18 @@ fi
 
 # ─── 2. Background Tasks ──────────────────────────────────
 echo "[startup] Step 6: Starting background monitors..."
+# Auto-trust paired devices loop
 (
+  echo "[startup] Auto-trust monitor started."
   while true; do
+    # Get list of paired devices and trust them
+    bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r dev; do
+        bluetoothctl trust "$dev" &>/dev/null
+    done
+    
+    # Also save currently connected device
     bluetoothctl info 2>/dev/null | grep "Connected: yes" -B 10 | grep "Device" | awk '{print $2}' > "$PAIRING_FILE" 2>/dev/null
-    sleep 60
+    sleep 10
   done
 ) &
 
