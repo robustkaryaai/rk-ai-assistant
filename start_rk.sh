@@ -144,6 +144,7 @@ echo "[startup] Step 6: Starting background monitors..."
   echo "[startup] Bluetooth monitor started."
   SPEAKER_MAC="D0:78:1D:4F:F4:1E"
   
+  # Ensure speaker isn't stuck in a "connect/disconnect" loop by checking state
   while true; do
     # 1. Trust all paired devices
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r dev; do
@@ -151,15 +152,30 @@ echo "[startup] Step 6: Starting background monitors..."
     done
     
     # 2. Try reconnecting to speaker if disconnected
+    # We only try to connect if the speaker is NOT connected to SOMETHING else (like the user's phone)
+    # Most speakers only allow one active connection.
     if ! bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
-        echo "[startup] Speaker disconnected, attempting reconnect to $SPEAKER_MAC..."
+        echo "[startup] Speaker $SPEAKER_MAC disconnected. Checking if we should reclaim..."
+        # Wait a few seconds to see if the user's phone wants it first
+        sleep 5
+        
+        # Try to reclaim speaker so it doesn't turn off (Stay-Alive)
+        echo "[startup] Attempting to reconnect to $SPEAKER_MAC to prevent auto-shutdown..."
         bluetoothctl connect "$SPEAKER_MAC" &>/dev/null
+    else
+        # If connected, play a silent "stay-alive" pulse every 4 minutes 
+        # (This prevents most speakers from timing out)
+        # Note: Requires 'aplay' or 'paplay' installed.
+        if command -v paplay &> /dev/null; then
+            # Play 0.1s of silence
+            (head -c 1000 /dev/zero | paplay --raw --channels=1 --rate=44100 &>/dev/null) &
+        fi
     fi
     
     # 3. Save currently connected device for main.py logic
     bluetoothctl info 2>/dev/null | grep "Connected: yes" -B 10 | grep "Device" | awk '{print $2}' > "$PAIRING_FILE" 2>/dev/null
     
-    sleep 15
+    sleep 30
   done
 ) &
 
