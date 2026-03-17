@@ -1,17 +1,23 @@
 [Unit]
 Description=RK AI Assistant Service
-After=network-online.target
-Wants=network-online.target
+After=network-online.target bluetooth.target ssh.service
+Wants=network-online.target bluetooth.target
+# Priority boot
+Before=multi-user.target
 
 [Service]
 Type=simple
 User=raspberrypi
+# Ensure high priority
+Nice=-10
+IOSchedulingClass=realtime
+IOSchedulingPriority=4
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
 WorkingDirectory=/home/raspberrypi/Documents/rk-ai-assistant-main
 ExecStart=/usr/bin/bash /home/raspberrypi/Documents/rk-ai-assistant-main/start_rk.sh
 Restart=always
-RestartSec=10
+RestartSec=5
 StandardOutput=inherit
 StandardError=inherit
 

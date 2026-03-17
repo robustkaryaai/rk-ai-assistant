@@ -84,6 +84,22 @@ echo "[startup] Step 3: Powering up $HCI_DEV in HYBRID mode (BLE + Classic)..."
     # Force master mode for classic connections (helps with speakers)
     sudo hciconfig $HCI_DEV lm master 2>/dev/null || true
 
+    # --- NEW: Setup Sequence ---
+    echo "[startup] Step 3.5: Checking network and announcing setup..."
+    if [[ $(hostname -I) ]]; then
+        echo "[startup] Network detected. Announcing..."
+        # Use python to play pre-recorded/cached gTTS
+        sudo PYTHONPATH="$SCRIPT_DIR" python3 -c "from rk_assistant.audio_utils_simple import speak; speak('I have connected to the internet now let me setup my things')"
+        
+        # "Setup things" - Background maintenance, package check, slug sync
+        echo "[startup] Finalizing internal setup..."
+        # 1. Sync slug with backend
+        sudo PYTHONPATH="$SCRIPT_DIR" python3 -c "from rk_assistant.networking import sync_wifi_from_appwrite; sync_wifi_from_appwrite('$SLUG')" &>/dev/null || true
+        # 2. Mark hardware ready
+        touch /tmp/.hardware_ready
+    fi
+
+
 echo "[startup] Step 4: Launching Auto-Pairing Agent & Provisioning Service..."
 # Set PYTHONPATH so we can run modules
 export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
