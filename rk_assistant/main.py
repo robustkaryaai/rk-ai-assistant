@@ -821,9 +821,9 @@ def main():
                 recognizer.dynamic_energy_threshold = True  
                 # User optimization: lower threshold for clean audio
                 recognizer.energy_threshold = 120 
-            recognizer.pause_threshold = 0.8   
-            recognizer.phrase_threshold = 0.3 
-            recognizer.non_speaking_duration = 0.5 
+            recognizer.pause_threshold = 0.5   # Faster response
+            recognizer.phrase_threshold = 0.1 
+            recognizer.non_speaking_duration = 0.4 
             
             from .config import MIC_DEVICE_INDEX, MIC_DEVICE_NAME
             device_idx = MIC_DEVICE_INDEX
