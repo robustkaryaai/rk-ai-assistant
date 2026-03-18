@@ -86,7 +86,7 @@ from . import self_diagnosis
 from . import music_manager
 from difflib import SequenceMatcher
 
-def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.88):
+def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.94):
     """Fuzzy match spoken text against wake words."""
     text = text.lower().strip()
 

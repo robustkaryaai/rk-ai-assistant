@@ -163,7 +163,7 @@ def _speak_chunk(text: str, alsa_device: str = "pulse") -> bool:
         gen_thread.join(timeout=12)  # 12s per chunk (reasonable for short sentence)
 
         if gen_thread.is_alive():
-            print(f"⚠ gTTS chunk timed out, using espeak for: {text[:40]}", flush=True)
+            print(f"⚠ gTTS chunk timed out for: {text[:40]}", flush=True)
             return False
 
         subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)],
@@ -218,10 +218,8 @@ def speak(text, use_gtts=True):
                 spoken = _speak_chunk(chunk, alsa_device)
             
             if not spoken:
-                # espeak fallback for this chunk (always works, robotic)
-                # Use a slightly more natural espeak voice if possible
-                subprocess.run(['espeak', '-v', 'en-us+f2', '-s', '150', chunk], 
-                               check=False, stderr=subprocess.DEVNULL)
+                # 🚀 NO ESPEAK FALLBACK: ONLY HIGH-QUALITY gTTS
+                print(f"⚠ Skipping speech for: {chunk[:40]} (gTTS unavailable)", flush=True)
 
     except Exception as e:
         print(f"⚠ Speak error: {e}", flush=True)
