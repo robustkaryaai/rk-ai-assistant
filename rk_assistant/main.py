@@ -581,12 +581,12 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 if time_since_last > 300 and not inactivity_slowdown:
                     print(f"[stt] Inactivity threshold reached (5m). Entering Slow-Mode (Night Protocol)...", flush=True)
                     inactivity_slowdown = True
-                    # Increase pause threshold to be less sensitive during sleep
-                    recognizer.pause_threshold = 1.2 
+                    # Increase pause threshold even more during sleep
+                    recognizer.pause_threshold = 2.0 
                 elif time_since_last < 300 and inactivity_slowdown:
                     print(f"[stt] Activity detected. Resuming Full-Speed mode...", flush=True)
                     inactivity_slowdown = False
-                    recognizer.pause_threshold = 0.5
+                    recognizer.pause_threshold = 1.2
 
                 # Every 15 minutes, refresh the stream regardless to keep it healthy
                 if time_since_last > 900:
@@ -863,9 +863,9 @@ def main():
                 recognizer.dynamic_energy_threshold = True  
                 # User optimization: lower threshold for clean audio
                 recognizer.energy_threshold = 300 # Sane default floor
-            recognizer.pause_threshold = 0.5   # Faster response
-            recognizer.phrase_threshold = 0.1 
-            recognizer.non_speaking_duration = 0.4 
+            recognizer.pause_threshold = 1.2   # Wait longer for user to finish naturally
+            recognizer.phrase_threshold = 0.3  # Only start if it's a real phrase
+            recognizer.non_speaking_duration = 0.8 # Allow longer natural pauses between words
             
             from .config import MIC_DEVICE_INDEX, MIC_DEVICE_NAME
             device_idx = MIC_DEVICE_INDEX
