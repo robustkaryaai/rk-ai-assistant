@@ -390,8 +390,15 @@ def update_monitor():
     while True:
         try:
             print("[update] 📡 Checking for updates...")
-            subprocess.run(["git", "fetch", "origin"], capture_output=True, cwd=_project_dir)
+            # Run fetch and check for success
+            fetch_res = subprocess.run(["git", "fetch", "origin"], capture_output=True, cwd=_project_dir)
             
+            if fetch_res.returncode != 0:
+                # If fetch fails, git might be corrupt. Try to fix empty objects.
+                print("[update] Git fetch failed. Checking for corruption...")
+                subprocess.run("find .git/objects/ -type f -empty -delete", shell=True, cwd=_project_dir)
+                subprocess.run(["git", "fetch", "origin"], capture_output=True, cwd=_project_dir)
+
             res = subprocess.run(["git", "log", "HEAD..origin/main", "--oneline"],
                                   capture_output=True, text=True, cwd=_project_dir)
             if res.stdout.strip():

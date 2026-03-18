@@ -179,14 +179,23 @@ echo "[startup] Step 6: Starting background monitors..."
   done
 ) &
 
-# Update check (Non-blocking)
+# Update check (Non-blocking with corruption recovery)
 (
     cd "$SCRIPT_DIR" || exit
+    
+    # Git Health Check: Fix corrupt objects if any
+    if ! git rev-parse HEAD >/dev/null 2>&1; then
+        echo "[startup] Git corruption detected. Attempting recovery..."
+        find .git/objects/ -type f -empty -delete 2>/dev/null
+        git fetch --all 2>/dev/null
+        git reset --hard origin/main 2>/dev/null
+    fi
+
     git fetch origin 2>/dev/null
     LOCAL=$(git rev-parse HEAD 2>/dev/null)
     REMOTE=$(git rev-parse @{u} 2>/dev/null)
     if [ "$LOCAL" != "$REMOTE" ] && [ -n "$REMOTE" ]; then
-        echo "[startup] Update available. Pulling in background..."
+        echo "[startup] Update available. Pulling..."
         git pull origin main 2>/dev/null
     fi
 ) &
