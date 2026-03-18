@@ -72,6 +72,7 @@ from .networking import (
     write_slug,
     wait_for_internet,
     sync_wifi_from_appwrite,
+    report_state,
 )
 from .offline_commands import match_offline_command, process_offline_command
 from .weather_news import fetch_news, fetch_weather
@@ -434,6 +435,7 @@ def _process_intents_sequentially(intents: list, text: str, slug: str, music_pro
         
         # 1. Quick natural response (Speak BEFORE processing)
         if reply:
+            report_state(slug, "speaking") # 🚀 Report speaking state
             speak(reply)
         
         # 2. Process Intent
@@ -441,19 +443,24 @@ def _process_intents_sequentially(intents: list, text: str, slug: str, music_pro
         
         if intent_name in local_intents:
             # For local intents, we can use local_handlers.handle_intent
+            report_state(slug, "thinking") # 🚀 Report thinking state
             response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
             
             if response.get("intent") == "music_local":
                 query = response.get("query")
+                report_state(slug, "speaking") # 🚀 Report speaking state
                 if not reply: speak(f"Searching for {query}...")
+                report_state(slug, "playing") # 🚀 Report playing state
                 trigger_music_playback(query, music_proc_holder)
                 ai_response = response.get("reply") or ai_response
                     
             elif intent_name == "announcement":
+                report_state(slug, "speaking") # 🚀 Report speaking state
                 _speak_twice(response.get("reply", ""))
                 ai_response = response.get("reply") or ai_response
 
             elif response.get("reply") and not reply:
+                report_state(slug, "speaking") # 🚀 Report speaking state
                 speak(response["reply"])
                 ai_response = response.get("reply")
             
@@ -466,8 +473,10 @@ def _process_intents_sequentially(intents: list, text: str, slug: str, music_pro
                 
         elif intent_name in backend_intents:
             # For backend intents, we call the backend and WAIT for it to finish
+            report_state(slug, "speaking") # 🚀 Report speaking state
             if not reply: speak("Got it, let me get that answer for you.")
             
+            report_state(slug, "thinking") # 🚀 Report thinking state
             prompt_to_send = parameters.get("prompt") or text
             try:
                 print(f"[backend] Sequential request: '{prompt_to_send}'...", flush=True)
@@ -482,13 +491,18 @@ def _process_intents_sequentially(intents: list, text: str, slug: str, music_pro
                 print(f"[backend] Error: {e}", flush=True)
         else:
             # Default: Send to backend
+            report_state(slug, "speaking") # 🚀 Report speaking state
             if not reply: speak("Got it, let me get that answer for you.")
+            report_state(slug, "thinking") # 🚀 Report thinking state
             try:
                 response = post_text_to_backend(text, slug)
                 if response:
                     handle_backend_reply(response, music_proc_holder, slug, original_text=text)
             except:
                 pass
+        
+    # Done with all tasks
+    report_state(slug, "idle") # 🚀 Report idle state
 
 
 def process_online_command(text: str, slug: str, music_proc_holder: dict) -> bool:
@@ -574,6 +588,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
     if online and recognizer and mic:
         # --- ONLINE MODE (Always-on high-speed STT) ---
         print(f"[stt] Listening continuously (will respond when '{WAKE_WORD}' detected)...", flush=True)
+        report_state(slug, "listening") # 🚀 Report listening state
         
         # Open microphone ONCE to avoid PyAudio/ALSA initialization overhead every loop
         with mic as source:

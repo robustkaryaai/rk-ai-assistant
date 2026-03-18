@@ -89,6 +89,22 @@ def wait_for_internet(timeout: int = 60) -> bool:
     return False
 
 
+def report_state(slug: str, state: str) -> bool:
+    """
+    Report the current activity state of the assistant to the backend.
+    States: 'idle', 'thinking', 'speaking', 'playing', 'listening'
+    """
+    if not slug or not is_online():
+        return False
+    try:
+        url = f"{BACKEND_BASE_URL}/device/{slug}/state"
+        requests.post(url, json={"state": state}, timeout=3)
+        return True
+    except Exception as e:
+        print(f"[network] Failed to report state '{state}': {e}")
+        return False
+
+
 def read_slug() -> tuple[Optional[str], bool]:
     """
     Read slug.txt.
