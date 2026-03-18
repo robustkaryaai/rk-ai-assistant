@@ -409,6 +409,65 @@ def update_monitor():
             print(f"[update] Error: {e}")
             time.sleep(300)
 
+def _process_intents_sequentially(intents: list, text: str, slug: str, music_proc_holder: dict) -> None:
+    """Helper to process multiple intents one by one in a background thread."""
+    local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm", "remember", "task", "weather", "news"]
+    backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
+    
+    for task in intents:
+        intent_name = task.get("intent", "general")
+        parameters = task.get("parameters", {})
+        reply = task.get("reply")
+        
+        # 1. Quick natural response (Speak BEFORE processing)
+        if reply:
+            speak(reply)
+        
+        # 2. Process Intent
+        if intent_name in local_intents:
+            # For local intents, we can use local_handlers.handle_intent
+            # but we need to handle the response (like music)
+            response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
+            
+            if response.get("intent") == "music_local":
+                query = response.get("query")
+                if not reply: speak(f"Searching for {query}...")
+                trigger_music_playback(query, music_proc_holder)
+                    
+            elif intent_name == "announcement":
+                _speak_twice(response.get("reply", ""))
+
+            elif response.get("reply") and not reply:
+                speak(response["reply"])
+                
+        elif intent_name in backend_intents:
+            # For backend intents, we call the backend and WAIT for it to finish
+            # so the next intent starts only after this one is done.
+            if not reply: speak("Got it, let me get that answer for you.")
+            
+            prompt_to_send = parameters.get("prompt") or text
+            try:
+                print(f"[backend] Sequential request: '{prompt_to_send}'...", flush=True)
+                # post_text_to_backend is a blocking call
+                response = post_text_to_backend(prompt_to_send, slug)
+                if response:
+                    print(f"[backend] Received response: {response}", flush=True)
+                    handle_backend_reply(response, music_proc_holder, slug)
+                else:
+                    print("[backend] Empty response received.")
+            except Exception as e:
+                print(f"[backend] Error: {e}", flush=True)
+        else:
+            # Default: Send to backend
+            if not reply: speak("Got it, let me get that answer for you.")
+            try:
+                response = post_text_to_backend(text, slug)
+                if response:
+                    handle_backend_reply(response, music_proc_holder, slug)
+            except:
+                pass
+
+
 def process_online_command(text: str, slug: str, music_proc_holder: dict) -> bool:
     """
     Helper to process a command string using Gemini/Backend.
@@ -434,10 +493,6 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
         speak("Volume down.")
         return False
 
-    # For complex commands, give immediate acknowledgment
-    needs_backend_ack = False
-    expect_followup = False
-    
     # Routing
     if USE_GEMINI_DIRECT and GEMINI_API_KEY:
         try:
@@ -449,48 +504,18 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
                 model_name=GEMINI_MODEL_PRIMARY,
                 fallback_model=GEMINI_MODEL_FALLBACK
             )
-            local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm", "remember", "task", "weather", "news"]
-            backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
             
             if intents and len(intents) > 0:
-                first_intent = intents[0]
-                intent_name = first_intent.get("intent", "general")
-                parameters = first_intent.get("parameters", {})
+                # Check if ANY intent expects a follow-up
+                expect_followup = any(task.get("intent") in ["chat", "general", "remember"] for task in intents)
                 
-                if intent_name in local_intents:
-                    response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
-                    
-                    # Special handling for local music
-                    if response.get("intent") == "music_local":
-                        query = response.get("query")
-                        speak(f"Searching for {query}...")
-                        trigger_music_playback(query, music_proc_holder)
-                        return False # Music playing, don't follow up immediately
-                            
-                    elif intent_name == "announcement":
-                        _speak_twice(response.get("reply", ""))
-                        return False
-
-                    elif response.get("reply"):
-                        speak(response["reply"])
-                        # If it's chat/general/remember, we EXPECT a follow-up
-                        if intent_name in ["chat", "general", "remember"]:
-                            return True
-                        return False
-                        
-                elif intent_name in backend_intents:
-                    # Immediate acknowledgment for backend requests
-                    speak("Got it, let me get that answer for you.")
-                    _send_to_backend_and_handle(text, slug, music_proc_holder)
-                    return False
-                else:
-                    # Default: Send to backend if not local
-                    needs_backend_ack = True
-                    _send_to_backend_and_handle(text, slug, music_proc_holder)
-                    return False
+                # Start sequential processing in a background thread
+                threading.Thread(target=_process_intents_sequentially, args=(intents, text, slug, music_proc_holder), daemon=True).start()
+                
+                return expect_followup
             else:
                 # No intents found
-                needs_backend_ack = True
+                speak("Got it, let me get that answer for you.")
                 _send_to_backend_and_handle(text, slug, music_proc_holder)
                 return False
                 
@@ -499,15 +524,13 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
             speak("Sorry, I had trouble reaching the server.")
             return False
     else:
-        needs_backend_ack = True
+        speak("Got it, let me get that answer for you.")
         _send_to_backend_and_handle(text, slug, music_proc_holder)
         return False
     
-    # Acknowledge if sending to backend without specific intent
-    if needs_backend_ack:
-        speak("Got it, let me get that answer for you.")
-    
     return False
+
+
 
 
 def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:

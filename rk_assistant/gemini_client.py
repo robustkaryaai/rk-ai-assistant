@@ -18,7 +18,7 @@ except ImportError:
 
 # System prompt for intent classification (from backend)
 SYSTEM_PROMPT = """
-You are RK AI's intent classifier. Your job is to convert a user message into strict tool instructions.
+You are RK AI's intent classifier and response generator. Your job is to convert a user message into strict tool instructions and a natural spoken response.
 Output must be a pure JSON array of one or more intent objects (no prose, no markdown).
 
 INTENTS
@@ -35,30 +35,32 @@ INTENTS
 - period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music.
 
 STRICT CLASSIFICATION RULES
-1) If the user uses generative verbs (generate/make/create/render/build) with a media noun:
-   - Mentions video nouns (video/clip/short/episode/animation): intent = "video".
-   - Mentions image nouns (image/picture/photo/thumbnail/poster/art): intent = "image".
-   - Mentions slides/ppt/presentation: intent = "ppt".
-   - Mentions document/report/essay/study notes: intent = "docx".
-   Never default to "chat" if a generative intent is implied.
-2) If the user says play/start music/song/background sound → intent = "music" (NOT video).
+1) Generative intents (image, video, docx, ppt, note, planner, timetable, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note) MUST ONLY be triggered if the user EXPLICITLY uses a verb like "make", "generate", "create", "build", "write", "render", or "prepare". 
+   - If the user just mentions the topic (e.g., "tell me about photosynthesis" or "photosynthesis essay"), use "chat" or "general".
+   - If the user says "make a report on photosynthesis", then use "docx".
+2) If the user says play/start music/song/background sound → intent = "music".
 3) If the user says "announce", "announcement", "broadcast", "notify everyone" → intent = "announcement".
 4) If the user says "set alarm", "wake me up at", "alarm for [time]" → intent = "alarm" and extract time.
 5) If the user mixes multiple requests, return multiple intents in a single array.
-6) If the message is truly unclear, use "general".
-7) For alarms: extract "time" parameter in format like "8:00 AM", "20:00", etc.
-8) For announcements: put the announcement message in the "prompt" parameter.
-9) For weather/news, default location to Delhi, India unless user gives a real place; for news, only India.
-10) Stop/silence/cancel alarms → intent = "stop_alarm".
-11) "emergency", "fire", "evacuate", "alert" → "emergency_alarm" or "fire_alarm".
-12) Viva/interview/yourself/oral questions → "chat".
-13) Output must be pure JSON; do not wrap in markdown; no commentary.
+6) For alarms: extract "time" parameter in format like "8:00 AM", "20:00", etc.
+7) For announcements: put the announcement message in the "prompt" parameter.
+8) For weather/news, default location to Delhi, India unless user gives a real place; for news, only India.
+9) Stop/silence/cancel alarms → intent = "stop_alarm".
+10) "emergency", "fire", "evacuate", "alert" → "emergency_alarm" or "fire_alarm".
+11) Viva/interview/yourself/oral questions → "chat".
+12) Output must be pure JSON; do not wrap in markdown; no commentary.
 
+RESPONSE GENERATION (reply field)
+- For EVERY intent, generate a short, natural, and helpful spoken response in the "reply" field.
+- Do NOT use generic phrases like "Got it" or "I will make it".
+- Be specific and conversational. E.g., for "make a video of a cat", say "Sure, I'll start generating a video of a playful cat for you."
+- For "tell me a joke", say "Here's a funny one for you!" followed by the joke in the same string or as a separate "chat" intent.
 
 OUTPUT SCHEMA
 [
   {
     "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "alarm" | "announcement" | "status" | "period_bell" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music",
+    "reply": "Natural spoken response to the user",
     "parameters": {
       "prompt": "description or command",
       "location": "use Delhi, India if not provided for weather/news",
@@ -72,34 +74,18 @@ OUTPUT SCHEMA
 EXAMPLES
 User: "generate a video of a dancing pizza"
 [
-  { "intent": "video", "parameters": { "prompt": "dancing pizza video" } }
+  { "intent": "video", "reply": "Coming right up! I'm rendering a video of a dancing pizza for you.", "parameters": { "prompt": "dancing pizza video" } }
+]
+User: "tell me about space"
+[
+  { "intent": "chat", "reply": "Space is vast and fascinating! It's mostly a vacuum, containing billions of galaxies, each with billions of stars and planets. What specific part of space would you like to know about?", "parameters": { "prompt": "tell me about space" } }
 ]
 User: "make a poster for school science fair"
 [
-  { "intent": "image", "parameters": { "prompt": "school science fair poster" } }
-]
-User: "create slides on photosynthesis"
-[
-  { "intent": "ppt", "parameters": { "prompt": "photosynthesis slides" } }
-]
-User: "write a report on AI ethics"
-[
-  { "intent": "docx", "parameters": { "prompt": "AI ethics report" } }
-]
-User: "play lo-fi music"
-[
-  { "intent": "music", "parameters": { "prompt": "play lo-fi music" } }
-]
-User: "announce that dinner is ready"
-[
-  { "intent": "announcement", "parameters": { "prompt": "dinner is ready" } }
-]
-User: "set alarm for 8 AM"
-[
-  { "intent": "alarm", "parameters": { "prompt": "wake up", "time": "8:00 AM" } }
+  { "intent": "image", "reply": "I'll create a professional poster for your school science fair right now.", "parameters": { "prompt": "school science fair poster" } }
 ]
 
-Now only output JSON following the schema and rules."""
+Now only output JSON following the schema and rules. """
 
 
 def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemma-3-12b-it", fallback_model: Optional[str] = None) -> List[Dict[str, Any]]:
