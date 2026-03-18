@@ -850,7 +850,7 @@ def main():
                 recognizer = audio_utils.sr.Recognizer()
                 recognizer.dynamic_energy_threshold = True  
                 # User optimization: lower threshold for clean audio
-                recognizer.energy_threshold = 120 
+                recognizer.energy_threshold = 300 # Sane default floor
             recognizer.pause_threshold = 0.5   # Faster response
             recognizer.phrase_threshold = 0.1 
             recognizer.non_speaking_duration = 0.4 
@@ -881,17 +881,21 @@ def main():
                 mic = audio_utils.sr.Microphone(device_index=device_idx)
             
             if mic is not None:
-                print("[stt] Calibrating microphone for ambient noise (10 seconds)...", flush=True)
+                print("[stt] Calibrating microphone for ambient noise (5 seconds)...", flush=True)
                 try:
                     with audio_utils.no_alsa_err():
                         with mic as source:
-                            recognizer.adjust_for_ambient_noise(source, duration=10.0)
-                            # Re-force threshold if calibration drifted too high
-                        if recognizer.energy_threshold > 600:
+                            # Shorter calibration for better UX
+                            recognizer.adjust_for_ambient_noise(source, duration=5.0)
+                            
+                        # Ensure threshold doesn't drop too low or go too high
+                        if recognizer.energy_threshold < 300:
+                            recognizer.energy_threshold = 300
+                        elif recognizer.energy_threshold > 600:
                             print(f"[stt] Calibration result very high ({recognizer.energy_threshold}), clamping to 600 for noise resilience.")
                             recognizer.energy_threshold = 600
-                        else:
-                            print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
+                        
+                        print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
                 except Exception as e:
                      print(f"[stt] Warning: Ambient calibration failed: {e}", flush=True)
 

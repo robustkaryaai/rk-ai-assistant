@@ -179,10 +179,12 @@ echo "[startup] Step 6: Starting background monitors..."
         # Try to reclaim speaker so it doesn't turn off (Stay-Alive)
         echo "[startup] Attempting to reconnect to $SPEAKER_MAC to prevent auto-shutdown..."
         # Use a more aggressive connection attempt
-        if bluetoothctl connect "$SPEAKER_MAC" 2>&1 | grep -q "Connection successful"; then
+        bluetoothctl connect "$SPEAKER_MAC" &>/dev/null
+        sleep 2
+        if bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
             echo "[startup] Successfully reconnected to $SPEAKER_MAC."
         else
-            echo "[startup] Connection to $SPEAKER_MAC failed or still pending. Retrying later."
+            echo "[startup] Connection to $SPEAKER_MAC still pending or failed. Retrying in next loop."
         fi
     else
         # If connected, play a silent "stay-alive" pulse every 4 minutes 
