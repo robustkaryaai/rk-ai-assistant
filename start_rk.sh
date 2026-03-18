@@ -73,8 +73,8 @@ echo "[startup] Step 3: Powering up $HCI_DEV in HYBRID mode (BLE + Classic)..."
     # Legacy fallbacks & Identity
     sudo hciconfig $HCI_DEV up 2>/dev/null || true
     sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-    # Set class to Computer/Audio (0x000414) or similar to allow both
-    sudo hciconfig $HCI_DEV class 0x000414 2>/dev/null || true
+    # Set class to Computer/Audio (0x20041C) to allow both Sink and Source
+    sudo hciconfig $HCI_DEV class 0x20041C 2>/dev/null || true
     sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
     sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
     sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
@@ -109,13 +109,11 @@ if [ -f "$SCRIPT_DIR/rk_assistant/classic_bluetooth_server.py" ]; then
 fi
 
 echo "[startup] Step 5: Finalizing Bluetooth visibility..."
+# Use bluetoothctl for power but DON'T override the Python agent
 sudo bluetoothctl << BTEOF &>/dev/null
 power on
 discoverable on
 pairable on
-# Use KeyboardDisplay here as well to match the agent script
-agent KeyboardDisplay
-default-agent
 discoverable-timeout 0
 BTEOF
 
@@ -142,10 +140,25 @@ echo "[startup] Step 6: Starting background monitors..."
 # Auto-trust and Speaker Reconnect loop
 (
   echo "[startup] Bluetooth monitor started."
-  SPEAKER_MAC="D0:78:1D:4F:F4:1E"
   
+  # Load SPEAKER_MAC from .env if available
+  SPEAKER_MAC="D0:78:1D:4F:F4:1E" # Default
+  ENV_FILE="$SCRIPT_DIR/.env"
+  if [ -f "$ENV_FILE" ]; then
+      ENV_MAC=$(grep "^BLUETOOTH_SPEAKER_MAC=" "$ENV_FILE" | cut -d'=' -f2 | tr -d ' "' | tr -d "'")
+      if [ -n "$ENV_MAC" ]; then
+          SPEAKER_MAC="$ENV_MAC"
+      fi
+  fi
+  echo "[startup] Monitoring Speaker MAC: $SPEAKER_MAC"
+
   # Ensure speaker isn't stuck in a "connect/disconnect" loop by checking state
   while true; do
+    # Check if paired
+    if ! bluetoothctl devices Paired 2>/dev/null | grep -qi "$SPEAKER_MAC"; then
+        echo "[startup] WARNING: Speaker $SPEAKER_MAC is NOT PAIRED. Reconnect will fail until paired."
+    fi
+
     # 1. Trust all paired devices
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r dev; do
         bluetoothctl trust "$dev" &>/dev/null
@@ -156,12 +169,21 @@ echo "[startup] Step 6: Starting background monitors..."
     # Most speakers only allow one active connection.
     if ! bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
         echo "[startup] Speaker $SPEAKER_MAC disconnected. Checking if we should reclaim..."
+        
+        # Ensure it's trusted specifically
+        bluetoothctl trust "$SPEAKER_MAC" &>/dev/null
+        
         # Wait a few seconds to see if the user's phone wants it first
         sleep 5
         
         # Try to reclaim speaker so it doesn't turn off (Stay-Alive)
         echo "[startup] Attempting to reconnect to $SPEAKER_MAC to prevent auto-shutdown..."
-        bluetoothctl connect "$SPEAKER_MAC" &>/dev/null
+        # Use a more aggressive connection attempt
+        if bluetoothctl connect "$SPEAKER_MAC" 2>&1 | grep -q "Connection successful"; then
+            echo "[startup] Successfully reconnected to $SPEAKER_MAC."
+        else
+            echo "[startup] Connection to $SPEAKER_MAC failed or still pending. Retrying later."
+        fi
     else
         # If connected, play a silent "stay-alive" pulse every 4 minutes 
         # (This prevents most speakers from timing out)
