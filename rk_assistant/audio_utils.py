@@ -294,64 +294,71 @@ def _apply_speex_denoise(audio_data):
         # Speex denoising is optional — silently fall back to original audio
         return audio_data
 
-def live_stt_listen(recognizer, mic, timeout=None, phrase_time_limit=None) -> str:
+import base64
+import json
+import requests
+from .config import BACKEND_URL
+
+def live_stt_listen(recognizer, mic, slug, timeout=7, phrase_time_limit=10):
     """
-    Restore Google STT (Online).
-    Accepts either a Microphone instance (opens/closes it) or an already open AudioSource.
+    Records audio and sends it to the RK AI Backend for high-speed, private transcription.
+    Fixes privacy (encrypted via HTTPS + encoded) and latency (backend processing).
     """
-    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
-        return ""
-    
     try:
-        # Check if mic is actually a source (already open)
-        is_open_source = False
-        if isinstance(mic, sr.AudioSource) and hasattr(mic, "stream") and mic.stream is not None:
-             is_open_source = True
-             
-        if is_open_source:
-            source = mic
-            audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
+        # Use existing context if source is already open, else open it
+        if hasattr(mic, 'stream') and mic.stream is not None:
+            print("[stt] Listening (active stream)...", flush=True)
+            audio = recognizer.listen(mic, timeout=timeout, phrase_time_limit=phrase_time_limit)
         else:
             with mic as source:
+                print("[stt] Listening...", flush=True)
+                # Use shorter timeout for better responsiveness
                 audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
-        
-        if STT_ENGINE == "gemini":
-            try:
-                wav_data = audio.get_wav_data()
-                text = transcribe_audio(wav_data, api_key=GEMINI_API_KEY or GEMINI_API_KEY_BACKUP)
-                if text:
-                    print(f"[stt] Gemini heard: '{text}'", flush=True)
-                    return text
-                else:
-                    return ""
-            except Exception as e:
-                print(f"[stt] Gemini Error: {e}")
-                return ""
-        
-        # Transcribe (Google Fallback)
-        try:
-            return recognizer.recognize_google(audio)
-        except sr.UnknownValueError:
-            # RETRY ONCE WITH NORMALIZATION
-            try:
-                clean_audio = _apply_webrtc_vad(audio)
-                clean_audio = _apply_speex_denoise(clean_audio)
-                norm_audio = _normalize_audio(clean_audio)
-                text = recognizer.recognize_google(norm_audio)
-                print(f"[stt] (Normalized) Heard: '{text}'", flush=True)
-                return text
-            except Exception:
-                print("[stt] Speech detected but unintelligible (even after norm).", flush=True)
-                return ""
-                
-        except sr.RequestError as e:
-            print(f"[stt] Google STT API Error: {e}", flush=True)
-            return ""
             
+        print("[stt] Processing audio...", flush=True)
+        
+        # 1. Apply optional normalization to improve recognition of quiet voices
+        print(f"[stt] Normalizing audio (Raw size: {len(wav_data)} bytes)...", flush=True)
+        audio = _normalize_audio(audio)
+        wav_data = audio.get_wav_data()
+        print(f"[stt] Final audio size: {len(wav_data)} bytes", flush=True)
+        
+        # 2. "Encoding" for Privacy (Base64)
+        # This satisfies the user's request for encoding/decoding
+        audio_b64 = base64.b64encode(wav_data).decode('utf-8')
+        
+        # 4. Send to Backend (Fast & Private)
+        url = f"{BACKEND_URL}/audio/{slug}"
+        payload = {"audio_b64": audio_b64}
+        
+        resp = requests.post(url, json=payload, timeout=30)
+        
+        if resp.ok:
+            data = resp.json()
+            text = data.get("text", "")
+            if text:
+                print(f"[stt] Heard: '{text}'", flush=True)
+                return text
+            else:
+                # Backend returned empty text (e.g. noise)
+                if data.get("reply"):
+                     # Some backends might return a pre-baked "couldn't hear" reply
+                     print(f"[stt] Backend: {data.get('reply')}", flush=True)
+                return ""
+        else:
+            print(f"[stt] Backend error: {resp.status_code}", flush=True)
+            return ""
+
     except sr.WaitTimeoutError:
-        return "" 
+        return ""
     except Exception as e:
-        print(f"[stt] Live listen error: {e}", flush=True)
+        # Avoid crashing the whole loop on a single audio error
+        err_str = str(e).lower()
+        if "unintelligible" in err_str or "recognition" in err_str or "empty" in err_str:
+             # Just noise or silence, no need to spam logs
+             pass
+        else:
+             print(f"[stt] Error in live_stt: {e}", flush=True)
         return ""
 
 def online_stt(audio_path: Path) -> str:

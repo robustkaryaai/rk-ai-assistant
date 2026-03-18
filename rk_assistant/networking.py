@@ -41,25 +41,38 @@ def get_ip_address():
 
 
 def is_online() -> bool:
-    """Check if the system has an active internet connection."""
+    """
+    Check if the system has an active internet connection.
+    Uses HTTP health check to backend for Shoom-level reliability (bypasses flaky ICMP pings).
+    """
     if FORCE_OFFLINE:
         return False
     try:
-        # Check if we have an IP address other than localhost
-        # This is faster than pinging
+        # 1. Quick local check: do we even have an IP?
         output = subprocess.check_output(["hostname", "-I"]).decode().strip()
         if not output:
             return False
         
-        # Also try to ping a reliable server to confirm actual internet access
-        subprocess.check_call(
-            ["ping", "-c", "1", "8.8.8.8"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=2
-        )
-        return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, Exception):
+        # 2. HTTP Health Check to Backend (The ultimate truth)
+        # Using /health is much more reliable than pinging 8.8.8.8 on flaky networks
+        try:
+            resp = requests.get(f"{BACKEND_BASE_URL}/health", timeout=3)
+            if resp.ok:
+                return True
+        except:
+            pass
+
+        # 3. Fallback to public DNS targets if backend is down but internet is up
+        targets = ["https://1.1.1.1", "https://google.com"]
+        for target in targets:
+            try:
+                requests.head(target, timeout=2)
+                return True
+            except:
+                continue
+
+        return False
+    except Exception:
         return False
 
 

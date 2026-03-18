@@ -1,5 +1,5 @@
 """
-RK AI Pi client.
+RK AI Pi client v3.0.0
 
 Behavior summary:
 1. Loop: ensure online/offline state.
@@ -513,32 +513,30 @@ def process_online_command(text: str, slug: str, music_proc_holder: dict) -> boo
 def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:
     """
     Unified voice flow.
-    ONLINE: Uses Google STT continuously to listen. If 'rk' is in text, executes command.
+    ONLINE: Uses high-speed STT continuously to listen. If 'rk' is in text, executes command.
     OFFLINE: Falls back to PocketSphinx for wake word.
     """
     # Check if device is muted (synced from Appwrite via mobile app)
     if settings_sync.is_device_muted():
         print("[voice] Device is muted, skipping listening...")
-        time.sleep(2)  # Check again in 2 seconds
+        time.sleep(2)
         return
     
     # 1. Determine mode
     online = is_online()
     
     if online and recognizer and mic:
-        # --- ONLINE MODE (Always-on Google STT) ---
+        # --- ONLINE MODE (Always-on high-speed STT) ---
         print(f"[stt] Listening continuously (will respond when '{WAKE_WORD}' detected)...", flush=True)
         
         # Open microphone ONCE to avoid PyAudio/ALSA initialization overhead every loop
         with mic as source:
-            # Calibration is now done ONCE at startup (in main)
-            # We assume recognizer is already calibrated
-            
-            # Boost sensitivity for distance (Lower threshold = more sensitive)
-            # Default is 300-400, dynamic adjustment will fine-tune from here
-            recognizer.energy_threshold = 200  # Start very sensitive
+            # Recognizer is already calibrated at startup in main()
+            # We keep its threshold unless dynamic adjustment is disabled
             recognizer.dynamic_energy_threshold = True
-            recognizer.pause_threshold = 0.8   # Shorter pause to detect end of speech
+            recognizer.pause_threshold = 0.8
+            
+            consecutive_offline_checks = 0
             
             while True:
                 # Check mute status inside loop
@@ -547,13 +545,21 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     time.sleep(2)
                     continue
 
+                # Shoom resilience: don't go offline on a single failure
                 if not is_online():
-                    # Fallback to offline loop if internet lost
-                    break
+                    consecutive_offline_checks += 1
+                    if consecutive_offline_checks >= 3:
+                        print("[stt] Internet connection lost (3 failed checks). Switching to offline mode...", flush=True)
+                        break
+                    else:
+                        print(f"[stt] Warning: Internet check failed ({consecutive_offline_checks}/3). Continuing...", flush=True)
+                        time.sleep(1)
+                        continue
+                else:
+                    consecutive_offline_checks = 0
 
                 # Pass OPEN source to live_stt_listen (zero latency)
-                # Timeout 8s to allow silence detection, phrase limit 10s for commands
-                text = live_stt_listen(recognizer, source, timeout=8, phrase_time_limit=10.0)
+                text = live_stt_listen(recognizer, source, slug, timeout=8, phrase_time_limit=10.0)
                 
                 if not text:
                     continue
@@ -564,87 +570,8 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 # Check for any wake word from the list
                 detected_wake_word = _is_wake_word_heard(text_lower, WAKE_WORDS)
 
-                
                 if detected_wake_word:
                     print(f"[wake] ✓ Wake word '{detected_wake_word}' detected!")
-                    
-                    # Diagnostic: Check network health immediately
-                    from .networking import check_network_health
-                    threading.Thread(target=check_network_health, daemon=True).start()
-                    
-                    # User request: Disable ducking during listening to avoid confusion/lag
-                    # if music_proc_holder.get("proc"):
-                    #    set_volume(20)
-                    
-                    # Strip key word to get command
-                    idx = text_lower.find(detected_wake_word)
-                    command_part = text[idx + len(detected_wake_word):].strip()
-                    
-                    # If user just said wake word only, listen for follow-up
-                    if not command_part:
-                        print("[stt] Wake word heard but no command. Listening for follow-up...")
-                        # Reuse the SAME source for follow-up
-                        try:
-                            audio = recognizer.listen(source, timeout=5.0, phrase_time_limit=10.0)
-                            command_part = recognizer.recognize_google(audio)
-                        except Exception:
-                            command_part = ""
-                    
-def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, recognizer=None, mic=None) -> None:
-    """
-    Unified voice flow.
-    ONLINE: Uses Google STT continuously to listen. If 'rk' is in text, executes command.
-    OFFLINE: Falls back to PocketSphinx for wake word.
-    """
-    # Check if device is muted (synced from Appwrite via mobile app)
-    if settings_sync.is_device_muted():
-        print("[voice] Device is muted, skipping listening...")
-        time.sleep(2)  # Check again in 2 seconds
-        return
-    
-    # 1. Determine mode
-    online = is_online()
-    
-    if online and recognizer and mic:
-        # --- ONLINE MODE (Always-on Google STT) ---
-        print(f"[stt] Listening continuously (will respond when '{WAKE_WORD}' detected)...", flush=True)
-        
-        # Open microphone ONCE to avoid PyAudio/ALSA initialization overhead every loop
-        with mic as source:
-            # Calibration is now done ONCE at startup (in main)
-            # We assume recognizer is already calibrated
-            
-            while True:
-                # Check mute status inside loop
-                if settings_sync.is_device_muted():
-                    print("[voice] Device muted, pausing listening...")
-                    time.sleep(2)
-                    continue
-
-                if not is_online():
-                    # Fallback to offline loop if internet lost
-                    break
-
-                # Pass OPEN source to live_stt_listen (zero latency)
-                # Timeout 8s to allow silence detection, phrase limit 10s for commands
-                text = live_stt_listen(recognizer, source, timeout=8, phrase_time_limit=10.0)
-                
-                if not text:
-                    continue
-
-                text_lower = text.lower()
-                print(f"[stt] Heard: '{text}'")
-
-                # Check for any wake word from the list
-                detected_wake_word = _is_wake_word_heard(text_lower, WAKE_WORDS)
-
-                
-                if detected_wake_word:
-                    print(f"[wake] ✓ Wake word '{detected_wake_word}' detected!")
-                    
-                    # Diagnostic: Check network health immediately
-                    from .networking import check_network_health
-                    threading.Thread(target=check_network_health, daemon=True).start()
                     
                     # Duck volume (visual/audio feedback)
                     if music_proc_holder.get("proc"):
@@ -657,7 +584,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     # If user just said wake word only, listen for follow-up
                     if not command_part:
                         print("[stt] Wake word heard but no command. Listening for follow-up...")
-                        # Reuse the SAME source for follow-up
                         try:
                             audio = recognizer.listen(source, timeout=5.0, phrase_time_limit=10.0)
                             command_part = recognizer.recognize_google(audio)
@@ -675,7 +601,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             print(f"[stt] Processing command: '{current_command}'")
                             
                             # --- FAST TRACK (Instant local execution for UX) ---
-                            # No speech, no waiting, just DO it.
                             fast_cmd = current_command.lower().strip()
                             if any(x in fast_cmd for x in ["louder", "quieter", "volume up", "volume down", "mute", "unmute", "stop", "pause", "resume", "play again", "replay"]):
                                  print(f"[main] ⚡ Fast Track: {fast_cmd}")
@@ -707,33 +632,16 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                                      subprocess.run(["sudo", "reboot"])
                                      return
 
-                                 # Unpause if it was music control
                                  if any(x in fast_cmd for x in ["louder", "quieter", "volume", "resume"]):
                                      if music_proc_holder.get("proc"):
                                         music_manager.unpause_music()
                                         
-                                 # Special case: Play Again
-                                 if resp == "_PLAY_AGAIN_":
-                                     query = music_manager.last_played_query
-                                     if query:
-                                         trigger_music_playback(query, music_proc_holder)
-                                 
-                                 # Skip the rest (don't speak "Volume up" etc if we want Alexa speed, 
-                                 # or let it speak but it already executed)
-                                 # User said "make it like alexa", Alexa just does it (maybe a ding).
-                                 # For volume, just doing it is best.
                                  if "volume" in fast_cmd or "louder" in fast_cmd or "quieter" in fast_cmd:
-                                     continue # Skip further processing for this command
+                                     continue 
                                      
                             # --- NORMAL TRACK ---
-                            # Execute logic
                             expect_followup = False
-                            
                             offline_kw = match_offline_command(current_command)
-                            
-                            # Only handle offline if:
-                            # 1. We are actually offline
-                            # 2. OR it's a specific system/info command (time, battery) that doesn't need Gemini
                             is_conversational = offline_kw in ["hello", "hi", "hey", "how are you", "what's up", "thank you", "thanks", "goodbye", "bye"]
                             
                             if offline_kw and (not online or not is_conversational):
@@ -758,7 +666,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             # If this was a chat/question, keep listening!
                             if expect_followup and is_online():
                                 print("[stt] 🗣️ Follow-up mode active. Listening (5s)...")
-                                follow_up_text = live_stt_listen(recognizer, mic, timeout=5.0, phrase_time_limit=8.0)
+                                follow_up_text = live_stt_listen(recognizer, mic, slug, timeout=5.0, phrase_time_limit=8.0)
                                 
                                 if follow_up_text:
                                     lower_f = follow_up_text.lower()
@@ -777,8 +685,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                             print("[stt] No command heard after wake word.")
                             if music_proc_holder.get("proc"):
                                 music_manager.unpause_music()
-                else:
-                    pass
 
     elif not online:
         # --- OFFLINE MODE (Porcupine + WebRTC + Vosk) ---
@@ -787,7 +693,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         
         if detected:
             print("[stt] Wake word detected. Recording command...", flush=True)
-            # Record it using WebRTC VAD
             audio_path = audio_utils.record_audio()
             
             if audio_path:
@@ -795,7 +700,6 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 if text:
                     text_lower = text.lower()
                     print(f"[stt] Heard offline: '{text_lower}'")
-                    # Try to map it via machine learning classifier first
                     offline_kw = match_offline_command(text_lower)
                     
                     if offline_kw:
@@ -934,9 +838,9 @@ def main():
                         with mic as source:
                             recognizer.adjust_for_ambient_noise(source, duration=10.0)
                             # Re-force threshold if calibration drifted too high
-                        if recognizer.energy_threshold > 300:
-                            print(f"[stt] Calibration result too high ({recognizer.energy_threshold}), clamping to 300 for clean_mic.")
-                            recognizer.energy_threshold = 300
+                        if recognizer.energy_threshold > 600:
+                            print(f"[stt] Calibration result very high ({recognizer.energy_threshold}), clamping to 600 for noise resilience.")
+                            recognizer.energy_threshold = 600
                         else:
                             print(f"[stt] Energy threshold set to: {recognizer.energy_threshold}", flush=True)
                 except Exception as e:

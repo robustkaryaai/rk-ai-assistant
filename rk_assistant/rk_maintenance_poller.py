@@ -26,7 +26,7 @@ def run_poller():
         except Exception as e:
             print(f"[maintenance] Error pinging backend: {e}")
             
-        time.sleep(60)
+        time.sleep(45) # Ping every 45s for Shoom stability
 
 if __name__ == "__main__":
     run_poller()
