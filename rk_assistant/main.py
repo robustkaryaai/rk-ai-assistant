@@ -964,7 +964,8 @@ def main():
         
         # FINAL CELEBRATION!
         print("[main] LOUD AND CLEAR: WE DID IT!")
-        speak("We did it!")
+        # speak("We did it!")
+        pass
         time.sleep(1)
 
     print("\n" + "="*60)

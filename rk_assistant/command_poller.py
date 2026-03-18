@@ -77,8 +77,9 @@ def execute_command(cmd: dict, slug: str) -> None:
             result = execute_voice_command(text)
             success = True
             
-        elif cmd_type == 'mute':
-            result = set_mute(True)
+        elif cmd_type == 'mute' or cmd_type == 'set_mute':
+            mute_val = payload.get('mute', True) if cmd_type == 'set_mute' else True
+            result = set_mute(mute_val)
             success = True
             
         elif cmd_type == 'unmute':
