@@ -65,7 +65,8 @@ def execute_voice_command(text: str) -> str:
 def execute_command(cmd: dict, slug: str) -> None:
     """Execute a single command from the queue"""
     cmd_id = cmd.get('$id')
-    cmd_type = cmd.get('command_type')
+    # 🚀 Check for both snake_case and camelCase from Appwrite schema
+    cmd_type = cmd.get('command_type') or cmd.get('commandType')
     payload = cmd.get('payload', {})
     
     print(f"[commands] Executing {cmd_type}: {payload}")
@@ -93,7 +94,7 @@ def execute_command(cmd: dict, slug: str) -> None:
             success = True
             
         elif cmd_type == 'shutdown':
-            audio_utils_simple.speak("Shutting down RK AI Assistant")
+            audio_utils_simple.speak("Shutting down RexyCore Assistant")
             result = "Shutdown initiated"
             success = True
             # Note: Actual shutdown would be handled externally
