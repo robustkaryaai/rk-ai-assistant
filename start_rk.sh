@@ -39,36 +39,19 @@ if ! hciconfig | grep -q "$HCI_DEV"; then
 fi
 echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
 
-echo "[startup] Step 3: Powering up $HCI_DEV in HYBRID mode (BLE + Classic)..."
-    # Force interface down to apply low-level changes
-    sudo hciconfig $HCI_DEV down 2>/dev/null || true
-    
-    # Use btmgmt to enable both LE (for phone) and BR/EDR (for speaker)
-    if command -v btmgmt &> /dev/null; then
-        echo "[startup] Using btmgmt to configure hybrid settings..."
-        sudo btmgmt -i $HCI_DEV power off &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV le on &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV bredr on &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV ssp on &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV bondable on &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV connectable on &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV discov on &>/dev/null || true
-        sudo btmgmt -i $HCI_DEV power on &>/dev/null || true
-    fi
-
-    # Legacy fallbacks & Identity
-    sudo hciconfig $HCI_DEV up 2>/dev/null || true
-    sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
-    # Set class to Computer/Audio (0x20041C) to allow both Sink and Source
-    sudo hciconfig $HCI_DEV class 0x20041C 2>/dev/null || true
-    sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
-    sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
-    sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
-    # Ensure page scan and inquiry scan are on for classic discovery/connection
-    sudo hciconfig $HCI_DEV pscan 2>/dev/null || true
-    sudo hciconfig $HCI_DEV iscan 2>/dev/null || true
-    # Force master mode for classic connections (helps with speakers)
-    sudo hciconfig $HCI_DEV lm master 2>/dev/null || true
+# Legacy fallbacks & Identity
+sudo hciconfig $HCI_DEV up 2>/dev/null || true
+sudo hciconfig $HCI_DEV name "$BT_NAME" 2>/dev/null || true
+# Set class to Computer/Audio (0x20041C) to allow both Sink and Source
+sudo hciconfig $HCI_DEV class 0x20041C 2>/dev/null || true
+sudo hciconfig $HCI_DEV sspmode 1 2>/dev/null || true
+sudo hciconfig $HCI_DEV auth 0 2>/dev/null || true
+sudo hciconfig $HCI_DEV piscan 2>/dev/null || true
+# Ensure page scan and inquiry scan are on for classic discovery/connection
+sudo hciconfig $HCI_DEV pscan 2>/dev/null || true
+sudo hciconfig $HCI_DEV iscan 2>/dev/null || true
+# Force master mode for classic connections (helps with speakers)
+sudo hciconfig $HCI_DEV lm master 2>/dev/null || true
 
 echo "[startup] Step 4: Launching Auto-Pairing Agent & Provisioning Service..."
 # Set PYTHONPATH so we can run modules
@@ -107,18 +90,11 @@ sudo sdptool add SP 2>/dev/null || true
 
 # ─── 1. Hardware Identity ─────────────────────────────────
 if [ ! -f "/tmp/.bt_setup_done" ]; then
-    echo "[startup] Step 1: Configuring Hardware Identity..."
-    
-    # Sync hostname
-    if [ "$CURRENT_HOSTNAME" != "$BT_NAME" ]; then
-        echo "[startup] Setting system hostname to $BT_NAME..."
+    # Removed noisy logs
+    if command -v hostnamectl &> /dev/null; then
         sudo hostnamectl set-hostname "$BT_NAME"
     fi
-
-    touch /tmp/.bt_setup_done
-    echo "[startup] Hardware initialization complete."
-else
-    echo "[startup] Hardware already initialized, skipping hostname/identity setup."
+    sudo touch "/tmp/.bt_setup_done"
 fi
 
 # ─── 2. Background Tasks ──────────────────────────────────

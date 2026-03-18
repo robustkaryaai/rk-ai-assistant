@@ -570,15 +570,27 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
             
             consecutive_offline_checks = 0
             last_activity_time = time.time()
+            inactivity_slowdown = False
             
             while True:
-                # 1. Check for Inactivity (2 Minute "Night Protocol" fix)
-                # If no speech for 2 minutes, reset the mic stream to keep it fresh
                 current_time = time.time()
-                if current_time - last_activity_time > 120:
-                    print(f"[stt] Inactivity threshold reached (2m). Refreshing system state...", flush=True)
-                    # We break the loop to allow main() to restart voice_flow, 
-                    # which re-opens the microphone and resets the stream.
+                time_since_last = current_time - last_activity_time
+                
+                # 1. Inactivity Handling (Night Protocol / Slowdown)
+                # After 5 minutes of silence, we "slow down" to save power/bandwidth
+                if time_since_last > 300 and not inactivity_slowdown:
+                    print(f"[stt] Inactivity threshold reached (5m). Entering Slow-Mode (Night Protocol)...", flush=True)
+                    inactivity_slowdown = True
+                    # Increase pause threshold to be less sensitive during sleep
+                    recognizer.pause_threshold = 1.2 
+                elif time_since_last < 300 and inactivity_slowdown:
+                    print(f"[stt] Activity detected. Resuming Full-Speed mode...", flush=True)
+                    inactivity_slowdown = False
+                    recognizer.pause_threshold = 0.5
+
+                # Every 15 minutes, refresh the stream regardless to keep it healthy
+                if time_since_last > 900:
+                    print(f"[stt] Long-term inactivity (15m). Refreshing microphone stream...", flush=True)
                     break
 
                 # 2. Check mute status inside loop

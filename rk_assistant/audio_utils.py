@@ -301,8 +301,8 @@ from .config import BACKEND_URL
 
 def live_stt_listen(recognizer, mic, slug, timeout=7, phrase_time_limit=10):
     """
-    Records audio and sends it to the RK AI Backend for high-speed, private transcription.
-    Fixes privacy (encrypted via HTTPS + encoded) and latency (backend processing).
+    Direct Google STT for maximum reliability.
+    Uses SpeechRecognition's recognize_google method locally.
     """
     try:
         # Use existing context if source is already open, else open it
@@ -312,58 +312,31 @@ def live_stt_listen(recognizer, mic, slug, timeout=7, phrase_time_limit=10):
         else:
             with mic as source:
                 print("[stt] Listening...", flush=True)
-                # Use shorter timeout for better responsiveness
                 audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
             
-        print("[stt] Processing audio...", flush=True)
+        print("[stt] Processing via Google STT...", flush=True)
         
-        # 1. Get raw data for logging/processing
-        wav_data = audio.get_wav_data()
-        print(f"[stt] Normalizing audio (Raw size: {len(wav_data)} bytes)...", flush=True)
-        
-        # 2. Apply optional normalization to improve recognition of quiet voices
+        # Apply normalization to improve recognition
         audio = _normalize_audio(audio)
-        wav_data = audio.get_wav_data()
-        print(f"[stt] Final audio size: {len(wav_data)} bytes", flush=True)
         
-        # 3. "Encoding" for Privacy (Base64)
-        # This satisfies the user's request for encoding/decoding
-        audio_b64 = base64.b64encode(wav_data).decode('utf-8')
+        # Local Google Recognition (Bypasses backend errors)
+        text = recognizer.recognize_google(audio)
         
-        # 4. Send to Backend (Fast & Private)
-        url = f"{BACKEND_URL}/audio/{slug}"
-        payload = {"audio_b64": audio_b64}
-        
-        # Use short timeout for STT to prevent loop hanging
-        resp = requests.post(url, json=payload, timeout=15)
-        
-        if resp.ok:
-            data = resp.json()
-            text = data.get("text", "")
-            if text:
-                print(f"[stt] Heard: '{text}'", flush=True)
-                return text
-            else:
-                # Backend returned empty text (e.g. noise)
-                if data.get("reply"):
-                     # Some backends might return a pre-baked "couldn't hear" reply
-                     print(f"[stt] Backend: {data.get('reply')}", flush=True)
-                return ""
-        else:
-            print(f"[stt] Backend error: {resp.status_code}", flush=True)
-            return ""
-
+        if text:
+            print(f"[stt] Heard: '{text}'", flush=True)
+            return text
+            
+    except sr.UnknownValueError:
+        # Noise or no speech detected
+        pass
+    except sr.RequestError as e:
+        print(f"[stt] Google API Error: {e}", flush=True)
     except sr.WaitTimeoutError:
-        return ""
+        pass
     except Exception as e:
-        # Avoid crashing the whole loop on a single audio error
-        err_str = str(e).lower()
-        if "unintelligible" in err_str or "recognition" in err_str or "empty" in err_str:
-             # Just noise or silence, no need to spam logs
-             pass
-        else:
-             print(f"[stt] Error in live_stt: {e}", flush=True)
-        return ""
+        print(f"[stt] STT Error: {e}", flush=True)
+        
+    return ""
 
 def online_stt(audio_path: Path) -> str:
     """Transcribe audio file using Google STT."""
