@@ -415,16 +415,21 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=N
                          r.dynamic_energy_threshold = False  # Lock it, don't drift up
                     audio = r.listen(source, timeout=8, phrase_time_limit=12)
             
-            # Apply WebRTC VAD to strip pure noise
-            clean_audio = _apply_webrtc_vad(audio)
+            # 🚀 Restored High-Fidelity Audio Pipeline
+            # 1. Pre-Normalization (Boost quiet signals for cleaner denoising)
+            boosted_audio = _normalize_audio(audio, target_level=30000)
             
-            # Apply Speex Denoise purely in C space
-            clean_audio = _apply_speex_denoise(clean_audio)
+            # 2. Apply WebRTC VAD to strip pure noise
+            clean_audio = _apply_webrtc_vad(boosted_audio)
             
-            # Save to WAV (Normalized)
-            norm_audio = _normalize_audio(clean_audio)
+            # 3. Apply Speex Denoise (System noise remover)
+            denoised_audio = _apply_speex_denoise(clean_audio)
+            
+            # 4. Final Normalization (Target level for Google STT)
+            final_audio = _normalize_audio(denoised_audio, target_level=25000)
+            
             with open(out_path, "wb") as f:
-                f.write(norm_audio.get_wav_data())
+                f.write(final_audio.get_wav_data())
             
             return Path(out_path)
             
