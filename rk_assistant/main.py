@@ -1065,7 +1065,7 @@ def main():
     while True:
         try:
             voice_flow(decoder_available, music_proc_holder, slug, recognizer=recognizer, mic=mic)
-            time.sleep(0.5) # Throttle loop
+            time.sleep(1.0) # 🚀 1s Delay between processing cycles
         except KeyboardInterrupt:
             print("[main] KeyboardInterrupt received, exiting...")
             if 'poller_proc' in locals() and poller_proc is not None:

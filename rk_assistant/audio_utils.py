@@ -160,7 +160,8 @@ def speak(text):
     if GTTS_ENABLE and is_online():
         try:
             from gtts import gTTS
-            tts = gTTS(text=clean_text, lang=GTTS_LANG, tld=GTTS_TLD)
+            # 🚀 Clean usage of Google TTS without artificial limits
+            tts = gTTS(text=clean_text, lang=GTTS_LANG, tld=GTTS_TLD, slow=False)
             tts.save("/tmp/tts.mp3")
             proc = play_audio_url("/tmp/tts.mp3")
             if proc:
