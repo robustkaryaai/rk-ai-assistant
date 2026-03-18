@@ -153,53 +153,60 @@ echo "[startup] Step 6: Starting background monitors..."
   echo "[startup] Monitoring Speaker MAC: $SPEAKER_MAC"
 
   # Ensure speaker isn't stuck in a "connect/disconnect" loop by checking state
+  FAIL_COUNT=0
   while true; do
-    # Check if paired
-    if ! bluetoothctl devices Paired 2>/dev/null | grep -qi "$SPEAKER_MAC"; then
-        echo "[startup] WARNING: Speaker $SPEAKER_MAC is NOT PAIRED. Reconnect will fail until paired."
-    fi
-
     # 1. Trust all paired devices
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r dev; do
         bluetoothctl trust "$dev" &>/dev/null
     done
     
     # 2. Try reconnecting to speaker if disconnected
-    # We only try to connect if the speaker is NOT connected to SOMETHING else (like the user's phone)
-    # Most speakers only allow one active connection.
     if ! bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
-        echo "[startup] Speaker $SPEAKER_MAC disconnected. Checking if we should reclaim..."
+        echo "[startup] Speaker $SPEAKER_MAC disconnected. Reclaiming..."
         
-        # Ensure it's trusted specifically
+        # If we fail 3 times in a row, reset the entire adapter
+        if [ $FAIL_COUNT -ge 3 ]; then
+            echo "[startup] Multiple connection failures. Resetting Bluetooth adapter $HCI_DEV..."
+            sudo hciconfig $HCI_DEV down && sleep 2 && sudo hciconfig $HCI_DEV up
+            sudo hciconfig $HCI_DEV class 0x20041C
+            FAIL_COUNT=0
+            sleep 5
+        fi
+
         bluetoothctl trust "$SPEAKER_MAC" &>/dev/null
+        # Force disconnect first to clear "InProgress" or "Busy" errors
+        bluetoothctl disconnect "$SPEAKER_MAC" &>/dev/null
+        sleep 1
         
-        # Wait a few seconds to see if the user's phone wants it first
+        # Aggressive connect
+        bluetoothctl connect "$SPEAKER_MAC" &>/dev/null
         sleep 5
         
-        # Try to reclaim speaker so it doesn't turn off (Stay-Alive)
-        echo "[startup] Attempting to reconnect to $SPEAKER_MAC to prevent auto-shutdown..."
-        # Use a more aggressive connection attempt
-        bluetoothctl connect "$SPEAKER_MAC" &>/dev/null
-        sleep 2
         if bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
-            echo "[startup] Successfully reconnected to $SPEAKER_MAC."
+            echo "[startup] ✓ Connected to $SPEAKER_MAC."
+            FAIL_COUNT=0
+            # Force A2DP Sink profile specifically to prevent "Connected: yes" but no sound
+            # We try both bluez card name formats
+            CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
+            pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null || true
+            # PulseAudio/Pipewire might need a second to register the card
+            sleep 2
+            pacmd set-default-sink "bluez_sink.${SPEAKER_MAC//:/_}.a2dp_sink" &>/dev/null || true
         else
-            echo "[startup] Connection to $SPEAKER_MAC still pending or failed. Retrying in next loop."
+            echo "[startup] ❌ Connection failed (org.bluez.Error). Retrying..."
+            ((FAIL_COUNT++))
         fi
     else
-        # If connected, play a silent "stay-alive" pulse every 4 minutes 
-        # (This prevents most speakers from timing out)
-        # Note: Requires 'aplay' or 'paplay' installed.
-        if command -v paplay &> /dev/null; then
-            # Play 0.1s of silence
-            (head -c 1000 /dev/zero | paplay --raw --channels=1 --rate=44100 &>/dev/null) &
-        fi
+        FAIL_COUNT=0
+    fi
+
+    # 3. Stay-Alive Pulse (Prevents auto-shutdown)
+    # Every 2 minutes, play a 0.5s silent tone
+    if command -v paplay &> /dev/null; then
+        (head -c 4000 /dev/zero | paplay --raw --channels=1 --rate=44100 &>/dev/null) &
     fi
     
-    # 3. Save currently connected device for main.py logic
-    bluetoothctl info 2>/dev/null | grep "Connected: yes" -B 10 | grep "Device" | awk '{print $2}' > "$PAIRING_FILE" 2>/dev/null
-    
-    sleep 30
+    sleep 60 # Check more frequently (every minute)
   done
 ) &
 
