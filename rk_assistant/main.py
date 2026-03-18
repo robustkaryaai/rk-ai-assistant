@@ -828,7 +828,7 @@ def main():
     global is_first_boot
     
     print("\n" + "="*30)
-    print("Initializing RK AI Assistant...")
+    print("✓ Initializing RK AI Assistant...")
     print("="*30 + "\n")
 
     # 0. Basic Setup & Identity
@@ -1051,7 +1051,7 @@ def main():
     
     # --- 7. Voice Loop ---
     print("\n" + "="*30)
-    print("STARTING VOICE MODE")
+    print("✓ STARTING VOICE MODE")
     print("="*30 + "\n")
     
     # Announce ready right before starting to listen (skip if first boot since we already spoke)
