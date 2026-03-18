@@ -266,6 +266,12 @@ def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = 
         # Map to music handler with special prompt
         return handle_music({"prompt": "last song"})
     
+    elif intent in ["wake", "wake_up", "restart_stt", "refresh"]:
+        return {
+            "intent": "wake_up",
+            "reply": "I'm fully awake and ready. System refreshed."
+        }
+    
     elif intent in ["emergency_alarm", "fire_alarm"]:
         return handle_emergency_alarm(parameters)
     

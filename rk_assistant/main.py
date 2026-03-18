@@ -537,9 +537,19 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
             recognizer.pause_threshold = 0.8
             
             consecutive_offline_checks = 0
+            last_activity_time = time.time()
             
             while True:
-                # Check mute status inside loop
+                # 1. Check for Inactivity (5 Minute "Night Protocol" fix)
+                # If no speech for 5 minutes, reset the mic stream to keep it fresh
+                current_time = time.time()
+                if current_time - last_activity_time > 300:
+                    print(f"[stt] Inactivity threshold reached (5m). Refreshing system state...", flush=True)
+                    # We break the loop to allow main() to restart voice_flow, 
+                    # which re-opens the microphone and resets the stream.
+                    break
+
+                # 2. Check mute status inside loop
                 if settings_sync.is_device_muted():
                     print("[voice] Device muted, pausing listening...")
                     time.sleep(2)
@@ -564,6 +574,9 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 if not text:
                     continue
 
+                # Reset inactivity timer on speech detection
+                last_activity_time = time.time()
+                
                 text_lower = text.lower()
                 print(f"[stt] Heard: '{text}'")
 
@@ -636,6 +649,10 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                                      if music_proc_holder.get("proc"):
                                         music_manager.unpause_music()
                                         
+                                 if fast_cmd in ["wake", "wake up", "restart stt", "refresh"]:
+                                     speak("Refreshing systems.")
+                                     return # Break voice_flow to restart mic
+
                                  if "volume" in fast_cmd or "louder" in fast_cmd or "quieter" in fast_cmd:
                                      continue 
                                      

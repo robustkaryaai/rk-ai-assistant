@@ -184,7 +184,7 @@ OFFLINE_COMMANDS = [
     "status", "system status",
     "restart", "reboot", "shutdown", "power off",
     "rk update", "rk shutdown", "rk reboot", "rk restart",
-    "sleep", "wake", "wake up",
+    "sleep", "wake", "wake up", "restart stt", "refresh",
     
     # Network and connectivity
     "wifi status", "internet status", "network status",

@@ -331,7 +331,8 @@ def live_stt_listen(recognizer, mic, slug, timeout=7, phrase_time_limit=10):
         url = f"{BACKEND_URL}/audio/{slug}"
         payload = {"audio_b64": audio_b64}
         
-        resp = requests.post(url, json=payload, timeout=30)
+        # Use short timeout for STT to prevent loop hanging
+        resp = requests.post(url, json=payload, timeout=15)
         
         if resp.ok:
             data = resp.json()
