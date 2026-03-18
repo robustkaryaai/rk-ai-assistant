@@ -317,13 +317,16 @@ def live_stt_listen(recognizer, mic, slug, timeout=7, phrase_time_limit=10):
             
         print("[stt] Processing audio...", flush=True)
         
-        # 1. Apply optional normalization to improve recognition of quiet voices
+        # 1. Get raw data for logging/processing
+        wav_data = audio.get_wav_data()
         print(f"[stt] Normalizing audio (Raw size: {len(wav_data)} bytes)...", flush=True)
+        
+        # 2. Apply optional normalization to improve recognition of quiet voices
         audio = _normalize_audio(audio)
         wav_data = audio.get_wav_data()
         print(f"[stt] Final audio size: {len(wav_data)} bytes", flush=True)
         
-        # 2. "Encoding" for Privacy (Base64)
+        # 3. "Encoding" for Privacy (Base64)
         # This satisfies the user's request for encoding/decoding
         audio_b64 = base64.b64encode(wav_data).decode('utf-8')
         

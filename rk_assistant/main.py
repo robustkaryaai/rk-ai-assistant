@@ -534,17 +534,19 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
             # Recognizer is already calibrated at startup in main()
             # We keep its threshold unless dynamic adjustment is disabled
             recognizer.dynamic_energy_threshold = True
-            recognizer.pause_threshold = 0.8
+            recognizer.pause_threshold = 0.5  # Faster response
+            recognizer.phrase_threshold = 0.1 # Start recording faster
+            recognizer.non_speaking_duration = 0.4 # Less pre-buffer for faster response
             
             consecutive_offline_checks = 0
             last_activity_time = time.time()
             
             while True:
-                # 1. Check for Inactivity (5 Minute "Night Protocol" fix)
-                # If no speech for 5 minutes, reset the mic stream to keep it fresh
+                # 1. Check for Inactivity (2 Minute "Night Protocol" fix)
+                # If no speech for 2 minutes, reset the mic stream to keep it fresh
                 current_time = time.time()
-                if current_time - last_activity_time > 300:
-                    print(f"[stt] Inactivity threshold reached (5m). Refreshing system state...", flush=True)
+                if current_time - last_activity_time > 120:
+                    print(f"[stt] Inactivity threshold reached (2m). Refreshing system state...", flush=True)
                     # We break the loop to allow main() to restart voice_flow, 
                     # which re-opens the microphone and resets the stream.
                     break
