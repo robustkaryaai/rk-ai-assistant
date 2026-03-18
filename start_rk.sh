@@ -32,25 +32,11 @@ if ! grep -q "$CURRENT_HOSTNAME" /etc/hosts; then
 fi
 
 # ─── 1. Hardware Initialization ───────────────────────────
-# Clean up and ensure Bluetooth agent is running every time.
-echo "[startup] Step 2: Cleaning up old Bluetooth processes..."
-sudo killall -9 bluetooth-agent bt-agent 2>/dev/null || true
-
-# Find adapter
+# Step 2: Adapter Check
 HCI_DEV="hci1"
-if ! hciconfig $HCI_DEV &>/dev/null; then
+if ! hciconfig | grep -q "$HCI_DEV"; then
     HCI_DEV="hci0"
 fi
-
-# CHECK ADAPTER HEALTH (Detect 00:00:00:00:00:00)
-BD_ADDR=$(hciconfig $HCI_DEV 2>/dev/null | grep "BD Address" | awk '{print $3}')
-if [[ "$BD_ADDR" == "00:00:00:00:00:00" ]]; then
-    echo "[startup] ERROR: Bluetooth Adapter $HCI_DEV is DEAD (BD Address: $BD_ADDR)"
-    echo "[startup] Triggering emergency reboot to recover hardware..."
-    sudo reboot
-    exit 1
-fi
-
 echo "[startup] Using Bluetooth Adapter: $HCI_DEV"
 
 echo "[startup] Step 3: Powering up $HCI_DEV in HYBRID mode (BLE + Classic)..."
@@ -164,13 +150,17 @@ echo "[startup] Step 6: Starting background monitors..."
     if ! bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
         echo "[startup] Speaker $SPEAKER_MAC disconnected. Reclaiming..."
         
-        # If we fail 3 times in a row, reset the entire adapter
-        if [ $FAIL_COUNT -ge 3 ]; then
-            echo "[startup] Multiple connection failures. Resetting Bluetooth adapter $HCI_DEV..."
+        # If we fail 5 times, try a "Nuclear Remove" to force a fresh pair
+        if [ $FAIL_COUNT -ge 5 ]; then
+            echo "[startup] 🚨 Connection stuck. Forcing device removal and adapter reset..."
+            bluetoothctl remove "$SPEAKER_MAC" &>/dev/null
             sudo hciconfig $HCI_DEV down && sleep 2 && sudo hciconfig $HCI_DEV up
             sudo hciconfig $HCI_DEV class 0x20041C
             FAIL_COUNT=0
             sleep 5
+            # Since we removed it, we need to scan and re-pair if the agent is running
+            # but usually, just restarting the service is better here.
+            echo "[startup] Device removed. Please ensure speaker is in pairing mode."
         fi
 
         bluetoothctl trust "$SPEAKER_MAC" &>/dev/null
@@ -179,21 +169,55 @@ echo "[startup] Step 6: Starting background monitors..."
         sleep 1
         
         # Aggressive connect
-        bluetoothctl connect "$SPEAKER_MAC" &>/dev/null
+        # Use timeout to prevent hanging the loop
+        timeout 10 bluetoothctl connect "$SPEAKER_MAC" &>/dev/null
         sleep 5
         
         if bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
-            echo "[startup] ✓ Connected to $SPEAKER_MAC."
-            FAIL_COUNT=0
-            # Force A2DP Sink profile specifically to prevent "Connected: yes" but no sound
-            # We try both bluez card name formats
-            CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
-            pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null || true
-            # PulseAudio/Pipewire might need a second to register the card
-            sleep 2
-            pacmd set-default-sink "bluez_sink.${SPEAKER_MAC//:/_}.a2dp_sink" &>/dev/null || true
+            echo "[startup] Bluetooth connected. Verifying audio sink..."
+            sleep 4
+            
+            # 1. Check if PulseAudio sees the bluez sink
+            SINK_NAME="bluez_sink.${SPEAKER_MAC//:/_}.a2dp_sink"
+            if pacmd list-sinks | grep -q "name: <$SINK_NAME>"; then
+                # 2. Try a "Silent Ping" to the sink to verify it's actually responding
+                # If the sink is "fake", this will usually hang or fail.
+                if timeout 2 paplay --device="$SINK_NAME" --raw --channels=1 --rate=44100 /dev/zero &>/dev/null; then
+                    echo "[startup] ✓ Audio sink verified and responding. Connected to $SPEAKER_MAC."
+                    FAIL_COUNT=0
+                    pacmd set-default-sink "$SINK_NAME" &>/dev/null || true
+                else
+                    echo "[startup] ⚠️ Sink found but not responding. Forcing profile reset..."
+                    CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
+                    pacmd set-card-profile "$CARD_NAME" off &>/dev/null
+                    sleep 1
+                    pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null
+                    sleep 2
+                    if timeout 2 paplay --device="$SINK_NAME" --raw --channels=1 --rate=44100 /dev/zero &>/dev/null; then
+                        echo "[startup] ✓ Sink recovered. Connected to $SPEAKER_MAC."
+                        FAIL_COUNT=0
+                    else
+                        echo "[startup] ❌ Sink still dead. Disconnecting..."
+                        bluetoothctl disconnect "$SPEAKER_MAC" &>/dev/null
+                        ((FAIL_COUNT++))
+                    fi
+                fi
+            else
+                echo "[startup] ⚠️ Connected but no audio sink found. Forcing profile..."
+                CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
+                pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null || true
+                sleep 2
+                if pacmd list-sinks | grep -q "name: <$SINK_NAME>"; then
+                    echo "[startup] ✓ Profile fixed. Connected to $SPEAKER_MAC."
+                    FAIL_COUNT=0
+                else
+                    echo "[startup] ❌ Fake connection detected (No Sink). Disconnecting..."
+                    bluetoothctl disconnect "$SPEAKER_MAC" &>/dev/null
+                    ((FAIL_COUNT++))
+                fi
+            fi
         else
-            echo "[startup] ❌ Connection failed (org.bluez.Error). Retrying..."
+            echo "[startup] ❌ Connection failed (org.bluez.Error). Retrying ($((FAIL_COUNT+1))/5)..."
             ((FAIL_COUNT++))
         fi
     else
