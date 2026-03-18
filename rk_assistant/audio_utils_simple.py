@@ -181,27 +181,26 @@ def _speak_chunk(text: str, alsa_device: str = "pulse") -> bool:
 def speak(text, use_gtts=True):
     """
     Convert text to speech with intelligent cascading fallback.
-    Long text is split into sentence chunks and played sequentially
-    (generate chunk 1 → play → generate chunk 2 → play...).
-
-    Priority per chunk:
-    1. Piper TTS (offline, natural)
-    2. gTTS cache (online, natural)
-    3. espeak (always works, robotic)
+    Long text is split into sentence chunks and played sequentially.
     """
     try:
         text = sanitize_text(text)
+        if not text:
+            return
+            
         print(f"🔊 {text}", flush=True)
-
         alsa_device = "pulse"
+        
+        # Check online status ONCE for the entire speech session
+        online = is_online() if use_gtts else False
 
-        # For short text or Piper available — speak whole thing at once
+        # 1. Try Piper (Offline, High Quality)
         if _is_piper_available():
             if _speak_with_piper(text):
                 return
-            print("⚠ Piper failed, trying chunked gTTS...", flush=True)
+            print("⚠ Piper failed, falling back...", flush=True)
 
-        # Split into chunks for sequential streaming if text is long
+        # 2. Split into chunks for gTTS or espeak
         if len(text) < 150:
             chunks = [text]
         else:
@@ -212,12 +211,17 @@ def speak(text, use_gtts=True):
         for chunk in chunks:
             if not chunk:
                 continue
+            
             spoken = False
-            if use_gtts and is_online():
+            # Use the status we checked at the beginning to avoid mixing engines
+            if online:
                 spoken = _speak_chunk(chunk, alsa_device)
+            
             if not spoken:
-                # espeak fallback for this chunk
-                subprocess.run(['espeak', chunk], check=False, stderr=subprocess.DEVNULL)
+                # espeak fallback for this chunk (always works, robotic)
+                # Use a slightly more natural espeak voice if possible
+                subprocess.run(['espeak', '-v', 'en-us+f2', '-s', '150', chunk], 
+                               check=False, stderr=subprocess.DEVNULL)
 
     except Exception as e:
         print(f"⚠ Speak error: {e}", flush=True)
