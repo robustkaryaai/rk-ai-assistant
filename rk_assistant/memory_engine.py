@@ -19,8 +19,37 @@ def init_db():
                   text TEXT,
                   tags TEXT,
                   timestamp REAL)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS chats
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_message TEXT,
+                  ai_message TEXT,
+                  timestamp REAL)''')
     conn.commit()
     conn.close()
+
+def store_chat(user_msg: str, ai_msg: str) -> None:
+    """Store a chat turn in local history."""
+    init_db()
+    conn = sqlite3.connect(MEMORY_DB)
+    c = conn.cursor()
+    c.execute("INSERT INTO chats (user_message, ai_message, timestamp) VALUES (?, ?, ?)",
+              (user_msg, ai_msg, time.time()))
+    conn.commit()
+    conn.close()
+    print(f"[memory] Chat stored locally")
+
+def get_recent_chats(limit: int = 10) -> List[Dict[str, str]]:
+    """Retrieve the most recent chat turns."""
+    if not MEMORY_DB.exists():
+        return []
+    init_db()
+    conn = sqlite3.connect(MEMORY_DB)
+    c = conn.cursor()
+    c.execute("SELECT user_message, ai_message FROM chats ORDER BY timestamp DESC LIMIT ?", (limit,))
+    results = [{"user": row[0], "ai": row[1]} for row in c.fetchall()]
+    conn.close()
+    # Reverse to get chronological order
+    return results[::-1]
 
 def store_memory(text: str, tags: str = "general") -> None:
     """Store a new memory."""

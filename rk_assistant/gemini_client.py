@@ -194,9 +194,9 @@ def get_conversational_response(text: str, api_key: Optional[str] = None, model_
         client = genai.Client(api_key=api_key, http_options={'timeout': 180000})
         
         # Context-aware prompt for voice responses
-        from .memory_engine import retrieve_memories
+        from .memory_engine import retrieve_memories, get_recent_chats
         
-        # Retrieve relevant memories (RAG)
+        # 1. Retrieve relevant memories (RAG)
         memories = retrieve_memories(text)
         memory_context = ""
         if memories:
@@ -204,8 +204,16 @@ def get_conversational_response(text: str, api_key: Optional[str] = None, model_
             memory_context = f"\n\nContext from Memory:\n{memory_list}\nUse this context if relevant to the user's query."
             print(f"[gemini] Injected {len(memories)} memories into context.", flush=True)
 
+        # 2. Retrieve last 10 chats for conversation continuity
+        recent_chats = get_recent_chats(limit=10)
+        chat_context = ""
+        if recent_chats:
+            chat_list = "\n".join([f"User: {c['user']}\nAI: {c['ai']}" for c in recent_chats])
+            chat_context = f"\n\nRecent Conversation History:\n{chat_list}"
+            print(f"[gemini] Injected {len(recent_chats)} recent chats into context.", flush=True)
+
         system_context = f"""You are RK AI created by RK Innovators, a helpful voice assistant.
-Keep your responses conversational and natural, optimized for voice/speech. Be brief for casual chat, but if the user asks for a poem, story, or detailed explanation, provide the full complete answer.{memory_context}"""
+Keep your responses conversational and natural, optimized for voice/speech. Be brief for casual chat, but if the user asks for a poem, story, or detailed explanation, provide the full complete answer.{memory_context}{chat_context}"""
         
         prompt = f"{system_context}\n\nUser: {text}\n\nAssistant:\
 "

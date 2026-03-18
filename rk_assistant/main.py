@@ -290,6 +290,10 @@ def handle_backend_reply(reply_obj: dict, music_proc_holder: dict, slug: str, de
     
     # Speak the reply text
     if reply_text:
+        # Save to local chat history
+        from .memory_engine import store_chat
+        store_chat(original_text or "User Command", reply_text)
+        
         if "announce" in lower:
             _speak_twice(reply_text)
         else:
@@ -418,6 +422,8 @@ def update_monitor():
 
 def _process_intents_sequentially(intents: list, text: str, slug: str, music_proc_holder: dict) -> None:
     """Helper to process multiple intents one by one in a background thread."""
+    from .memory_engine import store_chat
+    
     local_intents = ["music", "alarm", "announcement", "chat", "general", "stop_alarm", "emergency_alarm", "fire_alarm", "remember", "task", "weather", "news"]
     backend_intents = ["image", "video", "docx", "ppt", "note", "planner", "timetable", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"]
     
@@ -431,25 +437,35 @@ def _process_intents_sequentially(intents: list, text: str, slug: str, music_pro
             speak(reply)
         
         # 2. Process Intent
+        ai_response = reply or ""
+        
         if intent_name in local_intents:
             # For local intents, we can use local_handlers.handle_intent
-            # but we need to handle the response (like music)
             response = local_handlers.handle_intent(intent_name, parameters, original_text=text)
             
             if response.get("intent") == "music_local":
                 query = response.get("query")
                 if not reply: speak(f"Searching for {query}...")
                 trigger_music_playback(query, music_proc_holder)
+                ai_response = response.get("reply") or ai_response
                     
             elif intent_name == "announcement":
                 _speak_twice(response.get("reply", ""))
+                ai_response = response.get("reply") or ai_response
 
             elif response.get("reply") and not reply:
                 speak(response["reply"])
+                ai_response = response.get("reply")
+            
+            # Save to local history
+            store_chat(text, ai_response)
+            
+            # SYNC TO BACKEND (For Supabase/App)
+            if is_online():
+                _send_to_backend_async(f"LOCAL_INTENT_SYNC: {text} | AI: {ai_response}", slug)
                 
         elif intent_name in backend_intents:
             # For backend intents, we call the backend and WAIT for it to finish
-            # so the next intent starts only after this one is done.
             if not reply: speak("Got it, let me get that answer for you.")
             
             prompt_to_send = parameters.get("prompt") or text
@@ -459,7 +475,7 @@ def _process_intents_sequentially(intents: list, text: str, slug: str, music_pro
                 response = post_text_to_backend(prompt_to_send, slug)
                 if response:
                     print(f"[backend] Received response: {response}", flush=True)
-                    handle_backend_reply(response, music_proc_holder, slug)
+                    handle_backend_reply(response, music_proc_holder, slug, original_text=text)
                 else:
                     print("[backend] Empty response received.")
             except Exception as e:
@@ -470,7 +486,7 @@ def _process_intents_sequentially(intents: list, text: str, slug: str, music_pro
             try:
                 response = post_text_to_backend(text, slug)
                 if response:
-                    handle_backend_reply(response, music_proc_holder, slug)
+                    handle_backend_reply(response, music_proc_holder, slug, original_text=text)
             except:
                 pass
 
