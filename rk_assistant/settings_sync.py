@@ -13,10 +13,15 @@ APPWRITE_DATABASE_ID = os.getenv('APPWRITE_DATABASE_ID', '')
 APPWRITE_DEVICES_COLLECTION = os.getenv('APPWRITE_DEVICES_COLLECTION', 'devices')
 DEVICE_SLUG = os.getenv('DEVICE_SLUG', '')
 
+import json
+
 # Global state
 device_settings = {
     'is_muted': False,
-    'memory_enabled': True
+    'memory_enabled': True,
+    'assistant_name': 'RK',
+    'greeting_phrase': 'Radhe Radhe',
+    'wake_words': ['rk', 'arc', 'hey rk', 'okay rk']
 }
 
 def poll_device_settings(slug):
@@ -50,6 +55,20 @@ def poll_device_settings(slug):
                     device_settings['is_muted'] = device.get('isMuted') if device.get('isMuted') is not None else device.get('is_muted', False)
                     device_settings['memory_enabled'] = device.get('memoryEnabled') if device.get('memoryEnabled') is not None else device.get('memory_enabled', True)
                     
+                    if device.get('assistantName'):
+                        device_settings['assistant_name'] = device['assistantName']
+                    
+                    if device.get('greetingPhrase'):
+                        device_settings['greeting_phrase'] = device['greetingPhrase']
+                        
+                    if device.get('wakeWords'):
+                        try:
+                            words = json.loads(device['wakeWords'])
+                            if isinstance(words, list):
+                                device_settings['wake_words'] = [w.lower() for w in words]
+                        except:
+                            pass
+                    
                     # print(f"[Settings Sync] Updated: muted={device_settings['is_muted']}") # noisy
             
         except Exception as e:
@@ -71,3 +90,15 @@ def is_device_muted():
 def is_memory_enabled():
     """Check if memory saving is enabled"""
     return device_settings['memory_enabled']
+
+def get_assistant_name():
+    """Get the current assistant name"""
+    return device_settings['assistant_name']
+
+def get_greeting_phrase():
+    """Get the current greeting phrase"""
+    return device_settings['greeting_phrase']
+
+def get_wake_words():
+    """Get the list of active wake words"""
+    return device_settings['wake_words']

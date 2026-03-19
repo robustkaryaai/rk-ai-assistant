@@ -91,8 +91,12 @@ from difflib import SequenceMatcher
 def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.94):
     """Fuzzy match spoken text against wake words."""
     text = text.lower().strip()
+    
+    # Dynamic wake words from settings
+    dynamic_words = settings_sync.get_wake_words()
+    all_words = list(set(list(wake_words) + list(dynamic_words)))
 
-    for w in wake_words:
+    for w in all_words:
         ratio = SequenceMatcher(None, text, w).ratio()
         if ratio >= threshold:
             update_activity() # Update activity when wake word heard
@@ -879,6 +883,7 @@ def main():
     
     # 2. Normal Startup Greeting
     if online:
+        greeting = settings_sync.get_greeting_phrase()
         # Check for quiet flag file (from night update)
         quiet_flag = Path("/tmp/.quiet_startup")
         is_quiet = "--quiet" in sys.argv
@@ -889,20 +894,17 @@ def main():
 
         if is_first_boot:
             print("[main] First boot detected.")
-            # Move the Wi-Fi connected announcement here so it plays through the speaker
-            speak("I have connected to the internet now let me setup my things")
+            speak(f"{greeting}! I have connected to the internet now let me setup my things")
             time.sleep(1)
             
             sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
             proc = play_audio_url(sound_path)
             if proc: proc.wait()
         elif not is_quiet:
-            start_msg = "Radhe Radhe RK AI assistant is starting up"
+            start_msg = f"{greeting}! RK AI assistant is starting up"
             print(f"[main] {start_msg}")
             speak(start_msg)
             time.sleep(1)
-        
-        # ... REST OF THE FUNCTION CONTINUES ...
     
 
 
