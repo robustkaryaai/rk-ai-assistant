@@ -5,7 +5,7 @@ Mobile App → Backend (Appwrite queue) → Pi polls and executes
 import os
 import time
 import requests
-from threading import Thread
+from threading import Thread, Lock
 from typing import Optional
 
 from .config import BACKEND_BASE_URL
@@ -278,14 +278,16 @@ def _check_backend_health() -> bool:
             return False
 
 _poller_thread = None
+_poller_lock = Lock()
 
 def start_command_poller(slug: str) -> None:
     """Start background thread to poll for commands"""
     global _poller_thread
-    if _poller_thread and _poller_thread.is_alive():
-        print("[commands] Command poller already running, skipping start.")
-        return
-        
-    _poller_thread = Thread(target=poll_commands, args=(slug,), daemon=True)
-    _poller_thread.start()
-    print("[commands] Background command poller started")
+    with _poller_lock:
+        if _poller_thread and _poller_thread.is_alive():
+            print("[commands] Command poller already running, skipping start.")
+            return
+            
+        _poller_thread = Thread(target=poll_commands, args=(slug,), daemon=True)
+        _poller_thread.start()
+        print("[commands] Background command poller started")

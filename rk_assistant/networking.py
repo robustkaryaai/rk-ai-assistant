@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from .config import (
     APPWRITE_API_KEY,
@@ -28,17 +30,21 @@ from .config import (
     FORCE_OFFLINE,
 )
 
-def get_ip_address():
-    """Get current IP address."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return "127.0.0.1"
-
+# Global session for better performance and SSL stability
+_session = requests.Session()
+_retry_strategy = Retry(
+    total=3,
+    backoff_factor=1,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["HEAD", "GET", "POST", "OPTIONS"]
+)
+_adapter = HTTPAdapter(max_retries=_retry_strategy)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
+_session.headers.update({
+    "User-Agent": "RK-AI-Assistant/3.0 (RaspberryPi; ZeroW)",
+    "Connection": "keep-alive"
+})
 
 def is_online() -> bool:
     """
@@ -56,7 +62,7 @@ def is_online() -> bool:
         # 2. HTTP Health Check to Backend (The ultimate truth)
         # Using /health is much more reliable than pinging 8.8.8.8 on flaky networks
         try:
-            resp = requests.get(f"{BACKEND_BASE_URL}/health", timeout=3)
+            resp = _session.get(f"{BACKEND_BASE_URL}/health", timeout=5)
             if resp.ok:
                 return True
         except:
@@ -66,7 +72,7 @@ def is_online() -> bool:
         targets = ["https://1.1.1.1", "https://google.com"]
         for target in targets:
             try:
-                requests.head(target, timeout=2)
+                _session.head(target, timeout=3)
                 return True
             except:
                 continue
@@ -98,7 +104,7 @@ def report_state(slug: str, state: str) -> bool:
         return False
     try:
         url = f"{BACKEND_BASE_URL}/device/{slug}/state"
-        requests.post(url, json={"state": state}, timeout=3)
+        _session.post(url, json={"state": state}, timeout=5)
         return True
     except Exception as e:
         print(f"[network] Failed to report state '{state}': {e}")
@@ -150,7 +156,7 @@ def post_audio_to_backend(audio_path: Path, slug: str) -> Dict[str, Any]:
     try:
         files = {"file": open(audio_path, "rb")}
         try:
-            resp = requests.post(url, files=files, timeout=REQUEST_TIMEOUT)
+            resp = _session.post(url, files=files, timeout=REQUEST_TIMEOUT)
             if resp.ok:
                 try:
                     return resp.json()
@@ -172,7 +178,7 @@ def post_text_to_backend(text: str, slug: str) -> Dict[str, Any]:
     url = f"{BACKEND_BASE_URL}/text/{slug}"
     payload = {"text": text}
     try:
-        resp = requests.post(url, json=payload, timeout=45)
+        resp = _session.post(url, json=payload, timeout=45)
         if resp.ok:
             try:
                 return resp.json()
@@ -189,7 +195,7 @@ def post_text_to_backend(text: str, slug: str) -> Dict[str, Any]:
 
 def fetch_url(url: str) -> Optional[str]:
     try:
-        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+        resp = _session.get(url, timeout=REQUEST_TIMEOUT)
         if resp.ok:
             return resp.text
     except Exception:
