@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Dict, List
 
-from .audio_utils import speak
+from .audio_utils_simple import speak
 from .config import DATA_DIR
 
 ALARMS_FILE = DATA_DIR / "alarms.json"
@@ -125,22 +125,52 @@ def cancel_all_alarms() -> int:
     return count
 
 
+def stop_all_alarms() -> None:
+    """Stop any currently ringing alarm and cancel all scheduled alarms."""
+    global _alarm_active, _alarm_sound_procs
+    print("[alarm] Stopping all alarms...")
+    _alarm_active = False
+    # Kill all running sound processes
+    for proc in list(_alarm_sound_procs):
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    _alarm_sound_procs = []
+    # Also clear the alarms JSON file
+    cancel_all_alarms()
+
+
 def list_alarms() -> List[Dict]:
     """List all active alarms."""
     return [a for a in load_alarms() if a.get("enabled", True)]
 
 
+# Track running alarm sound processes so we can stop them
+_alarm_sound_procs: List[subprocess.Popen] = []
+_alarm_active = False
+
+
 def play_alarm_sound(sound_file: Optional[str]):
-    """Plays the selected alarm sound using paplay."""
+    """Plays the selected alarm sound using paplay. Interruptible via stop_all_alarms()."""
+    global _alarm_sound_procs, _alarm_active
     if not sound_file or sound_file == "default":
         sound_file = "freesound_community-alarm-clock-short-6402.mp3"
     
     full_path = os.path.join(ASSETS_DIR, sound_file)
     if os.path.exists(full_path):
         print(f"[alarm] Playing sound: {full_path}")
-        # Play 3 times
+        _alarm_active = True
+        # Play up to 3 times, but stop if alarm is cancelled
         for _ in range(3):
-            subprocess.run(["paplay", full_path], capture_output=True)
+            if not _alarm_active:
+                break
+            proc = subprocess.Popen(["paplay", full_path],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _alarm_sound_procs.append(proc)
+            proc.wait()
+            _alarm_sound_procs = [p for p in _alarm_sound_procs if p.poll() is None]
+        _alarm_active = False
     else:
         print(f"[alarm] Sound file not found: {full_path}")
 
@@ -180,6 +210,11 @@ def start_alarm_checker() -> None:
                     day_matches = not alarm_days or current_day in alarm_days
                     
                     if alarm_time == current_time and day_matches:
+                        # Avoid double-triggering in same minute (both for recurring AND one-time)
+                        if alarm.get("triggered_today"):
+                            updated_alarms.append(alarm)
+                            continue
+                        
                         # Trigger alarm
                         print(f"[alarm] Triggering: {alarm.get('label', 'Alarm')}")
                         
@@ -192,13 +227,14 @@ def start_alarm_checker() -> None:
                         
                         any_triggered = True
                         
-                        # If it has recurring days, keep it but mark as "triggered_today" to avoid multi-trigger in same minute
+                        # Mark as triggered to prevent re-firing within the same minute
+                        alarm["triggered_today"] = True
                         if alarm_days:
-                            alarm["triggered_today"] = True
+                            # Recurring: keep in list
                             updated_alarms.append(alarm)
                         else:
-                            # One-time alarm, don't add back to list
-                            pass
+                            # One-time: keep with triggered_today flag until minute changes, then it's removed
+                            updated_alarms.append(alarm)
                     else:
                         # Reset "triggered_today" if the minute has passed
                         if alarm_time != current_time:

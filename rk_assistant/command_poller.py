@@ -110,12 +110,18 @@ def execute_command(cmd: dict, slug: str) -> None:
             schedule_manager.add_schedule(s_id, date, time_str, task)
             result = f"Schedule set: {task} at {date} {time_str}"
             success = True
+            try:
+                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_schedules", json={"schedules": schedule_manager.list_schedules()}, timeout=5)
+            except: pass
             
         elif cmd_type == 'delete_schedule':
             s_id = payload.get('schedule_id')
             schedule_manager.delete_schedule(s_id)
             result = f"Schedule deleted: {s_id}"
             success = True
+            try:
+                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_schedules", json={"schedules": schedule_manager.list_schedules()}, timeout=5)
+            except: pass
 
         elif cmd_type == 'set_alarm':
             time_str = payload.get('time')
@@ -127,9 +133,24 @@ def execute_command(cmd: dict, slug: str) -> None:
             if alarm_manager.set_alarm(time_str, label, sound, wake_up_message, days):
                 result = f"Alarm set for {time_str}"
                 success = True
+                try:
+                    requests.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_alarms", json={"alarms": alarm_manager.list_alarms()}, timeout=5)
+                except: pass
             else:
                 result = "Failed to set alarm"
                 success = False
+
+        elif cmd_type == 'delete_alarm':
+            a_id = payload.get('alarm_id')
+            try:
+                if hasattr(alarm_manager, 'delete_alarm'):
+                    alarm_manager.delete_alarm(a_id)
+                else: 
+                    alarm_manager.cancel_all_alarms()
+                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_alarms", json={"alarms": alarm_manager.list_alarms()}, timeout=5)
+            except: pass
+            result = "Alarm deleted"
+            success = True
             
         elif cmd_type == 'reboot' or cmd_type == 'text_command':
             text = payload.get('text', '')
