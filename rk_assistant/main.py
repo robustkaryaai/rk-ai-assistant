@@ -1058,15 +1058,6 @@ def main():
     except Exception as e:
         print(f"[main] Failed to start reset monitor: {e}")
 
-    # --- 6. Start Backend Command Polling (Background) ---
-    # --- 6. Start Background Tasks ---
-    # Re-enabled command poller to receive mute/volume/wifi signals from app
-    if online:
-        from .command_poller import poll_commands
-        check_thread = threading.Thread(target=poll_commands, args=(slug,), daemon=True)
-        check_thread.start()
-        print("[commands] Background command poller started")
-    
     # --- 7. Voice Loop ---
     print("\n" + "="*30)
     print("✓ STARTING VOICE MODE")

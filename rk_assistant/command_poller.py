@@ -277,8 +277,15 @@ def _check_backend_health() -> bool:
         except:
             return False
 
+_poller_thread = None
+
 def start_command_poller(slug: str) -> None:
     """Start background thread to poll for commands"""
-    thread = Thread(target=poll_commands, args=(slug,), daemon=True)
-    thread.start()
+    global _poller_thread
+    if _poller_thread and _poller_thread.is_alive():
+        print("[commands] Command poller already running, skipping start.")
+        return
+        
+    _poller_thread = Thread(target=poll_commands, args=(slug,), daemon=True)
+    _poller_thread.start()
     print("[commands] Background command poller started")
