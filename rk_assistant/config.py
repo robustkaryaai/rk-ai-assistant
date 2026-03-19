@@ -110,7 +110,7 @@ REQUEST_TIMEOUT = 8  # seconds (fail fast - weather/news shouldn't hang)
 # Gemini API (for direct fast responses)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_API_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP", "")  # Backup key for failover
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")  # Fast model for low latency
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")  # 🚀 Updated to Gemini 3.1 Flash Lite
 USE_GEMINI_DIRECT = os.environ.get("USE_GEMINI_DIRECT", "1") == "1"  # Feature flag
 PORCUPINE_ACCESS_KEY = os.getenv("PORCUPINE_ACCESS_KEY", "")
 
@@ -118,8 +118,8 @@ PORCUPINE_ACCESS_KEY = os.getenv("PORCUPINE_ACCESS_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # Gemini Model Configuration
-GEMINI_MODEL_PRIMARY = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-1.5-flash")  # Flash 1.5
-GEMINI_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-1.5-flash")  # Fallback to flash if needed
+GEMINI_MODEL_PRIMARY = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-3.1-flash-lite")
+GEMINI_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-2.5-flash")  # 🚀 Fallback to 2.5 Flash if needed
 STT_ENGINE = os.getenv("STT_ENGINE", "google")  # Options: "groq", "google"
 
 
