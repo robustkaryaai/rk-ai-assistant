@@ -576,14 +576,15 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
     ONLINE: Uses high-speed STT continuously to listen. If 'rk' is in text, executes command.
     OFFLINE: Falls back to PocketSphinx for wake word.
     """
-    # Check if device is muted (synced from Appwrite via mobile app)
-    if settings_sync.is_device_muted():
-        print("[voice] Device is muted, skipping listening...")
-        time.sleep(2)
-        return
-    
     # 1. Determine mode
     online = is_online()
+    
+    # Check if device is muted (synced from Appwrite via mobile app)
+    if settings_sync.is_device_muted():
+        print("[voice] Device is muted (AI Standby), skipping listening...")
+        report_state(slug, "standby") # 🚀 Report standby state
+        time.sleep(2)
+        return
     
     if online and recognizer and mic:
         # --- ONLINE MODE (Always-on high-speed STT) ---
