@@ -77,15 +77,7 @@ from .networking import (
 from .offline_commands import match_offline_command, process_offline_command
 from .weather_news import fetch_news, fetch_weather
 from .intent_classifier import guess_fallback_intent, start_pending_request_msg
-from .reset_monitor import start_reset_monitor
-from . import gemini_client
-from . import local_handlers
-from . import settings_sync  # Sync mute/memory from Appwrite
-from . import command_poller  # Poll and execute commands from mobile app
-from .error_monitor import register_error, get_monitor
-from . import self_diagnosis
-from . import music_manager
-from difflib import SequenceMatcher
+from .reset_monitor import start_reset_monitor, update_activity
 
 def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.94):
     """Fuzzy match spoken text against wake words."""
@@ -94,6 +86,7 @@ def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.94):
     for w in wake_words:
         ratio = SequenceMatcher(None, text, w).ratio()
         if ratio >= threshold:
+            update_activity() # Update activity when wake word heard
             return w
 
         # also check per-word matching
@@ -877,6 +870,14 @@ def main():
     
     # 2. Normal Startup Greeting
     if online:
+        # Check for quiet flag file (from night update)
+        quiet_flag = Path("/tmp/.quiet_startup")
+        is_quiet = "--quiet" in sys.argv
+        if quiet_flag.exists():
+            print("[startup] Quiet mode active from night update.")
+            quiet_flag.unlink()
+            is_quiet = True
+
         if is_first_boot:
             print("[main] First boot detected.")
             # Move the Wi-Fi connected announcement here so it plays through the speaker
@@ -886,7 +887,7 @@ def main():
             sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
             proc = play_audio_url(sound_path)
             if proc: proc.wait()
-        else:
+        elif not is_quiet:
             start_msg = "Radhe Radhe RK AI assistant is starting up"
             print(f"[main] {start_msg}")
             speak(start_msg)
@@ -1069,11 +1070,15 @@ def main():
     except Exception as e:
         print(f"[main] Autoplay/Update monitor error: {e}")
 
-    # Start hardware reset button monitor (GPIO 17)
+    # Start background monitors
+    update_activity() # Initial activity
     try:
         start_reset_monitor()
+        # New monitor for quiet updates
+        from .reset_monitor import start_night_update_monitor
+        start_night_update_monitor()
     except Exception as e:
-        print(f"[main] Failed to start reset monitor: {e}")
+        print(f"[main] Failed to start monitors: {e}")
 
     # --- 7. Voice Loop ---
     print("\n" + "="*30)

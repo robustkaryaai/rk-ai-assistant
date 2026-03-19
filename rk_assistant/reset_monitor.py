@@ -101,6 +101,74 @@ def reset_button_loop():
             time.sleep(5)
 
 
+LAST_ACTIVITY_FILE = "/tmp/.last_activity"
+
+def update_activity():
+    """Updates the last activity timestamp."""
+    with open(LAST_ACTIVITY_FILE, "w") as f:
+        f.write(str(time.time()))
+
+def get_last_activity():
+    """Returns the last activity timestamp or 0 if not found."""
+    if os.path.exists(LAST_ACTIVITY_FILE):
+        try:
+            with open(LAST_ACTIVITY_FILE, "r") as f:
+                return float(f.read().strip())
+        except:
+            pass
+    return 0
+
+def night_update_loop():
+    """Background loop that checks for updates at night during inactivity."""
+    print("[night_update] Monitoring for quiet updates (2 AM - 5 AM)...", flush=True)
+    
+    while True:
+        try:
+            now = time.localtime()
+            # Check if it's between 2 AM and 5 AM
+            if now.tm_hour >= 2 and now.tm_hour < 5:
+                last_act = get_last_activity()
+                inactivity_duration = time.time() - last_act
+                
+                # If inactive for more than 1 hour
+                if inactivity_duration > 3600:
+                    print("[night_update] Night + Inactivity detected. Checking for updates...", flush=True)
+                    
+                    # Check for updates quietly
+                    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    os.chdir(script_dir)
+                    
+                    # Fetch origin
+                    subprocess.run(["git", "fetch", "origin"], capture_output=True)
+                    local_hash = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+                    remote_hash = subprocess.check_output(["git", "rev-parse", "@{u}"]).decode().strip()
+                    
+                    if local_hash != remote_hash:
+                        print("[night_update] Update available! Pulling and rebooting quietly...", flush=True)
+                        subprocess.run(["git", "pull", "origin", "main"], capture_output=True)
+                        
+                        # Create quiet startup flag for next boot
+                        with open("/tmp/.quiet_startup", "w") as f:
+                            f.write("1")
+                            
+                        # Reboot system
+                        os.system("sudo reboot")
+                        time.sleep(60) # Wait for reboot
+            
+            # Check every 15 minutes
+            time.sleep(900)
+            
+        except Exception as e:
+            print(f"[night_update] Error in loop: {e}")
+            time.sleep(300)
+
+def start_night_update_monitor():
+    """Starts the night update monitor in a background thread."""
+    t = threading.Thread(target=night_update_loop, daemon=True)
+    t.start()
+    return t
+
+
 def start_reset_monitor():
     """Spawns the hardware reset monitor in a background daemon thread."""
     if GPIO_AVAILABLE:

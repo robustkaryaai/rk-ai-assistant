@@ -19,6 +19,30 @@ BT_NAME="RK-AI-$SLUG"
 echo "[startup] --- STARTING RK AI STARTUP SEQUENCE ---"
 echo "[startup] Target Name: $BT_NAME"
 
+# ─── 0. Auto-Update (Blocking) ────────────────────────────
+echo "[startup] Checking for updates..."
+(
+    cd "$SCRIPT_DIR" || exit
+    # Git Health Check
+    if ! git rev-parse HEAD >/dev/null 2>&1; then
+        echo "[startup] Git corruption detected. Attempting recovery..."
+        find .git/objects/ -type f -empty -delete 2>/dev/null
+        git fetch --all 2>/dev/null
+        git reset --hard origin/main 2>/dev/null
+    fi
+    git fetch origin 2>/dev/null
+    LOCAL=$(git rev-parse HEAD 2>/dev/null)
+    REMOTE=$(git rev-parse @{u} 2>/dev/null)
+    if [ "$LOCAL" != "$REMOTE" ] && [ -n "$REMOTE" ]; then
+        echo "[startup] Update found! Pulling latest changes..."
+        git pull origin main 2>/dev/null
+        # If this script itself was updated, we should restart it
+        # but for now, we'll just continue as most logic is in Python
+    else
+        echo "[startup] System is up to date."
+    fi
+)
+
 # ─── 0. Hostname & Sudo Deadlock Fix ──────────────────────
 # Fix /etc/hosts IMMEDIATELY to stop sudo from hanging.
 CURRENT_HOSTNAME=$(hostname)
@@ -115,7 +139,7 @@ echo "[startup] Step 6: Starting background monitors..."
   echo "[startup] Monitoring Speaker MAC: $SPEAKER_MAC"
 
   # Ensure speaker isn't stuck in a "connect/disconnect" loop by checking state
-  FAIL_COUNT=0
+  REBOOT_COUNT=0
   while true; do
     # 1. Trust all paired devices
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r dev; do
@@ -127,16 +151,9 @@ echo "[startup] Step 6: Starting background monitors..."
         echo "[startup] Speaker $SPEAKER_MAC disconnected. Reclaiming..."
         
         # If we fail 5 times, try a "Nuclear Remove" to force a fresh pair
-        if [ $FAIL_COUNT -ge 5 ]; then
-            echo "[startup] 🚨 Connection stuck. Forcing device removal and adapter reset..."
-            bluetoothctl remove "$SPEAKER_MAC" &>/dev/null
-            sudo hciconfig $HCI_DEV down && sleep 2 && sudo hciconfig $HCI_DEV up
-            sudo hciconfig $HCI_DEV class 0x20041C
-            FAIL_COUNT=0
-            sleep 5
-            # Since we removed it, we need to scan and re-pair if the agent is running
-            # but usually, just restarting the service is better here.
-            echo "[startup] Device removed. Please ensure speaker is in pairing mode."
+        if [ $REBOOT_COUNT -ge 3 ]; then
+            echo "[startup] 🚨 Connection failed 3 times. Rebooting system..."
+            sudo reboot
         fi
 
         bluetoothctl trust "$SPEAKER_MAC" &>/dev/null
@@ -157,11 +174,12 @@ echo "[startup] Step 6: Starting background monitors..."
             SINK_NAME="bluez_sink.${SPEAKER_MAC//:/_}.a2dp_sink"
             if pacmd list-sinks | grep -q "name: <$SINK_NAME>"; then
                 # 2. Try a "Silent Ping" to the sink to verify it's actually responding
-                # If the sink is "fake", this will usually hang or fail.
                 if timeout 2 paplay --device="$SINK_NAME" --raw --channels=1 --rate=44100 /dev/zero &>/dev/null; then
                     echo "[startup] ✓ Audio sink verified and responding. Connected to $SPEAKER_MAC."
-                    FAIL_COUNT=0
+                    REBOOT_COUNT=0
                     pacmd set-default-sink "$SINK_NAME" &>/dev/null || true
+                    # Signal that we have a working speaker
+                    touch "/tmp/.speaker_ready"
                 else
                     echo "[startup] ⚠️ Sink found but not responding. Forcing profile reset..."
                     CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
@@ -171,11 +189,13 @@ echo "[startup] Step 6: Starting background monitors..."
                     sleep 2
                     if timeout 2 paplay --device="$SINK_NAME" --raw --channels=1 --rate=44100 /dev/zero &>/dev/null; then
                         echo "[startup] ✓ Sink recovered. Connected to $SPEAKER_MAC."
-                        FAIL_COUNT=0
+                        REBOOT_COUNT=0
+                        touch "/tmp/.speaker_ready"
                     else
                         echo "[startup] ❌ Sink still dead. Disconnecting..."
                         bluetoothctl disconnect "$SPEAKER_MAC" &>/dev/null
-                        ((FAIL_COUNT++))
+                        ((REBOOT_COUNT++))
+                        rm -f "/tmp/.speaker_ready"
                     fi
                 fi
             else
@@ -185,54 +205,54 @@ echo "[startup] Step 6: Starting background monitors..."
                 sleep 2
                 if pacmd list-sinks | grep -q "name: <$SINK_NAME>"; then
                     echo "[startup] ✓ Profile fixed. Connected to $SPEAKER_MAC."
-                    FAIL_COUNT=0
+                    REBOOT_COUNT=0
+                    touch "/tmp/.speaker_ready"
                 else
                     echo "[startup] ❌ Fake connection detected (No Sink). Disconnecting..."
                     bluetoothctl disconnect "$SPEAKER_MAC" &>/dev/null
-                    ((FAIL_COUNT++))
+                    ((REBOOT_COUNT++))
+                    rm -f "/tmp/.speaker_ready"
                 fi
             fi
         else
-            echo "[startup] ❌ Connection failed (org.bluez.Error). Retrying ($((FAIL_COUNT+1))/5)..."
-            ((FAIL_COUNT++))
+            echo "[startup] ❌ Connection failed. Retrying ($((REBOOT_COUNT+1))/3)..."
+            ((REBOOT_COUNT++))
+            rm -f "/tmp/.speaker_ready"
         fi
     else
-        FAIL_COUNT=0
-    fi
-
-    # 3. Stay-Alive Pulse (Prevents auto-shutdown)
-    # Every 2 minutes, play a 0.5s silent tone
-    if command -v paplay &> /dev/null; then
-        (head -c 4000 /dev/zero | paplay --raw --channels=1 --rate=44100 &>/dev/null) &
+        # Already connected, check sink health again
+        SINK_NAME="bluez_sink.${SPEAKER_MAC//:/_}.a2dp_sink"
+        if ! pacmd list-sinks | grep -q "name: <$SINK_NAME>"; then
+             echo "[startup] Speaker connected but sink missing. Repairing..."
+             rm -f "/tmp/.speaker_ready"
+             # This will trigger the reconnect logic in the next loop
+             bluetoothctl disconnect "$SPEAKER_MAC" &>/dev/null
+        else
+             touch "/tmp/.speaker_ready"
+             REBOOT_COUNT=0
+        fi
     fi
     
-    sleep 60 # Check more frequently (every minute)
+    sleep 30 # Check every 30s
   done
-) &
-
-# Update check (Non-blocking with corruption recovery)
-(
-    cd "$SCRIPT_DIR" || exit
-    
-    # Git Health Check: Fix corrupt objects if any
-    if ! git rev-parse HEAD >/dev/null 2>&1; then
-        echo "[startup] Git corruption detected. Attempting recovery..."
-        find .git/objects/ -type f -empty -delete 2>/dev/null
-        git fetch --all 2>/dev/null
-        git reset --hard origin/main 2>/dev/null
-    fi
-
-    git fetch origin 2>/dev/null
-    LOCAL=$(git rev-parse HEAD 2>/dev/null)
-    REMOTE=$(git rev-parse @{u} 2>/dev/null)
-    if [ "$LOCAL" != "$REMOTE" ] && [ -n "$REMOTE" ]; then
-        echo "[startup] Update available. Pulling..."
-        git pull origin main 2>/dev/null
-    fi
 ) &
 
 # ─── 3. Launching Python Application ──────────────────────
 echo "[startup] Step 7: Preparing Python environment..."
+# WAIT FOR SPEAKER BEFORE RUNNING MAIN.PY
+echo "[startup] Waiting for speaker sink..."
+MAX_WAIT=60
+WAIT_TIME=0
+while [ ! -f "/tmp/.speaker_ready" ] && [ $WAIT_TIME -lt $MAX_WAIT ]; do
+    sleep 2
+    ((WAIT_TIME+=2))
+done
+
+if [ ! -f "/tmp/.speaker_ready" ]; then
+    echo "[startup] 🚨 ERROR: Speaker not ready after 60s. Refusing to start main.py."
+    exit 1
+fi
+
 VENV_DIR="$SCRIPT_DIR/venv"
 if [ -d "$VENV_DIR" ]; then
     source "$VENV_DIR/bin/activate"
