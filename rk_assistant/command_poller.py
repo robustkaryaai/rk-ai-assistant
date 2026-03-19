@@ -12,6 +12,7 @@ from .config import BACKEND_BASE_URL
 from .audio_utils import set_volume
 from . import audio_utils_simple
 from .error_monitor import register_error
+from . import schedule_manager
 
 # Global flag for mute state
 _muted = False
@@ -100,7 +101,22 @@ def execute_command(cmd: dict, slug: str) -> None:
             result = f"Broadcasted: {text}"
             success = True
             
-        elif cmd_type == 'text_command':
+        elif cmd_type == 'set_schedule':
+            s_id = payload.get('id', str(int(time.time())))
+            date = payload.get('date')
+            time_str = payload.get('time')
+            task = payload.get('task')
+            schedule_manager.add_schedule(s_id, date, time_str, task)
+            result = f"Schedule set: {task} at {date} {time_str}"
+            success = True
+            
+        elif cmd_type == 'delete_schedule':
+            s_id = payload.get('schedule_id')
+            schedule_manager.delete_schedule(s_id)
+            result = f"Schedule deleted: {s_id}"
+            success = True
+            
+        elif cmd_type == 'reboot':'text_command':
             text = payload.get('text', '')
             if text:
                 # Treat as if it was spoken to the device

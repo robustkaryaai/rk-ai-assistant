@@ -80,6 +80,8 @@ from .intent_classifier import guess_fallback_intent, start_pending_request_msg
 from .reset_monitor import start_reset_monitor, update_activity
 from . import settings_sync
 from . import music_manager
+from . import command_poller
+from . import schedule_manager
 from .error_monitor import register_error
 from difflib import SequenceMatcher
 
@@ -1081,6 +1083,8 @@ def main():
         # New monitor for quiet updates
         from .reset_monitor import start_night_update_monitor
         start_night_update_monitor()
+        # New monitor for scheduled tasks
+        schedule_manager.start_schedule_monitor(voice_command_processor)
     except Exception as e:
         print(f"[main] Failed to start monitors: {e}")
 
