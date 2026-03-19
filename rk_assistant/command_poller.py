@@ -93,6 +93,21 @@ def execute_command(cmd: dict, slug: str) -> None:
             result = f"Volume set to {volume}%"
             success = True
             
+        elif cmd_type == 'broadcast':
+            text = payload.get('text', '')
+            if text:
+                audio_utils_simple.speak(text)
+            result = f"Broadcasted: {text}"
+            success = True
+            
+        elif cmd_type == 'text_command':
+            text = payload.get('text', '')
+            if text:
+                # Treat as if it was spoken to the device
+                execute_voice_command(text)
+            result = f"Processing command: {text}"
+            success = True
+            
         elif cmd_type == 'shutdown':
             audio_utils_simple.speak("Shutting down RexyCore Assistant")
             result = "Shutdown initiated"

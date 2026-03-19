@@ -46,9 +46,9 @@ def poll_device_settings(slug):
                 if data.get('documents') and len(data['documents']) > 0:
                     device = data['documents'][0]
                     
-                    # Update global settings
-                    device_settings['is_muted'] = device.get('is_muted', False)
-                    device_settings['memory_enabled'] = device.get('memory_enabled', True)
+                    # Update global settings (support both camelCase and snake_case)
+                    device_settings['is_muted'] = device.get('isMuted') if device.get('isMuted') is not None else device.get('is_muted', False)
+                    device_settings['memory_enabled'] = device.get('memoryEnabled') if device.get('memoryEnabled') is not None else device.get('memory_enabled', True)
                     
                     # print(f"[Settings Sync] Updated: muted={device_settings['is_muted']}") # noisy
             
