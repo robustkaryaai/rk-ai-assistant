@@ -839,8 +839,25 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
 
 
 
+import fcntl
+
+def acquire_lock():
+    """Ensure only one instance of the assistant is running."""
+    lock_file = "/tmp/rk_assistant.lock"
+    # Open or create the lock file
+    f = open(lock_file, 'w')
+    try:
+        # Try to acquire an exclusive lock without blocking
+        fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return f
+    except IOError:
+        print("[main] FATAL: Another instance of RK Assistant is already running. Exiting.")
+        sys.exit(1)
+
 def main():
     """Main entry point for the assistant."""
+    # Acquire global process lock
+    _lock_handle = acquire_lock()
     global is_first_boot
     
     print("\n" + "="*30)
@@ -1066,8 +1083,7 @@ def main():
     # Announce ready right before starting to listen (skip if first boot since we already spoke)
     if not is_first_boot:
         ready_msg = "Radhe Radhe RK AI assistant is ready"
-        print(f"🔊 {ready_msg}")
-        speak(ready_msg)
+        speak(ready_msg) # 🚀 speak() already handles printing with emoji
 
     # Voice mode: standard wake word loop (with robust self-diagnosis)
     print(f"[main] Entering voice loop for slug: {slug}")

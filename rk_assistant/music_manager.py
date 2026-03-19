@@ -9,8 +9,11 @@ import signal
 from typing import Optional, List, Dict, Any
 from difflib import SequenceMatcher
 
+from threading import Lock
+
 current_player = None
 last_played_query = None
+_search_lock = Lock() # 🚀 Prevent duplicate overlapping searches
 
 def get_related_song_recommendation(title: str) -> Optional[str]:
     """Use Gemini to get a related song title based on the current one."""
@@ -179,6 +182,10 @@ def search_local_and_play(norm_query):
 
 def search_youtube_and_play(norm_query):
     """Search YouTube, download, cache, and play."""
+    if not _search_lock.acquire(blocking=False):
+        print(f"[music] ✋ Search already in progress. Skipping duplicate search for: {norm_query}")
+        return None
+        
     try:
         from pathlib import Path
         cache_dir = Path(os.getcwd()) / "songs"
@@ -259,6 +266,10 @@ def search_youtube_and_play(norm_query):
             global last_played_query
             last_played_query = norm_query # Store for autoplay/replay
             
+            # Shorten title for speaking
+            speak_title = title.partition('|')[0]
+            words = speak_title.split()
+            if len(words) > 5: speak_title = " ".join(words[:5])
             speak(f"Playing {speak_title}")
             
             if file_path.endswith(".mp3"):
@@ -316,6 +327,8 @@ def search_youtube_and_play(norm_query):
     except Exception as e:
         print(f"[music] ❌ Error: {e}", flush=True)
         return None
+    finally:
+        _search_lock.release()
 
 def play_music(query: str):
     """
