@@ -167,70 +167,25 @@ echo "[startup] Step 6: Starting background monitors..."
         sleep 5
         
         if bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
-            echo "[startup] Bluetooth connected. Verifying audio sink..."
-            sleep 4
-            
-            # 1. Check if PulseAudio sees the bluez sink
+            echo "[startup] Bluetooth connected to $SPEAKER_MAC."
+            REBOOT_COUNT=0
+            # Set sink profile and default
+            CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
             SINK_NAME="bluez_sink.${SPEAKER_MAC//:/_}.a2dp_sink"
-            if pacmd list-sinks | grep -q "name: <$SINK_NAME>"; then
-                # 2. Try a "Silent Ping" to the sink to verify it's actually responding
-                if timeout 2 paplay --device="$SINK_NAME" --raw --channels=1 --rate=44100 /dev/zero &>/dev/null; then
-                    echo "[startup] ✓ Audio sink verified and responding. Connected to $SPEAKER_MAC."
-                    REBOOT_COUNT=0
-                    pacmd set-default-sink "$SINK_NAME" &>/dev/null || true
-                    # Signal that we have a working speaker
-                    touch "/tmp/.speaker_ready"
-                else
-                    echo "[startup] ⚠️ Sink found but not responding. Forcing profile reset..."
-                    CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
-                    pacmd set-card-profile "$CARD_NAME" off &>/dev/null
-                    sleep 1
-                    pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null
-                    sleep 2
-                    if timeout 2 paplay --device="$SINK_NAME" --raw --channels=1 --rate=44100 /dev/zero &>/dev/null; then
-                        echo "[startup] ✓ Sink recovered. Connected to $SPEAKER_MAC."
-                        REBOOT_COUNT=0
-                        touch "/tmp/.speaker_ready"
-                    else
-                        echo "[startup] ❌ Sink still dead. Disconnecting..."
-                        bluetoothctl disconnect "$SPEAKER_MAC" &>/dev/null
-                        ((REBOOT_COUNT++))
-                        rm -f "/tmp/.speaker_ready"
-                    fi
-                fi
-            else
-                echo "[startup] ⚠️ Connected but no audio sink found. Forcing profile..."
-                CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
-                pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null || true
-                sleep 2
-                if pacmd list-sinks | grep -q "name: <$SINK_NAME>"; then
-                    echo "[startup] ✓ Profile fixed. Connected to $SPEAKER_MAC."
-                    REBOOT_COUNT=0
-                    touch "/tmp/.speaker_ready"
-                else
-                    echo "[startup] ❌ Fake connection detected (No Sink). Disconnecting..."
-                    bluetoothctl disconnect "$SPEAKER_MAC" &>/dev/null
-                    ((REBOOT_COUNT++))
-                    rm -f "/tmp/.speaker_ready"
-                fi
-            fi
+            pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null || true
+            sleep 1
+            pacmd set-default-sink "$SINK_NAME" &>/dev/null || true
+            # Signal that we have a speaker (TRUST connection without aggressive sink check)
+            touch "/tmp/.speaker_ready"
         else
             echo "[startup] ❌ Connection failed. Retrying ($((REBOOT_COUNT+1))/3)..."
             ((REBOOT_COUNT++))
             rm -f "/tmp/.speaker_ready"
         fi
     else
-        # Already connected, check sink health again
-        SINK_NAME="bluez_sink.${SPEAKER_MAC//:/_}.a2dp_sink"
-        if ! pacmd list-sinks | grep -q "name: <$SINK_NAME>"; then
-             echo "[startup] Speaker connected but sink missing. Repairing..."
-             rm -f "/tmp/.speaker_ready"
-             # This will trigger the reconnect logic in the next loop
-             bluetoothctl disconnect "$SPEAKER_MAC" &>/dev/null
-        else
-             touch "/tmp/.speaker_ready"
-             REBOOT_COUNT=0
-        fi
+        # Already connected
+        touch "/tmp/.speaker_ready"
+        REBOOT_COUNT=0
     fi
     
     sleep 30 # Check every 30s
