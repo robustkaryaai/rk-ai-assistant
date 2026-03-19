@@ -78,6 +78,10 @@ from .offline_commands import match_offline_command, process_offline_command
 from .weather_news import fetch_news, fetch_weather
 from .intent_classifier import guess_fallback_intent, start_pending_request_msg
 from .reset_monitor import start_reset_monitor, update_activity
+from . import settings_sync
+from . import music_manager
+from .error_monitor import register_error
+from difflib import SequenceMatcher
 
 def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.94):
     """Fuzzy match spoken text against wake words."""
