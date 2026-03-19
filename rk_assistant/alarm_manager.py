@@ -126,19 +126,22 @@ def cancel_all_alarms() -> int:
 
 
 def stop_all_alarms() -> None:
-    """Stop any currently ringing alarm and cancel all scheduled alarms."""
+    """Stop any currently ringing alarm currently playing."""
     global _alarm_active, _alarm_sound_procs
     print("[alarm] Stopping all alarms...")
     _alarm_active = False
     # Kill all running sound processes
     for proc in list(_alarm_sound_procs):
         try:
-            proc.terminate()
+            proc.kill()
         except Exception:
             pass
     _alarm_sound_procs = []
-    # Also clear the alarms JSON file
-    cancel_all_alarms()
+    
+    # Aggressively kill system-level players
+    import subprocess
+    subprocess.run(["killall", "-9", "paplay"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    subprocess.run(["killall", "-9", "mpg123"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
 
 def list_alarms() -> List[Dict]:
