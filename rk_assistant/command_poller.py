@@ -122,8 +122,9 @@ def execute_command(cmd: dict, slug: str) -> None:
             label = payload.get('label', 'Alarm')
             sound = payload.get('sound', 'default')
             wake_up_message = payload.get('wakeUpMessage')
+            days = payload.get('days', [])
             
-            if alarm_manager.set_alarm(time_str, label, sound, wake_up_message):
+            if alarm_manager.set_alarm(time_str, label, sound, wake_up_message, days):
                 result = f"Alarm set for {time_str}"
                 success = True
             else:

@@ -92,7 +92,7 @@ def parse_time(time_str: str) -> Optional[str]:
     return None
 
 
-def set_alarm(time_str: str, label: str = "Alarm", sound: str = "default", wake_up_message: Optional[str] = None) -> bool:
+def set_alarm(time_str: str, label: str = "Alarm", sound: str = "default", wake_up_message: Optional[str] = None, days: Optional[List[str]] = None) -> bool:
     """Set an alarm for the given time."""
     parsed_time = parse_time(time_str)
     if not parsed_time:
@@ -104,6 +104,7 @@ def set_alarm(time_str: str, label: str = "Alarm", sound: str = "default", wake_
         "label": label,
         "sound": sound,
         "wake_up_message": wake_up_message,
+        "days": days or [],
         "enabled": True,
         "created_at": dt.datetime.now().isoformat()
     }
@@ -162,33 +163,50 @@ def start_alarm_checker() -> None:
                 alarms = load_alarms()
                 now = dt.datetime.now()
                 current_time = now.strftime("%H:%M")
+                current_day = now.strftime("%a") # e.g. "Mon"
                 
-                triggered = []
-                remaining = []
+                updated_alarms = []
+                any_triggered = False
                 
                 for alarm in alarms:
                     if not alarm.get("enabled", True):
+                        updated_alarms.append(alarm)
                         continue
                     
                     alarm_time = alarm.get("time", "")
-                    if alarm_time == current_time:
+                    alarm_days = alarm.get("days", [])
+                    
+                    # Check if day matches (or if no days specified, treat as one-time)
+                    day_matches = not alarm_days or current_day in alarm_days
+                    
+                    if alarm_time == current_time and day_matches:
                         # Trigger alarm
-                        label = alarm.get("label", "Alarm")
+                        print(f"[alarm] Triggering: {alarm.get('label', 'Alarm')}")
                         
                         # 1. Play Sound in background
                         threading.Thread(target=play_alarm_sound, args=(alarm.get("sound"),), daemon=True).start()
                         
-                        # 2. Speak Message (Gemini generated or default)
-                        msg = alarm.get("wake_up_message") or f"Radhe Radhe! It's {alarm_time}. Time for {label}."
+                        # 2. Speak Message
+                        msg = alarm.get("wake_up_message") or f"Radhe Radhe! It's {alarm_time}. Time for {alarm.get('label', 'Alarm')}."
                         threading.Thread(target=speak, args=(msg,), daemon=True).start()
                         
-                        triggered.append(alarm)
+                        any_triggered = True
+                        
+                        # If it has recurring days, keep it but mark as "triggered_today" to avoid multi-trigger in same minute
+                        if alarm_days:
+                            alarm["triggered_today"] = True
+                            updated_alarms.append(alarm)
+                        else:
+                            # One-time alarm, don't add back to list
+                            pass
                     else:
-                        remaining.append(alarm)
+                        # Reset "triggered_today" if the minute has passed
+                        if alarm_time != current_time:
+                            alarm.pop("triggered_today", None)
+                        updated_alarms.append(alarm)
                 
-                # Remove triggered alarms
-                if triggered:
-                    save_alarms(remaining)
+                if any_triggered or len(updated_alarms) != len(alarms):
+                    save_alarms(updated_alarms)
                 
             except Exception as e:
                 print(f"[alarm] Checker error: {e}")
