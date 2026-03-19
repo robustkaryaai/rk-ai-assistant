@@ -82,7 +82,10 @@ from . import settings_sync
 from . import music_manager
 from . import command_poller
 from . import schedule_manager
-from .error_monitor import register_error
+from . import local_handlers
+from . import gemini_client
+from . import self_diagnosis
+from .error_monitor import register_error, get_monitor
 from difflib import SequenceMatcher
 
 def _is_wake_word_heard(text: str, wake_words, threshold: float = 0.94):
@@ -1084,6 +1087,8 @@ def main():
         from .reset_monitor import start_night_update_monitor
         start_night_update_monitor()
         # New monitor for scheduled tasks
+        def voice_command_processor(text):
+            return process_online_command(text, slug, music_proc_holder)
         schedule_manager.start_schedule_monitor(voice_command_processor)
     except Exception as e:
         print(f"[main] Failed to start monitors: {e}")
