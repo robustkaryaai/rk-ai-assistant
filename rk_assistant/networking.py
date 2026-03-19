@@ -82,6 +82,18 @@ def is_online() -> bool:
         return False
 
 
+def get_ip_address() -> str:
+    """Returns the primary IP address of the device."""
+    try:
+        # 1. Quick local check: do we even have an IP?
+        output = subprocess.check_output(["hostname", "-I"]).decode().strip()
+        if output:
+            return output.split()[0] # Return the first one (primary)
+    except Exception:
+        pass
+    return "0.0.0.0"
+
+
 def wait_for_internet(timeout: int = 60) -> bool:
     """Wait for internet connection for up to timeout seconds."""
     print(f"[network] Waiting {timeout}s for internet connection...", flush=True)
