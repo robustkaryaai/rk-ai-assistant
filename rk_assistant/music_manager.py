@@ -285,6 +285,16 @@ def search_youtube_and_play(norm_query):
         speak(f"Downloading {speak_title}")
         print(f"[music] ⬇️  Downloading fast... ({title})", flush=True)
         
+        # 🚀 REPORT DOWNLOAD STATUS TO BACKEND
+        try:
+            from .networking import read_slug, BACKEND_BASE_URL
+            import requests
+            slug = read_slug()
+            if slug:
+                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/update-status", json={"downloadProgress": f"Downloading: {title}"}, timeout=2)
+        except:
+            pass
+        
         safe_url = f"https://www.youtube.com/watch?v={vid_id}"
         
         dl_cmd = [
@@ -293,6 +303,13 @@ def search_youtube_and_play(norm_query):
         ]
         
         subprocess.run(dl_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # 🚀 CLEAR DOWNLOAD STATUS
+        try:
+            if slug:
+                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/update-status", json={"downloadProgress": None}, timeout=2)
+        except:
+            pass
         
         # Now find the downloaded file
         new_matches = []
@@ -341,10 +358,16 @@ def play_music(query: str):
         print("[music] Install yt-dlp: sudo wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && sudo chmod a+rx /usr/local/bin/yt-dlp", flush=True)
         return None
     
-    stop_music()
-    
     norm_query = clean_music_query(query)
     print(f"[music] 🧹 Cleaned Query: '{norm_query}' (Original: '{query}')", flush=True)
+
+    # 🚀 HANDLE STOP COMMANDS EXPLICITLY
+    if any(word in norm_query for word in ["stop", "off", "cancel", "shut up", "quiet"]):
+        print("[music] 🛑 Stop command detected. Terminating playback.")
+        stop_music()
+        return None
+    
+    stop_music()
     
     global last_played_query
     last_played_query = query # Store the original query for 'play again'
