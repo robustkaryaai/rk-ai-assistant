@@ -161,15 +161,13 @@ def play_alarm_sound(sound_file: Optional[str]):
     if os.path.exists(full_path):
         print(f"[alarm] Playing sound: {full_path}")
         _alarm_active = True
-        # Play up to 3 times, but stop if alarm is cancelled
-        for _ in range(3):
-            if not _alarm_active:
-                break
-            proc = subprocess.Popen(["paplay", full_path],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            _alarm_sound_procs.append(proc)
-            proc.wait()
-            _alarm_sound_procs = [p for p in _alarm_sound_procs if p.poll() is None]
+        
+        proc = subprocess.Popen(["paplay", full_path],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _alarm_sound_procs.append(proc)
+        proc.wait()
+        _alarm_sound_procs = [p for p in _alarm_sound_procs if p.poll() is None]
+        
         _alarm_active = False
     else:
         print(f"[alarm] Sound file not found: {full_path}")
