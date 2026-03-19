@@ -13,6 +13,7 @@ from .audio_utils import set_volume
 from . import audio_utils_simple
 from .error_monitor import register_error
 from . import schedule_manager
+from . import alarm_manager
 
 # Global flag for mute state
 _muted = False
@@ -115,8 +116,21 @@ def execute_command(cmd: dict, slug: str) -> None:
             schedule_manager.delete_schedule(s_id)
             result = f"Schedule deleted: {s_id}"
             success = True
+
+        elif cmd_type == 'set_alarm':
+            time_str = payload.get('time')
+            label = payload.get('label', 'Alarm')
+            sound = payload.get('sound', 'default')
+            wake_up_message = payload.get('wakeUpMessage')
             
-        elif cmd_type == 'reboot':'text_command':
+            if alarm_manager.set_alarm(time_str, label, sound, wake_up_message):
+                result = f"Alarm set for {time_str}"
+                success = True
+            else:
+                result = "Failed to set alarm"
+                success = False
+            
+        elif cmd_type == 'reboot' or cmd_type == 'text_command':
             text = payload.get('text', '')
             if text:
                 # Treat as if it was spoken to the device

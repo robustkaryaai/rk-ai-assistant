@@ -6,6 +6,8 @@ import datetime as dt
 import json
 import threading
 import time
+import os
+import subprocess
 from pathlib import Path
 from typing import Optional, Dict, List
 
@@ -13,6 +15,7 @@ from .audio_utils import speak
 from .config import DATA_DIR
 
 ALARMS_FILE = DATA_DIR / "alarms.json"
+ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "alarms")
 
 
 def load_alarms() -> List[Dict]:
@@ -89,7 +92,7 @@ def parse_time(time_str: str) -> Optional[str]:
     return None
 
 
-def set_alarm(time_str: str, label: str = "Alarm") -> bool:
+def set_alarm(time_str: str, label: str = "Alarm", sound: str = "default", wake_up_message: Optional[str] = None) -> bool:
     """Set an alarm for the given time."""
     parsed_time = parse_time(time_str)
     if not parsed_time:
@@ -99,6 +102,8 @@ def set_alarm(time_str: str, label: str = "Alarm") -> bool:
     alarm = {
         "time": parsed_time,
         "label": label,
+        "sound": sound,
+        "wake_up_message": wake_up_message,
         "enabled": True,
         "created_at": dt.datetime.now().isoformat()
     }
@@ -122,6 +127,21 @@ def cancel_all_alarms() -> int:
 def list_alarms() -> List[Dict]:
     """List all active alarms."""
     return [a for a in load_alarms() if a.get("enabled", True)]
+
+
+def play_alarm_sound(sound_file: Optional[str]):
+    """Plays the selected alarm sound using paplay."""
+    if not sound_file or sound_file == "default":
+        sound_file = "freesound_community-alarm-clock-short-6402.mp3"
+    
+    full_path = os.path.join(ASSETS_DIR, sound_file)
+    if os.path.exists(full_path):
+        print(f"[alarm] Playing sound: {full_path}")
+        # Play 3 times
+        for _ in range(3):
+            subprocess.run(["paplay", full_path], capture_output=True)
+    else:
+        print(f"[alarm] Sound file not found: {full_path}")
 
 
 _alarm_checker_running = False
@@ -154,8 +174,14 @@ def start_alarm_checker() -> None:
                     if alarm_time == current_time:
                         # Trigger alarm
                         label = alarm.get("label", "Alarm")
-                        speak(f"Alarm! {label}")
-                        speak(f"It's {alarm_time}")
+                        
+                        # 1. Play Sound in background
+                        threading.Thread(target=play_alarm_sound, args=(alarm.get("sound"),), daemon=True).start()
+                        
+                        # 2. Speak Message (Gemini generated or default)
+                        msg = alarm.get("wake_up_message") or f"Radhe Radhe! It's {alarm_time}. Time for {label}."
+                        threading.Thread(target=speak, args=(msg,), daemon=True).start()
+                        
                         triggered.append(alarm)
                     else:
                         remaining.append(alarm)
