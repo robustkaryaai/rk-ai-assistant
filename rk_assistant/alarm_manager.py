@@ -219,12 +219,17 @@ def start_alarm_checker() -> None:
                         # Trigger alarm
                         print(f"[alarm] Triggering: {alarm.get('label', 'Alarm')}")
                         
-                        # 1. Play Sound in background
-                        threading.Thread(target=play_alarm_sound, args=(alarm.get("sound"),), daemon=True).start()
-                        
-                        # 2. Speak Message
+                        # Sequential Trigger to ensure both are heard and PulseAudio handles mixing correctly
+                        def run_alarm_logic(sound_file, wakeup_msg):
+                            # 1. Play Sound
+                            play_alarm_sound(sound_file)
+                            # 2. Short Pause to let the sound start/settle
+                            time.sleep(1.0)
+                            # 3. Speak Message
+                            speak(wakeup_msg)
+
                         msg = alarm.get("wake_up_message") or f"Radhe Radhe! It's {alarm_time}. Time for {alarm.get('label', 'Alarm')}."
-                        threading.Thread(target=speak, args=(msg,), daemon=True).start()
+                        threading.Thread(target=run_alarm_logic, args=(alarm.get("sound"), msg), daemon=True).start()
                         
                         any_triggered = True
                         
