@@ -162,9 +162,9 @@ def execute_command(cmd: dict, slug: str) -> None:
                 except: pass
                 
                 # Execute the Wi-Fi switch and reboot
-                from .ap_provisioning import apply_wifi_and_reboot
+                from .ble_provisioning import apply_wifi
                 import threading
-                threading.Thread(target=apply_wifi_and_reboot, args=(ssid, password), daemon=True).start()
+                threading.Thread(target=apply_wifi, args=(ssid, password), daemon=True).start()
                 return # Exit this execution
             else:
                 result = "Missing SSID in set_wifi payload"
