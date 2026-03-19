@@ -147,51 +147,11 @@ def sanitize_text(text):
 
 def speak(text):
     """
-    Ultra-lightweight TTS via PulseAudio.
+    Delegate text-to-speech rendering to the improved hybrid audio_utils_simple
+    which handles chunking, fast caching, and drops espeak entirely.
     """
-    # Sanitize text (remove emojis)
-    clean_text = sanitize_text(text)
-    print(f"🔊 {text}") # Log original text with emoji for debugging
-    
-    # 1. Try Google TTS (Online) if enabled
-    from .networking import is_online
-    from .config import GTTS_ENABLE, GTTS_LANG, GTTS_TLD
-    
-    if GTTS_ENABLE and is_online():
-        try:
-            from gtts import gTTS
-            # 🚀 Clean usage of Google TTS without artificial limits
-            tts = gTTS(text=clean_text, lang=GTTS_LANG, tld=GTTS_TLD, slow=False)
-            tts.save("/tmp/tts.mp3")
-            proc = play_audio_url("/tmp/tts.mp3")
-            if proc:
-                proc.wait() # BLOCK until finished
-            return
-        except Exception as e:
-            print(f"[tts] GTTS failed, falling back: {e}")
-
-    try:
-        # 2. Try Piper (Offline High Quality)
-        piper_binary = "/usr/local/bin/piper"
-        model = os.path.expanduser("~/.local/share/piper/voices/en_US-lessac-medium.onnx")
-        
-        if os.path.exists(piper_binary) and os.path.exists(model):
-            # Pipe to aplay -D pulse
-            # Escape quotes for shell
-            safe_text = clean_text.replace('"', '\\"')
-            cmd = f'echo "{safe_text}" | {piper_binary} --model {model} --output_raw | aplay -D {ALSA_DEVICE} -r 22050 -f S16_LE -t raw -q'
-            subprocess.run(cmd, shell=True) # subprocess.run IS blocking by default
-            return
-
-        # 3. Fallback to espeak
-        subprocess.run(
-            ["espeak", "-w", "/tmp/tts.wav", clean_text], 
-            check=False, stderr=subprocess.DEVNULL
-        )
-        play_audio_file("/tmp/tts.wav") # aplay is blocking
-        
-    except Exception as e:
-        print(f"[tts] Error: {e}")
+    from .audio_utils_simple import speak as simple_speak
+    simple_speak(text)
 
 def _apply_webrtc_vad(audio_data):
     """Filter out non-speech (noise) frames using WebRTC VAD."""
