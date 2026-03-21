@@ -504,7 +504,7 @@ def quick_stt(audio_path: str) -> str:
         print(f"[sphinx] Offline STT Error: {e}")
         return ""
 
-def wait_for_wake_word(use_offline: bool = True) -> bool:
+def wait_for_wake_word(use_offline: bool = True, recognizer=None, mic=None) -> bool:
     """
     Ultra-low CPU wake word detection using Picovoice Porcupine (offline default).
     If use_offline=False or unsupported architecture, falls back to standard live listening.
@@ -583,48 +583,63 @@ def wait_for_wake_word(use_offline: bool = True) -> bool:
         else:
             print(f"\n[wake] ☁️  Standard Mic Listening for '{WAKE_WORD}'...")
             
-        recognizer = sr.Recognizer()
-        recognizer.energy_threshold = 400
-        recognizer.dynamic_energy_threshold = True
+        r = recognizer if recognizer else sr.Recognizer()
+        if not recognizer:
+            r.energy_threshold = 400
+            r.dynamic_energy_threshold = True
         
         try:
-            with no_alsa_err():
-                mic_source = sr.Microphone(device_index=MIC_DEVICE_INDEX)
+            if mic:
+                mic_source = mic
+            else:
+                with no_alsa_err():
+                    mic_source = sr.Microphone(device_index=MIC_DEVICE_INDEX)
             
-            with no_alsa_err():
-                with mic_source as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    while True:
-                        try:
-                            audio = recognizer.listen(source, timeout=2, phrase_time_limit=3)
-                            
-                            # Routing transcribe engine
-                            if use_offline:
-                                 if _SPHINX_CUSTOM_KEYWORDS:
-                                     text = recognizer.recognize_sphinx(audio, keyword_entries=_SPHINX_CUSTOM_KEYWORDS).lower()
-                                 else:
-                                     text = recognizer.recognize_sphinx(audio).lower()
-                            else:
-                                 text = recognizer.recognize_google(audio).lower()
-                                 
-                            print(f"   (heard: '{text}')", end="\r")
-                            if WAKE_WORD.lower() in text or any(w in text for w in WAKE_WORDS):
-                                print("\n[wake] 🟢 Wake Word Detected!")
-                                try:
-                                    subprocess.run(
-                                        ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
-                                        stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
-                                    )
-                                except FileNotFoundError:
-                                    print("\a", end="", flush=True)
-                                return True
-                        except sr.WaitTimeoutError:
-                            continue
-                        except sr.UnknownValueError:
-                            continue
-                        except Exception as loop_e:
-                            print(f"   (Sphinx/Google engine skip: {loop_e})", end="\r")
-                            continue
+            # If we create new mic, we need context manager. If passed, it depends if it's open.
+            is_open_source = isinstance(mic_source, sr.AudioSource) and getattr(mic_source, "stream", None) is not None
+
+            def _listen_loop(source):
+                while True:
+                    try:
+                        audio = r.listen(source, timeout=2, phrase_time_limit=3)
+                        
+                        # Routing transcribe engine
+                        if use_offline:
+                             if _SPHINX_CUSTOM_KEYWORDS:
+                                 text = r.recognize_sphinx(audio, keyword_entries=_SPHINX_CUSTOM_KEYWORDS).lower()
+                             else:
+                                 text = r.recognize_sphinx(audio).lower()
+                        else:
+                             text = r.recognize_google(audio).lower()
+                             
+                        print(f"   (heard: '{text}')", end="\r")
+                        if WAKE_WORD.lower() in text or any(w in text for w in WAKE_WORDS):
+                            print("\n[wake] 🟢 Wake Word Detected!")
+                            try:
+                                subprocess.run(
+                                    ["play", "-n", "-c1", "synth", "0.1", "sine", "800", "vol", "0.5"],
+                                    stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False
+                                )
+                            except FileNotFoundError:
+                                print("\a", end="", flush=True)
+                            return True
+                    except sr.WaitTimeoutError:
+                        continue
+                    except sr.UnknownValueError:
+                        continue
+                    except Exception as loop_e:
+                        print(f"   (Sphinx/Google engine skip: {loop_e})", end="\r")
+                        continue
+
+            if is_open_source:
+                return _listen_loop(mic_source)
+            else:
+                with no_alsa_err():
+                    with mic_source as source:
+                        if not recognizer:
+                            r.adjust_for_ambient_noise(source, duration=0.5)
+                        return _listen_loop(source)
+
         except Exception as e:
             print(f"[wake] Mic Error: {e}")
             time.sleep(2)

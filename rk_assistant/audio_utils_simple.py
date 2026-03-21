@@ -7,7 +7,7 @@ import time
 import hashlib
 from pathlib import Path
 from typing import List, Optional
-from .config import CACHE_DIR, FORCE_OFFLINE, GROQ_API_KEY
+from .config import CACHE_DIR, FORCE_OFFLINE, GROQ_API_KEY, BASE_DIR
 
 def _get_cache_path(text: str) -> Path:
     """Generate a unique cache path for a given text string."""
@@ -24,19 +24,23 @@ def _speak_with_piper(text: str, alsa_device: str = "pulse") -> bool:
     if not cache_path.exists():
         try:
             # 🚀 Piper generates speech at ~10x realtime on Pi Zero
-            model_path = "/home/raspberrypi/rk-ai-assistant-main/models/en_US-lessac-medium.onnx"
-            if not os.path.exists(model_path):
+            model_path = BASE_DIR.parent / "models" / "en_US-lessac-medium.onnx"
+            if not model_path.exists():
                 return False
                 
-            cmd = f'echo "{text}" | piper --model {model_path} --output_file {cache_path}'
+            cmd = f'echo "{text}" | piper --model {str(model_path)} --output_file {str(cache_path)}'
             subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
             print(f"[piper] Error: {e}")
             return False
 
     if cache_path.exists():
-        subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
-        return True
+        try:
+            # Added timeout to prevent hanging if Bluetooth is flaky
+            subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False, timeout=30)
+            return True
+        except:
+            return False
     return False
 
 def _speak_with_groq(text: str, alsa_device: str = "pulse") -> bool:
@@ -92,7 +96,8 @@ def speak(text: str, online: bool = True):
 
     # 🚀 Step 1: Force PulseAudio to refresh sink list (Fix for silent RK)
     try:
-        subprocess.run(['pacmd', 'list-sinks'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Use a short timeout to prevent hanging the whole process
+        subprocess.run(['pacmd', 'list-sinks'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
     except:
         pass
 

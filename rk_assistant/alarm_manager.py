@@ -269,13 +269,17 @@ def start_alarm_checker() -> None:
 
 def prompt_for_alarm_time() -> Optional[str]:
     """Prompt user for alarm time via voice. Returns time string or None."""
-    from .audio_utils import quick_stt, load_pocketsphinx_decoder
+    from .audio_utils import record_audio, quick_stt
     
     speak("What time should I set the alarm?")
     
     # Listen for time
-    decoder_available = load_pocketsphinx_decoder()
-    time_text = quick_stt(decoder_available, seconds=5)
+    audio_path = record_audio()
+    if not audio_path:
+        speak("I didn't hear anything.")
+        return None
+        
+    time_text = quick_stt(str(audio_path))
     
     if not time_text:
         speak("I didn't catch that.")
