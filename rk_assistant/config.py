@@ -44,6 +44,9 @@ if _target_env:
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+CACHE_DIR = DATA_DIR / "cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
 # File paths
 SLUG_FILE = BASE_DIR / "slug.txt"  # Pre-seeded unique 9-digit slug
 WEATHER_CACHE = DATA_DIR / "weather.json"

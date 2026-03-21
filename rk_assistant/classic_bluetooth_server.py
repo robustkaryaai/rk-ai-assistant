@@ -29,7 +29,8 @@ def start_classic_bt_server(slug):
         
         # Create the server socket
         server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-        server_sock.bind(("", RFCOMM_PORT))
+        # Use "00:00:00:00:00:00" to bind to any available Bluetooth adapter
+        server_sock.bind(("00:00:00:00:00:00", RFCOMM_PORT))
         server_sock.listen(1)
         
         # Register the Serial Port Profile (SPP) using D-Bus if possible, or sdptool fallback
