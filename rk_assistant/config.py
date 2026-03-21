@@ -146,6 +146,16 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_MODEL_PRIMARY = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-3.1-flash-lite-preview")
 GEMINI_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-2.5-flash")  # 🚀 Fallback to 2.5 Flash if needed
 STT_ENGINE = os.getenv("STT_ENGINE", "google")  # Options: "groq", "google"
+STT_ENGINE_ONLINE = os.getenv("STT_ENGINE_ONLINE", "google")  # "google" or "groq"
+
+# Night Protocol — continuous ambient noise monitoring
+# When RMS stays below NIGHT_AMBIENT_THRESHOLD for NIGHT_CONFIRM_COUNT checks, night mode activates.
+# STT becomes slower (longer pauses tolerated), TTS is suppressed until a voice command arrives.
+NIGHT_AMBIENT_THRESHOLD = int(os.getenv("NIGHT_AMBIENT_THRESHOLD", "200"))   # RMS < this = quiet/night
+NIGHT_CHECK_INTERVAL    = int(os.getenv("NIGHT_CHECK_INTERVAL", "60"))       # Seconds between ambient checks
+NIGHT_CONFIRM_COUNT     = int(os.getenv("NIGHT_CONFIRM_COUNT", "3"))         # Consecutive quiet checks to enter night
+NIGHT_PAUSE_THRESHOLD   = float(os.getenv("NIGHT_PAUSE_THRESHOLD", "3.0"))   # STT pause_threshold in night mode
+NIGHT_ENERGY_BOOST      = float(os.getenv("NIGHT_ENERGY_BOOST", "1.5"))      # Multiply energy_threshold in night mode
 
 
 

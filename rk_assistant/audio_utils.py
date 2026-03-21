@@ -1,10 +1,12 @@
 """
 Optimized Audio Utilities for Pi Zero W.
 Restored Google STT and robust TTS.
+Features: SmartSTTEngine (constant background listening), mute/unmute support, night protocol.
 """
 import os
 import sys
 import time
+import queue
 import subprocess
 import threading
 import shutil
@@ -14,8 +16,7 @@ try:
 except ModuleNotFoundError:
     import audioop_lts as audioop
 import math
-import math
-from typing import Optional
+from typing import Optional, Callable
 from pathlib import Path
 from ctypes import *
 from contextlib import contextmanager
@@ -57,18 +58,24 @@ from .config import (
     LAST_AUDIO,
     BLUETOOTH_SPEAKER_MAC,
     MIC_DEVICE_INDEX,
-    BLUETOOTH_HCI, # Added by user instruction
-    PIPER_EXECUTABLE, # Added by user instruction
-    PIPER_VOICE_MODEL, # Added by user instruction
-    MUTE_MODE, # Added by user instruction
+    BLUETOOTH_HCI,
+    PIPER_EXECUTABLE,
+    PIPER_VOICE_MODEL,
+    MUTE_MODE,
     MAX_RECORD_SECONDS,
     SILENCE_TIMEOUT,
     PHRASE_TIME_LIMIT,
-    STT_ENGINE, 
-    GEMINI_API_KEY, 
-    GEMINI_API_KEY_BACKUP, 
+    STT_ENGINE,
+    STT_ENGINE_ONLINE,
+    GEMINI_API_KEY,
+    GEMINI_API_KEY_BACKUP,
     PORCUPINE_ACCESS_KEY,
-    GROQ_API_KEY
+    GROQ_API_KEY,
+    NIGHT_AMBIENT_THRESHOLD,
+    NIGHT_CHECK_INTERVAL,
+    NIGHT_CONFIRM_COUNT,
+    NIGHT_PAUSE_THRESHOLD,
+    NIGHT_ENERGY_BOOST,
 )
 
 # Hardcoded settings for PulseAudio
@@ -678,3 +685,249 @@ def set_volume(change=0):
         print(f"[audio] Error setting volume: {e}")
 
 def synthesize_to_wav(*args, **kwargs): return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SmartSTTEngine — Constant background listener with night protocol support
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SPHINX_CUSTOM_KEYWORDS_STR = [(w, 1e-10) for w in WAKE_WORDS]
+# Alias used by legacy quick_stt / wait_for_wake_word functions
+_SPHINX_CUSTOM_KEYWORDS = _SPHINX_CUSTOM_KEYWORDS_STR
+
+
+class SmartSTTEngine:
+    """
+    Always-on STT engine that runs a `listen_in_background()` loop.
+
+    Features:
+    • Constant listening — zero startup delay.
+    • Online: Google STT (or Groq if GROQ_API_KEY set).
+    • Offline: PocketSphinx with wake-word filter.
+    • Mute: listener thread is fully stopped; restarted on unmute.
+    • Night mode: higher energy threshold + longer pause → less false triggers;
+                  TTS suppression flag is set (honoured by main.py).
+    • Commands land in `command_queue` — main loop just does .get().
+    """
+
+    def __init__(
+        self,
+        recognizer,
+        mic,
+        online: bool = True,
+        on_wake: Optional[Callable] = None,
+    ):
+        """
+        Parameters
+        ----------
+        recognizer  : sr.Recognizer (already calibrated)
+        mic         : sr.Microphone
+        online      : initial online state
+        on_wake     : optional callback(text) called on every matched command
+                      (in addition to queuing)
+        """
+        self.recognizer = recognizer
+        self.mic = mic
+        self.online = online
+        self.on_wake = on_wake
+
+        # Thread-safe queue; main loop reads from here
+        self.command_queue: queue.Queue[str] = queue.Queue()
+
+        # Internal state
+        self._stop_listening = None   # The callable returned by listen_in_background
+        self._running = False
+        self._night_mode = False
+        self._base_energy = recognizer.energy_threshold if recognizer else 300
+        self._lock = threading.Lock()
+
+    # ── public API ────────────────────────────────────────────────────────────
+
+    def start(self):
+        """Start the background listener."""
+        with self._lock:
+            if self._running:
+                return
+            self._running = True
+            self._launch_listener()
+            print("[stt-engine] 🎙️  SmartSTTEngine started.", flush=True)
+
+    def stop(self):
+        """Stop the background listener immediately."""
+        with self._lock:
+            self._running = False
+            if self._stop_listening:
+                try:
+                    self._stop_listening(wait_for_stop=True)
+                except Exception:
+                    pass
+                self._stop_listening = None
+            print("[stt-engine] ⏹️  SmartSTTEngine stopped.", flush=True)
+
+    def restart(self):
+        """Stop then start (used after unmute or recalibration)."""
+        self.stop()
+        time.sleep(0.4)
+        with self._lock:
+            self._running = True
+            self._launch_listener()
+        print("[stt-engine] 🔄  SmartSTTEngine restarted.", flush=True)
+
+    def set_online(self, online: bool):
+        """Update online/offline state; restarts listener to apply."""
+        if self.online != online:
+            self.online = online
+            self.restart()
+
+    def set_night_mode(self, enabled: bool):
+        """Apply / remove night protocol tuning and restart listener."""
+        if self._night_mode == enabled:
+            return
+        self._night_mode = enabled
+        self._apply_night_tuning()
+        self.restart()
+        if enabled:
+            print("[stt-engine] 🌙  Night mode ON — STT slowed, TTS suppression active.")
+        else:
+            print("[stt-engine] ☀️   Night mode OFF — normal STT restored.")
+
+    @property
+    def night_mode(self) -> bool:
+        return self._night_mode
+
+    # ── internal helpers ──────────────────────────────────────────────────────
+
+    def _apply_night_tuning(self):
+        r = self.recognizer
+        if r is None:
+            return
+        if self._night_mode:
+            r.pause_threshold = NIGHT_PAUSE_THRESHOLD
+            r.energy_threshold = self._base_energy * NIGHT_ENERGY_BOOST
+            r.dynamic_energy_threshold = False   # Keep fixed threshold at night
+        else:
+            r.pause_threshold = 1.2
+            r.energy_threshold = self._base_energy
+            r.dynamic_energy_threshold = True
+
+    def _launch_listener(self):
+        """Start listen_in_background — must be called inside _lock."""
+        if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+            print("[stt-engine] ⚠️  speech_recognition unavailable — engine idle.")
+            return
+        try:
+            self._stop_listening = self.recognizer.listen_in_background(
+                self.mic,
+                self._on_audio,
+                phrase_time_limit=PHRASE_TIME_LIMIT,
+            )
+        except Exception as e:
+            print(f"[stt-engine] Failed to start background listener: {e}")
+            self._running = False
+
+    def _on_audio(self, recognizer, audio):
+        """
+        Called by speech_recognition's background thread every time a phrase
+        is captured.  We run STT here and push matching commands to the queue.
+        """
+        if not self._running:
+            return
+        try:
+            text = self._transcribe(recognizer, audio)
+        except Exception as e:
+            print(f"[stt-engine] Transcription error: {e}")
+            return
+
+        if not text:
+            return
+
+        text_lower = text.lower().strip()
+        print(f"[stt-engine] Heard: '{text_lower}'", flush=True)
+
+        # Check for wake word
+        wake_detected = (
+            WAKE_WORD.lower() in text_lower
+            or any(w in text_lower for w in WAKE_WORDS)
+        )
+
+        if wake_detected:
+            # Strip the wake word prefix to get the actual command
+            command = self._strip_wake_word(text_lower)
+            print(f"[stt-engine] 🟢 Wake word! Command: '{command}'", flush=True)
+            self.command_queue.put(command or "__WAKE__")
+            if self.on_wake:
+                try:
+                    self.on_wake(command or "__WAKE__")
+                except Exception:
+                    pass
+
+    def _transcribe(self, recognizer, audio) -> str:
+        """Run the appropriate STT engine and return text."""
+        # Boost audio first
+        audio = _normalize_audio(audio)
+
+        if self.online:
+            # Priority: Groq → Google
+            if GROQ_API_KEY and STT_ENGINE_ONLINE != "google":
+                text = _transcribe_with_groq(audio)
+                if text:
+                    return text
+            try:
+                return recognizer.recognize_google(audio)
+            except sr.UnknownValueError:
+                return ""
+            except sr.RequestError as e:
+                print(f"[stt-engine] Google API error: {e} — falling back to offline", flush=True)
+                # fall through to offline
+        # Offline: PocketSphinx
+        try:
+            return recognizer.recognize_sphinx(audio)
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _strip_wake_word(text: str) -> str:
+        """Remove the leading wake word from a transcribed string."""
+        # Check all wake words (longest first to avoid partial matches)
+        for ww in sorted(WAKE_WORDS, key=len, reverse=True):
+            idx = text.find(ww)
+            if idx != -1:
+                return text[idx + len(ww):].strip(" ,.").strip()
+        return text.strip()
+
+
+def create_stt_engine(
+    recognizer,
+    mic,
+    online: bool = True,
+    on_wake: Optional[Callable] = None,
+) -> SmartSTTEngine:
+    """
+    Factory: create and configure a SmartSTTEngine.
+    Does NOT call .start() — caller must do that.
+    """
+    engine = SmartSTTEngine(recognizer, mic, online=online, on_wake=on_wake)
+    return engine
+
+
+def measure_ambient_rms(mic, recognizer, duration: float = 1.5) -> float:
+    """
+    Capture a short audio snippet and return its RMS level.
+    Used by the night-protocol checker in main.py.
+    Returns 0.0 on failure.
+    """
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None or mic is None:
+        return 0.0
+    try:
+        with no_alsa_err():
+            with mic as source:
+                # Listen briefly (no phrase limit — just grab raw frames)
+                audio = recognizer.record(source, duration=duration)
+        raw = audio.get_raw_data()
+        if not raw:
+            return 0.0
+        rms = audioop.rms(raw, 2)   # 2 bytes = 16-bit samples
+        return float(rms)
+    except Exception as e:
+        print(f"[stt-engine] ambient RMS error: {e}")
+        return 0.0
