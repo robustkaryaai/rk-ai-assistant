@@ -83,10 +83,35 @@ def _split_into_chunks(text: str) -> List[str]:
     sentences = re.split(r'(?<=[.!?]) +', text)
     return [s for s in sentences if s.strip()]
 
+def _speak_with_gtts(text: str, alsa_device: str = "pulse") -> bool:
+    """Standard Online TTS using Google TTS."""
+    cache_path = _get_cache_path(text)
+    if cache_path.exists():
+        subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
+        return True
+
+    try:
+        from gtts import gTTS
+        tts = gTTS(text=text, lang='en')
+        # Save to a temporary mp3 then convert to wav for paplay, or just use mpg123
+        temp_mp3 = cache_path.with_suffix('.mp3')
+        tts.save(str(temp_mp3))
+        
+        # Convert to wav for paplay (more reliable on Pi)
+        subprocess.run(['ffmpeg', '-y', '-i', str(temp_mp3), str(cache_path)], 
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        
+        if cache_path.exists():
+            subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
+            if temp_mp3.exists(): os.remove(temp_mp3)
+            return True
+    except Exception as e:
+        print(f"[gtts] Error: {e}")
+    return False
+
 def speak(text: str, online: bool = True):
     """
-    Main TTS entry point. Nuked gTTS in favor of Piper (Offline) and Groq (Online).
-    Processes full text at once to avoid inter-sentence pauses.
+    Main TTS entry point. Uses Piper (Offline), Groq (Fast Online), or gTTS (Fallback Online).
     """
     text = sanitize_text(text)
     if not text: return
@@ -94,21 +119,25 @@ def speak(text: str, online: bool = True):
     print(f"🔊 {text}", flush=True)
     alsa_device = "pulse"
 
-    # 🚀 Step 1: Force PulseAudio to refresh sink list (Fix for silent RK)
+    # 🚀 Step 1: Force PulseAudio to refresh sink list
     try:
-        # Use a short timeout to prevent hanging the whole process
         subprocess.run(['pacmd', 'list-sinks'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
     except:
         pass
 
-    # 🚀 Step 2: Try Piper (Instant Offline) - Full Text at once
+    # 🚀 Step 2: Try Piper (Instant Offline)
     if _is_piper_available():
         if _speak_with_piper(text, alsa_device):
             return
 
-    # 🚀 Step 3: Try Groq (Fast Online) - Full Text at once
+    # 🚀 Step 3: Try Groq (Fast Online)
     if online and not FORCE_OFFLINE:
         if _speak_with_groq(text, alsa_device):
+            return
+
+    # 🚀 Step 4: Try gTTS (Standard Online Fallback)
+    if online and not FORCE_OFFLINE:
+        if _speak_with_gtts(text, alsa_device):
             return
             
     # Emergency Offline Fallback

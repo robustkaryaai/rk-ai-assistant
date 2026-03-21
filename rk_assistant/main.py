@@ -414,12 +414,34 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
             speak(reply_text)
 
 if __name__ == "__main__":
+    slug_val = "000000000"
+    try:
+        from .networking import read_slug
+        slug_val, _ = read_slug()
+    except:
+        pass
+
     try:
         main()
     except KeyboardInterrupt:
         print("\n[main] Exiting by user request.")
         sys.exit(0)
     except Exception as e:
-        print(f"\n[main] FATAL ERROR: {e}")
-        tb.print_exc()
+        error_msg = str(e)
+        traceback_str = tb.format_exc()
+        print(f"\n[main] FATAL ERROR: {error_msg}")
+        print(traceback_str)
+        
+        # 🚀 TRIGGER SELF-DIAGNOSIS
+        try:
+            from .self_diagnosis import run_immediate_diagnosis
+            run_immediate_diagnosis(
+                slug=slug_val or "000000000",
+                error_type=type(e).__name__,
+                message=error_msg,
+                traceback_str=traceback_str
+            )
+        except Exception as diag_e:
+            print(f"[main] Self-diagnosis failed to start: {diag_e}")
+            
         sys.exit(1)

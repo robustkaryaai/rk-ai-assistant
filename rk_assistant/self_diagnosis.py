@@ -512,3 +512,32 @@ def trigger_diagnosis_if_needed(slug: str) -> bool:
         return True
     
     return False
+
+
+def run_immediate_diagnosis(slug: str, error_type: str, message: str, traceback_str: str):
+    """
+    Trigger an immediate, blocking diagnosis for a fatal error.
+    This is called when the main process is about to exit.
+    """
+    print(f"\n[self_diagnosis] 🛠️  FATAL ERROR DETECTED: {error_type}")
+    print(f"[self_diagnosis] 🤖 Starting immediate AI diagnosis and recovery attempt...")
+    
+    # Register the error first
+    get_monitor().register_error(
+        error_type=error_type,
+        message=message,
+        severity='critical',
+        traceback=traceback_str
+    )
+    
+    # Run diagnosis synchronously (since the app is crashing anyway)
+    # We want to try and fix it before the next restart
+    diag = SelfDiagnosis()
+    success = diag.run_full_diagnosis(slug)
+    
+    if success:
+        print("[self_diagnosis] ✅ AI successfully applied local fixes. Restarting service...")
+    else:
+        print("[self_diagnosis] ❌ AI diagnosis could not resolve the issue automatically.")
+    
+    return success
