@@ -90,6 +90,7 @@ from .weather_news import fetch_news, fetch_weather
 from .intent_classifier import guess_fallback_intent, start_pending_request_msg
 from .reset_monitor import start_reset_monitor, update_activity
 from . import settings_sync
+from . import smart_home
 from . import music_manager
 from . import command_poller
 from . import schedule_manager
@@ -493,6 +494,13 @@ def main():
             # (night_monitor.night_tts_suppressed stays True until noise returns,
             #  but the speak() calls below will fire for this single response)
             # ── This is intentional: user explicitly spoke → they want TTS
+
+            # ── Smart Home Fast Intercept ─────────────────────────────────
+            if smart_home.is_smart_home_intent(text):
+                print("[main] Smart Home Intent detected (Local Intercept)")
+                resp = smart_home.execute_smart_command(text)
+                speak(resp)
+                continue
 
             # ── Quick media/offline command shortcut ──────────────────────
             offline_kw = match_offline_command(text.lower())
