@@ -55,7 +55,9 @@ PROBE_AUDIO = DATA_DIR / "probe.wav"
 # Audio capture
 SAMPLE_RATE = 16000
 CHANNELS = 1
-MAX_RECORD_SECONDS = 15  # safety cap to avoid memory use
+MAX_RECORD_SECONDS = 30  # Increased for long instructions
+SILENCE_TIMEOUT = 1.2    # Alexa-style silence detection (seconds)
+PHRASE_TIME_LIMIT = 20   # Maximum time for a single phrase (seconds)
 WAKE_WORD = "rk"
 WAKE_WORDS = [
     # Core RK forms
@@ -195,6 +197,7 @@ OFFLINE_COMMANDS = [
     
     # Assistant controls
     "who are you", "what's your name", "introduce yourself",
+    "what is your id", "whats your id", "what's your identity", "show id",
     "help", "help me", "what can you do",
     "commands", "list commands", "available commands",
     "quiet", "be quiet", "silence", "louder", "speak louder",

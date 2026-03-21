@@ -155,6 +155,16 @@ def process_offline_command(intent_id: str, raw_text: str = "", music_proc=None)
         return "_RK_REBOOT_"
     elif intent_id == "battery":
         return "Battery information not available in offline mode."
+    elif intent_id == "show_id":
+        from .config import SLUG_FILE
+        try:
+            with open(SLUG_FILE, "r") as f:
+                slug = f.read().strip().split(":")[0]
+                # Format for speech: "1 2 3 4 5 6 7 8 9"
+                spaced_slug = " ".join(list(slug))
+                return f"My identification number is {spaced_slug}."
+        except:
+            return "I'm sorry, I couldn't retrieve my I D number right now."
     
     # Generic generic command matched but no specific logic -> play offline sound
     idx = random.randint(0, len(OFFLINE_AI_RESPONSES) - 1)

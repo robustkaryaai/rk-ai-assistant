@@ -61,7 +61,19 @@ live_stt_listen = getattr(audio_utils, "live_stt_listen", _live_stt_stub)
 # Use new hybrid TTS (gTTS online, espeak offline)
 from .audio_utils_simple import speak
 
-from .config import ERROR_LOG_FILE, LAST_AUDIO, WAKE_WORD, WAKE_WORDS, BACKEND_BASE_URL, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, GEMINI_MODEL, USE_GEMINI_DIRECT
+from .config import (
+    ERROR_LOG_FILE, 
+    LAST_AUDIO, 
+    WAKE_WORD, 
+    WAKE_WORDS, 
+    BACKEND_BASE_URL, 
+    GEMINI_API_KEY, 
+    GEMINI_API_KEY_BACKUP, 
+    GEMINI_MODEL, 
+    USE_GEMINI_DIRECT,
+    SILENCE_TIMEOUT,
+    PHRASE_TIME_LIMIT
+)
 from .audio_utils import setup_microphone_volume
 from .networking import (
     generate_slug,
@@ -599,10 +611,9 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
         
         # Open microphone ONCE to avoid PyAudio/ALSA initialization overhead every loop
         with mic as source:
-            # Recognizer is already calibrated at startup in main()
-            # We keep its threshold unless dynamic adjustment is disabled
+            # 🚀 Tuned for Rexycore Home: Better silence detection and no cutoff
             recognizer.dynamic_energy_threshold = True
-            recognizer.pause_threshold = 0.5  # Faster response
+            recognizer.pause_threshold = SILENCE_TIMEOUT  # Alexa-style
             recognizer.phrase_threshold = 0.1 # Start recording faster
             recognizer.non_speaking_duration = 0.4 # Less pre-buffer for faster response
             
@@ -624,7 +635,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                 elif time_since_last < 300 and inactivity_slowdown:
                     print(f"[stt] Activity detected. Resuming Full-Speed mode...", flush=True)
                     inactivity_slowdown = False
-                    recognizer.pause_threshold = 1.2
+                    recognizer.pause_threshold = SILENCE_TIMEOUT
 
                 # Every 15 minutes, refresh the stream regardless to keep it healthy
                 if time_since_last > 900:
@@ -651,7 +662,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     consecutive_offline_checks = 0
 
                 # Pass OPEN source to live_stt_listen (zero latency)
-                text = live_stt_listen(recognizer, source, slug, timeout=8, phrase_time_limit=10.0)
+                text = live_stt_listen(recognizer, source, slug, timeout=8, phrase_time_limit=PHRASE_TIME_LIMIT)
                 
                 if not text:
                     continue
@@ -680,7 +691,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                     if not command_part:
                         print("[stt] Wake word heard but no command. Listening for follow-up...")
                         try:
-                            audio = recognizer.listen(source, timeout=5.0, phrase_time_limit=10.0)
+                            audio = recognizer.listen(source, timeout=5.0, phrase_time_limit=PHRASE_TIME_LIMIT)
                             command_part = recognizer.recognize_google(audio)
                         except Exception:
                             command_part = ""
@@ -754,6 +765,7 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                                          query = music_manager.last_played_query
                                          if query: trigger_music_playback(query, music_proc_holder)
                                      else:
+                                         # 🚀 BLOCKING TTS: Wait until speech finishes
                                          speak(resp)
                             else:
                                  expect_followup = process_online_command(current_command, slug, music_proc_holder)
@@ -764,8 +776,10 @@ def voice_flow(decoder_available: bool, music_proc_holder: dict, slug: str, reco
                                 
                             # If this was a chat/question, keep listening!
                             if expect_followup and is_online():
+                                # 🚀 BLOCKING WAIT: Ensure speech is totally finished before listening
+                                # process_online_command already calls speak() which is now full-text blocking
                                 print("[stt] 🗣️ Follow-up mode active. Listening (5s)...")
-                                follow_up_text = live_stt_listen(recognizer, mic, slug, timeout=5.0, phrase_time_limit=8.0)
+                                follow_up_text = live_stt_listen(recognizer, mic, slug, timeout=5.0, phrase_time_limit=PHRASE_TIME_LIMIT)
                                 
                                 if follow_up_text:
                                     lower_f = follow_up_text.lower()

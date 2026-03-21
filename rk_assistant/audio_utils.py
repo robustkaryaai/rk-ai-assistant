@@ -61,15 +61,42 @@ from .config import (
     PIPER_EXECUTABLE, # Added by user instruction
     PIPER_VOICE_MODEL, # Added by user instruction
     MUTE_MODE, # Added by user instruction
-    STT_ENGINE, # Added by user instruction
-    GEMINI_API_KEY, # Added by user instruction
-    GEMINI_API_KEY_BACKUP, # Added by user instruction
-    PORCUPINE_ACCESS_KEY
+    MAX_RECORD_SECONDS,
+    SILENCE_TIMEOUT,
+    PHRASE_TIME_LIMIT,
+    STT_ENGINE, 
+    GEMINI_API_KEY, 
+    GEMINI_API_KEY_BACKUP, 
+    PORCUPINE_ACCESS_KEY,
+    GROQ_API_KEY
 )
 
 # Hardcoded settings for PulseAudio
 ALSA_DEVICE = "pulse" 
-BUFFER_TIME = "500000" # 0.5s buffer
+BUFFER_TIME = "250000" # Faster buffer (0.25s)
+
+def _transcribe_with_groq(audio_data) -> str:
+    """Fast transcription using Groq API (Whisper-v3)."""
+    if not GROQ_API_KEY:
+        return ""
+    try:
+        url = "https://api.groq.com/openai/v1/audio/transcriptions"
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+        
+        # Groq needs a file-like object with a proper extension
+        files = {
+            "file": ("audio.wav", audio_data.get_wav_data(), "audio/wav"),
+            "model": (None, "whisper-large-v3"),
+            "language": (None, "en"),
+            "response_format": (None, "json")
+        }
+        
+        resp = requests.post(url, headers=headers, files=files, timeout=5)
+        if resp.ok:
+            return resp.json().get("text", "")
+    except Exception as e:
+        print(f"[groq-stt] Error: {e}")
+    return ""
 
 def setup_microphone_volume():
     """Force hardware capture gain to 100% using amixer."""
@@ -275,16 +302,23 @@ def live_stt_listen(recognizer, mic, slug, timeout=7, phrase_time_limit=10):
                 print("[stt] Listening...", flush=True)
                 audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
             
-        print("[stt] Processing via Google STT...", flush=True)
-        
         # Apply normalization to improve recognition
         audio = _normalize_audio(audio)
         
+        # 🚀 Use Groq if available (Whisper-v3 is ~5x faster than Google)
+        if GROQ_API_KEY:
+            print("[stt] Processing via Groq STT...", flush=True)
+            text = _transcribe_with_groq(audio)
+            if text:
+                print(f"[stt] Heard (Groq): '{text}'", flush=True)
+                return text
+
+        print("[stt] Processing via Google STT...", flush=True)
         # Local Google Recognition (Bypasses backend errors)
         text = recognizer.recognize_google(audio)
         
         if text:
-            print(f"[stt] Heard: '{text}'", flush=True)
+            print(f"[stt] Heard (Google): '{text}'", flush=True)
             return text
             
     except sr.UnknownValueError:
@@ -310,12 +344,21 @@ def online_stt(audio_path: Path) -> str:
         recognizer = sr.Recognizer()
         with sr.AudioFile(str(audio_path)) as source:
             audio = recognizer.record(source)
+            
+            # 🚀 Prefer Groq (Instant response)
+            if GROQ_API_KEY:
+                print("[stt] Processing via Groq STT...", flush=True)
+                return _transcribe_with_groq(audio)
+
             if STT_ENGINE == "gemini":
                 try:
                     wav_data = audio.get_wav_data()
+                    # transcribe_audio should be Defined as gemini_client.transcribe_audio
+                    from .gemini_client import transcribe_audio
                     return transcribe_audio(wav_data, api_key=GEMINI_API_KEY or GEMINI_API_KEY_BACKUP)
-                except:
-                   return ""
+                except Exception as e:
+                    print(f"[stt] Gemini STT error: {e}")
+                    return ""
 
             try:
                 return recognizer.recognize_google(audio)
@@ -332,12 +375,15 @@ def online_stt(audio_path: Path) -> str:
     except Exception:
         return ""
 
-def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=None, mic=None) -> Optional[Path]:
+def record_until_silence(out_path=LAST_AUDIO, silence_duration=None, recognizer=None, mic=None) -> Optional[Path]:
     """
     Record audio with VAD (Silence Detection) for 'Alexa-style' interaction.
     Uses speech_recognition's built-in energy thresholding.
-    Pass pre-calibrated recognizer/mic to avoid latency.
     """
+    # Use config default if none provided
+    if silence_duration is None:
+        silence_duration = SILENCE_TIMEOUT
+
     # Delete old file to prevent ghost repeats
     if os.path.exists(out_path):
         os.remove(out_path)
@@ -345,10 +391,14 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=N
     if SPEECH_RECOGNITION_AVAILABLE and sr is not None:
         try:
             r = recognizer if recognizer else sr.Recognizer()
+            # 🚀 Set pause threshold BEFORE starting to listen
+            r.pause_threshold = silence_duration
+            
+            # Default thresholds (overridden by dynamic or calibration)
             if not recognizer:
-                r.pause_threshold = silence_duration
-                r.energy_threshold = 300 
+                r.energy_threshold = 200 # More sensitive starting point
                 r.dynamic_energy_threshold = True
+                r.dynamic_energy_ratio = 1.5 # 🚀 Catch even soft tails of sentences
             
             # Use provided mic or create new one with ALSA suppression
             if mic:
@@ -358,23 +408,21 @@ def record_until_silence(out_path=LAST_AUDIO, silence_duration=1.0, recognizer=N
                     source_ctx = sr.Microphone(device_index=MIC_DEVICE_INDEX)
             
             # If we create new mic, we need context manager. If passed, it depends if it's open.
-            # Simplify: Always use context manager unless it's an AudioSource
             is_open_source = isinstance(source_ctx, sr.AudioSource) and getattr(source_ctx, "stream", None) is not None
 
-            print(f"[record] Listening... (VAD enabled)")
+            print(f"[record] Listening... (Pause Threshold: {r.pause_threshold}s)")
             
             if is_open_source:
-                audio = r.listen(source_ctx, timeout=5, phrase_time_limit=10)
+                # 🚀 Increased phrase limit so user doesn't get cut off
+                audio = r.listen(source_ctx, timeout=8, phrase_time_limit=PHRASE_TIME_LIMIT)
             else:
                 with source_ctx as source:
                     if not recognizer:
-                         # Calibrate briefly but then force a LOW threshold
-                         # so the user's voice is always detected
-                         r.adjust_for_ambient_noise(source, duration=0.3)
-                         # Cap threshold — calibration can set it too high in noisy rooms
-                         r.energy_threshold = min(r.energy_threshold, 200)
-                         r.dynamic_energy_threshold = False  # Lock it, don't drift up
-                    audio = r.listen(source, timeout=8, phrase_time_limit=12)
+                         # Very brief calibration if it's a fresh recognizer
+                         r.adjust_for_ambient_noise(source, duration=0.2)
+                         r.energy_threshold = max(r.energy_threshold, 100) # Ensure it's not TOO low
+                         
+                    audio = r.listen(source, timeout=8, phrase_time_limit=PHRASE_TIME_LIMIT)
             
             # 🚀 Restored High-Fidelity Audio Pipeline
             # 1. Pre-Normalization (Boost quiet signals for cleaner denoising)

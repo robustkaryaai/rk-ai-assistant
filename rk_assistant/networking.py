@@ -32,6 +32,8 @@ from .config import (
 
 # Global session for better performance and SSL stability
 _session = requests.Session()
+_last_online_check = 0
+_online_cache = False
 _retry_strategy = Retry(
     total=3,
     backoff_factor=1,
@@ -49,21 +51,30 @@ _session.headers.update({
 def is_online() -> bool:
     """
     Check if the system has an active internet connection.
-    Uses HTTP health check to backend for Shoom-level reliability (bypasses flaky ICMP pings).
+    Caches result for 3 seconds to avoid redundant HTTP calls in the loop.
     """
+    global _last_online_check, _online_cache
     if FORCE_OFFLINE:
         return False
+        
+    # 🚀 Use cache if it's fresh (3 seconds)
+    if time.time() - _last_online_check < 3:
+        return _online_cache
+
     try:
         # 1. Quick local check: do we even have an IP?
         output = subprocess.check_output(["hostname", "-I"]).decode().strip()
         if not output:
+            _online_cache = False
+            _last_online_check = time.time()
             return False
         
         # 2. HTTP Health Check to Backend (The ultimate truth)
-        # Using /health is much more reliable than pinging 8.8.8.8 on flaky networks
         try:
-            resp = _session.get(f"{BACKEND_BASE_URL}/health", timeout=5)
+            resp = _session.get(f"{BACKEND_BASE_URL}/health", timeout=3)
             if resp.ok:
+                _online_cache = True
+                _last_online_check = time.time()
                 return True
         except:
             pass
@@ -72,13 +83,19 @@ def is_online() -> bool:
         targets = ["https://1.1.1.1", "https://google.com"]
         for target in targets:
             try:
-                _session.head(target, timeout=3)
+                _session.head(target, timeout=2)
+                _online_cache = True
+                _last_online_check = time.time()
                 return True
             except:
                 continue
 
+        _online_cache = False
+        _last_online_check = time.time()
         return False
     except Exception:
+        _online_cache = False
+        _last_online_check = time.time()
         return False
 
 

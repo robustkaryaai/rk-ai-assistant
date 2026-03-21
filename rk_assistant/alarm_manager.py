@@ -217,19 +217,27 @@ def start_alarm_checker() -> None:
                             continue
                         
                         # Trigger alarm
-                        print(f"[alarm] Triggering: {alarm.get('label', 'Alarm')}")
+                        print(f"[alarm] 🚨 TRIGGERING: {alarm.get('label', 'Alarm')} at {current_time}")
                         
                         # Sequential Trigger to ensure both are heard and PulseAudio handles mixing correctly
                         def run_alarm_logic(sound_file, wakeup_msg):
-                            # 1. Play Sound
+                            # 1. Force PulseAudio sink refresh before playing
+                            try:
+                                subprocess.run(['pacmd', 'list-sinks'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            except:
+                                pass
+                                
+                            # 2. Play Sound
                             play_alarm_sound(sound_file)
-                            # 2. Short Pause to let the sound start/settle
-                            time.sleep(1.0)
-                            # 3. Speak Message
+                            # 3. Short Pause to let the sound start/settle
+                            time.sleep(1.5)
+                            # 4. Speak Message
                             speak(wakeup_msg)
 
                         msg = alarm.get("wake_up_message") or f"Radhe Radhe! It's {alarm_time}. Time for {alarm.get('label', 'Alarm')}."
-                        threading.Thread(target=run_alarm_logic, args=(alarm.get("sound"), msg), daemon=True).start()
+                        # Use a dedicated thread for the alarm logic so it doesn't block the checker
+                        t = threading.Thread(target=run_alarm_logic, args=(alarm.get("sound"), msg), daemon=True)
+                        t.start()
                         
                         any_triggered = True
                         

@@ -1,187 +1,110 @@
 """
 Simple audio utilities - just what we need.
 """
-import subprocess
-import socket
 import os
-import hashlib
-import re
-import threading
+import subprocess
 import time
+import hashlib
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import List, Optional
+from .config import CACHE_DIR, FORCE_OFFLINE, GROQ_API_KEY
 
-# Pre-generated audio cache (committed to git, instant playback)
-PREGENERATED_CACHE = Path(__file__).parent / "audio_cache"
+def _get_cache_path(text: str) -> Path:
+    """Generate a unique cache path for a given text string."""
+    hash_val = hashlib.md5(text.encode()).hexdigest()
+    return CACHE_DIR / f"tts_{hash_val}.wav"
 
-# Runtime cache directory for new phrases
-RUNTIME_CACHE = Path.home() / ".cache" / "rk_tts"
-RUNTIME_CACHE.mkdir(parents=True, exist_ok=True)
-
-def is_online():
-    """Quick check if internet is available."""
-    try:
-        socket.create_connection(("8.8.8.8", 53), timeout=2)
-        return True
-    except:
-        return False
-
-def _get_cache_path(text):
-    """Get cache file path for given text, checking pre-generated first."""
-    text_hash = hashlib.md5(text.encode()).hexdigest()
-    filename = f"{text_hash}.mp3"
-    
-    pregenerated = PREGENERATED_CACHE / filename
-    if pregenerated.exists():
-        return pregenerated
-    
-    return RUNTIME_CACHE / filename
-
-def _is_piper_available():
-    """Check if Piper TTS is installed and configured."""
-    try:
-        from .config import PIPER_EXECUTABLE, PIPER_VOICE_MODEL
-        if not Path(PIPER_EXECUTABLE).exists():
-            return False
-        if not Path(PIPER_VOICE_MODEL).exists():
-            return False
-        return True
-    except:
-        return False
+def _is_piper_available() -> bool:
+    """Check if Piper TTS is installed on the system."""
+    return os.path.exists("/usr/bin/piper") or os.path.exists("/usr/local/bin/piper")
 
 def _speak_with_piper(text: str, alsa_device: str = "pulse") -> bool:
-    """Speak text using Piper (local). Returns True if successful."""
-    try:
-        from .config import PIPER_EXECUTABLE, PIPER_VOICE_MODEL
-        
-        piper_cmd = [PIPER_EXECUTABLE, '--model', str(PIPER_VOICE_MODEL), '--output_raw']
-        
-        # Start Piper
-        piper_proc = subprocess.Popen(
-            piper_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-        
-        # Start paplay (PulseAudio native)
-        player_proc = subprocess.Popen(
-            ['paplay', '--device', alsa_device, '--raw', '--rate', '22050', '--format', 's16le', '--channels', '1'],
-            stdin=piper_proc.stdout,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE
-        )
-        
-        # Send text to Piper
-        piper_proc.stdin.write(text.encode())
-        piper_proc.stdin.close()
-        
-        # Wait for Piper to finish
-        piper_proc.wait()
-        
-        # Wait for player and monitor failure
-        _, stderr = player_proc.communicate(timeout=60)
-        if player_proc.returncode != 0:
-            err_msg = stderr.decode() if stderr else 'No error'
-            print(f"⚠ paplay (Piper) failed with code {player_proc.returncode}: {err_msg}", flush=True)
+    """Ultra-fast Offline TTS using Piper."""
+    cache_path = _get_cache_path(text)
+    if not cache_path.exists():
+        try:
+            # 🚀 Piper generates speech at ~10x realtime on Pi Zero
+            model_path = "/home/raspberrypi/rk-ai-assistant-main/models/en_US-lessac-medium.onnx"
+            if not os.path.exists(model_path):
+                return False
+                
+            cmd = f'echo "{text}" | piper --model {model_path} --output_file {cache_path}'
+            subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            print(f"[piper] Error: {e}")
             return False
-            
+
+    if cache_path.exists():
+        subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
         return True
-    except Exception as e:
-        print(f"⚠ Piper TTS failed: {e}", flush=True)
-        return False
-
-def sanitize_text(text):
-    """Remove emojis and non-standard symbols."""
-    if not text: return ""
-    return re.sub(r'[^\w\s,!.?\'\"-]', '', text)
-
-def _split_into_chunks(text: str):
-    """Split text into speakable chunks."""
-    chunks = []
-    for line in text.split('\n'):
-        line = line.strip().lstrip('- ').strip()
-        if not line:
-            continue
-        parts = re.split(r'(?<=[.!?])\s+', line)
-        for part in parts:
-            part = part.strip()
-            if part:
-                chunks.append(part)
-    return chunks
-
-def _speak_chunk(text: str, alsa_device: str = "pulse") -> bool:
-    """Speak a single chunk of text. Returns True if successful."""
-    cache_path_mp3 = _get_cache_path(text)
-    cache_path_wav = cache_path_mp3.with_suffix('.wav')
-
-    # Try playing cached WAV
-    if cache_path_wav.exists():
-        res = subprocess.run(['paplay', '--device', alsa_device, str(cache_path_wav)],
-                             check=False, stderr=subprocess.PIPE, timeout=30)
-        if res.returncode == 0:
-            return True
-        print(f"⚠ paplay failed for cached WAV: {res.stderr.decode() if res.stderr else 'unknown'}", flush=True)
-
-    # Try playing cached MP3 (convert to WAV first)
-    if cache_path_mp3.exists():
-        subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)],
-                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if cache_path_wav.exists():
-            res = subprocess.run(['paplay', '--device', alsa_device, str(cache_path_wav)],
-                                 check=False, stderr=subprocess.PIPE, timeout=30)
-            if res.returncode == 0:
-                return True
-            print(f"⚠ paplay failed for converted MP3: {res.stderr.decode() if res.stderr else 'unknown'}", flush=True)
-
-    # Generate via gTTS
-    try:
-        from gtts import gTTS
-        def _generate():
-            tts = gTTS(text=text, lang='en', tld='co.in')
-            tts.save(str(cache_path_mp3))
-
-        gen_thread = threading.Thread(target=_generate)
-        gen_thread.start()
-        gen_thread.join(timeout=15)
-
-        if gen_thread.is_alive():
-            print(f"⚠ gTTS timeout for: {text[:30]}", flush=True)
-            return False
-
-        subprocess.run(['mpg123', '-w', str(cache_path_wav), str(cache_path_mp3)],
-                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if cache_path_wav.exists():
-            res = subprocess.run(['paplay', '--device', alsa_device, str(cache_path_wav)],
-                                 check=False, stderr=subprocess.PIPE, timeout=30)
-            return res.returncode == 0
-    except Exception as e:
-        print(f"⚠ gTTS failed: {e}", flush=True)
-
     return False
 
-def speak(text, use_gtts=True):
-    """Convert text to speech with fallbacks."""
+def _speak_with_groq(text: str, alsa_device: str = "pulse") -> bool:
+    """Fast Online TTS using Groq (OpenAI-compatible)."""
+    if not GROQ_API_KEY:
+        return False
+        
+    cache_path = _get_cache_path(text)
+    if cache_path.exists():
+        subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
+        return True
+
     try:
-        text = sanitize_text(text)
-        if not text: return
-            
-        print(f"🔊 {text}", flush=True)
-        alsa_device = "pulse"
-        online = is_online() if use_gtts else False
+        import requests
+        url = "https://api.groq.com/openai/v1/audio/speech"
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+        data = {
+            "model": "tts-1", # Assuming Groq TTS model name
+            "input": text,
+            "voice": "alloy"
+        }
+        
+        resp = requests.post(url, headers=headers, json=data, timeout=10)
+        if resp.ok:
+            with open(cache_path, "wb") as f:
+                f.write(resp.content)
+            subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
+            return True
+    except Exception as e:
+        print(f"[groq-tts] Error: {e}")
+    return False
 
-        # 1. Piper (Offline)
-        if _is_piper_available():
-            if _speak_with_piper(text, alsa_device):
-                return
+def sanitize_text(text: str) -> str:
+    """Clean up text for better TTS results."""
+    return text.replace('*', '').replace('_', '').replace('`', '').strip()
 
-        # 2. gTTS (Online)
-        if online:
-            chunks = _split_into_chunks(text)
-            for chunk in chunks:
-                _speak_chunk(chunk, alsa_device)
+def _split_into_chunks(text: str) -> List[str]:
+    """Split text into sentences or manageable chunks for TTS."""
+    import re
+    sentences = re.split(r'(?<=[.!?]) +', text)
+    return [s for s in sentences if s.strip()]
+
+def speak(text: str, online: bool = True):
+    """
+    Main TTS entry point. Nuked gTTS in favor of Piper (Offline) and Groq (Online).
+    Processes full text at once to avoid inter-sentence pauses.
+    """
+    text = sanitize_text(text)
+    if not text: return
+    
+    print(f"🔊 {text}", flush=True)
+    alsa_device = "pulse"
+
+    # 🚀 Step 1: Force PulseAudio to refresh sink list (Fix for silent RK)
+    try:
+        subprocess.run(['pacmd', 'list-sinks'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except:
+        pass
+
+    # 🚀 Step 2: Try Piper (Instant Offline) - Full Text at once
+    if _is_piper_available():
+        if _speak_with_piper(text, alsa_device):
+            return
+
+    # 🚀 Step 3: Try Groq (Fast Online) - Full Text at once
+    if online and not FORCE_OFFLINE:
+        if _speak_with_groq(text, alsa_device):
             return
             
-        print(f"⚠ TTS Failed: Offline and Piper unavailable.", flush=True)
-    except Exception as e:
-        print(f"⚠ speak() error: {e}", flush=True)
+    # Emergency Offline Fallback
+    subprocess.run(['espeak', '-v', 'en-us', text], check=False)

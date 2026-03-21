@@ -62,6 +62,7 @@ TRAINING_DATA = {
     "gratitude": ["thank you", "thanks a lot", "many thanks", "I appreciate it"],
     "goodbye": ["goodbye", "bye", "see you later", "catch you later"],
     "identity": ["who are you", "what is your name", "introduce yourself", "tell me about yourself"],
+    "show_id": ["what is your id", "whats your id", "tell me your id", "show me your id", "what is your serial number"],
     "joke": ["tell me a joke", "make me laugh", "say something funny"],
     
     # Utilities & Hardware

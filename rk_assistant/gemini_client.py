@@ -8,17 +8,36 @@ from __future__ import annotations
 import json
 from typing import Dict, Any, Optional, List
 
+from .config import (
+    GEMINI_AVAILABLE, 
+    GEMINI_MODEL_PRIMARY, 
+    GEMINI_MODEL_FALLBACK, 
+    SLUG_FILE
+)
+
 try:
     from google import genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
     print("[gemini] google-genai not installed. Run: pip install google-genai")
+except Exception:
+    GEMINI_AVAILABLE = False
 
+# Load device slug for prompt injection
+def _get_device_slug():
+    try:
+        with open(SLUG_FILE, "r") as f:
+            return f.read().strip().split(":")[0]
+    except:
+        return "UNKNOWN"
+
+DEVICE_ID = _get_device_slug()
 
 # System prompt for intent classification (from backend)
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = f"""
 You are RK AI's intent classifier and response generator. Your job is to convert a user message into strict tool instructions and a natural spoken response.
+Your physical hardware ID is {DEVICE_ID}. If the user asks for your ID, serial number, or identity code, you MUST provide this exact number in your spoken reply.
 Output must be a pure JSON array of one or more intent objects (no prose, no markdown).
 
 INTENTS
@@ -133,7 +152,8 @@ def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Option
                     
                     print(f"[gemini] 🚀 Calling {current_model} ({key_type} key)...", flush=True)
                     
-                    client = genai.Client(api_key=key, http_options={'timeout': 180000})
+                    # 🚀 Lowered timeout for faster failover/response
+                    client = genai.Client(api_key=key, http_options={'timeout': 15000}) 
                     full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
                     
                     response = client.models.generate_content(
@@ -190,8 +210,8 @@ def get_conversational_response(text: str, api_key: Optional[str] = None, model_
         return "I'm having trouble connecting right now."
     
     try:
-        # Create SDK Client with 15s timeout
-        client = genai.Client(api_key=api_key, http_options={'timeout': 180000})
+        # 🚀 SDK Client with 12s timeout for snappier responses
+        client = genai.Client(api_key=api_key, http_options={'timeout': 12000})
         
         # Context-aware prompt for voice responses
         from .memory_engine import retrieve_memories, get_recent_chats
@@ -255,6 +275,25 @@ Keep your responses conversational and natural, optimized for voice/speech. Be b
         print(f"[gemini] Chat error: {e}", flush=True)
         return "Sorry, I couldn't process that."
 
+
+def transcribe_audio(audio_bytes: bytes, api_key: str) -> str:
+    """Transcribe audio using Gemini Flash (Experimental)."""
+    if not GEMINI_AVAILABLE:
+        return ""
+    try:
+        client = genai.Client(api_key=api_key)
+        # Gemini can take raw bytes if wrapped correctly
+        response = client.models.generate_content(
+            model="gemini-1.5-flash-8b",
+            contents=[
+                "Transcribe this audio. Output only the transcribed text.",
+                {"mime_type": "audio/wav", "data": audio_bytes}
+            ]
+        )
+        return response.text.strip() if response and response.text else ""
+    except Exception as e:
+        print(f"[gemini-stt] Error: {e}")
+        return ""
 
 def test_gemini_connection(api_key: str) -> bool:
     """Test if Gemini API is working with the provided key using new SDK."""
