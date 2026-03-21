@@ -35,7 +35,7 @@ def _get_device_slug():
 DEVICE_ID = _get_device_slug()
 
 # System prompt for intent classification (from backend)
-SYSTEM_PROMPT = f"""
+SYSTEM_PROMPT = """
 You are RK AI's intent classifier and response generator. Your job is to convert a user message into strict tool instructions and a natural spoken response.
 Your physical hardware ID is {DEVICE_ID}. If the user asks for your ID, serial number, or identity code, you MUST provide this exact number in your spoken reply.
 Output must be a pure JSON array of one or more intent objects (no prose, no markdown).
@@ -107,7 +107,7 @@ User: "make a poster for school science fair"
   { "intent": "image", "reply": "I'll create a professional poster for your school science fair right now.", "parameters": { "prompt": "school science fair poster" } }
 ]
 
-Now only output JSON following the schema and rules. """
+Now only output JSON following the schema and rules. """.replace("{DEVICE_ID}", str(DEVICE_ID))
 
 
 def classify_intent(text: str, api_key: Optional[str] = None, backup_key: Optional[str] = None, model_name: str = "gemma-3-12b-it", fallback_model: Optional[str] = None) -> List[Dict[str, Any]]:
