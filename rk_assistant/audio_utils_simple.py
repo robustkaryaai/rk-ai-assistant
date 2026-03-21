@@ -87,31 +87,65 @@ def _speak_with_gtts(text: str, alsa_device: str = "pulse") -> bool:
     """Standard Online TTS using Google TTS."""
     cache_path = _get_cache_path(text)
     if cache_path.exists():
-        subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
-        return True
+        try:
+            subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False, timeout=30)
+            return True
+        except:
+            pass
 
     try:
         from gtts import gTTS
-        tts = gTTS(text=text, lang='en')
-        # Save to a temporary mp3 then convert to wav for paplay, or just use mpg123
+        import os
+        
+        # 1. Generate MP3
         temp_mp3 = cache_path.with_suffix('.mp3')
+        tts = gTTS(text=text, lang='en')
         tts.save(str(temp_mp3))
         
-        # Convert to wav for paplay (more reliable on Pi)
-        subprocess.run(['ffmpeg', '-y', '-i', str(temp_mp3), str(cache_path)], 
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        
-        if cache_path.exists():
-            subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
-            if temp_mp3.exists(): os.remove(temp_mp3)
+        if not temp_mp3.exists():
+            return False
+
+        # 2. Try to play directly with mpg123 (fastest fallback for mp3)
+        try:
+            res = subprocess.run(['mpg123', '-a', alsa_device, str(temp_mp3)], 
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=30)
+            if res.returncode == 0:
+                # Success! Let's convert to WAV in background for cache
+                subprocess.Popen(['ffmpeg', '-y', '-i', str(temp_mp3), str(cache_path)], 
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Note: we don't delete temp_mp3 yet if we are converting
+                return True
+        except:
+            pass
+
+        # 3. Try to convert to WAV with ffmpeg and play with paplay
+        try:
+            subprocess.run(['ffmpeg', '-y', '-i', str(temp_mp3), str(cache_path)], 
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=20)
+            
+            if cache_path.exists():
+                subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False, timeout=30)
+                if temp_mp3.exists(): os.remove(str(temp_mp3))
+                return True
+        except:
+            pass
+
+        # 4. Final attempt: play mp3 with play (sox)
+        try:
+            subprocess.run(['play', str(temp_mp3)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=30)
             return True
+        except:
+            pass
+
     except Exception as e:
-        print(f"[gtts] Error: {e}")
+        print(f"[gtts] Fatal Error: {e}")
+    
     return False
 
 def speak(text: str, online: bool = True):
     """
     Main TTS entry point. Uses Piper (Offline), Groq (Fast Online), or gTTS (Fallback Online).
+    Nukes espeak if online=True as per user request.
     """
     text = sanitize_text(text)
     if not text: return
@@ -140,5 +174,9 @@ def speak(text: str, online: bool = True):
         if _speak_with_gtts(text, alsa_device):
             return
             
-    # Emergency Offline Fallback
-    subprocess.run(['espeak', '-v', 'en-us', text], check=False)
+    # 🚀 Step 5: Emergency Offline Fallback (ONLY if truly offline)
+    if not online or FORCE_OFFLINE:
+        print("[tts] Using Emergency Offline Fallback (espeak)")
+        subprocess.run(['espeak', '-v', 'en-us', text], check=False)
+    else:
+        print("[tts] ❌ ERROR: All online TTS engines failed and espeak is suppressed while online.")
