@@ -384,27 +384,31 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
 
     print(f"[gemini] Reply: {reply_text}")
     
-    # 3. Parse Intent (Music, News, Weather, Alarms)
-    # Fix: guess_fallback_intent returns a dict
-    intent_obj = guess_fallback_intent(reply_text)
-    intent = intent_obj.get("intent") if intent_obj else "general"
+    # 3. Parse Intent (Music, News, Weather, Alarms, RexyCore Desktop)
+    # Fix: guess_fallback_intent returns a list of intent objects
+    intents = gemini_client.classify_intent(text, api_key=GEMINI_API_KEY)
     
-    if intent == "music":
-        query = reply_text.replace("Searching for", "").replace("Playing", "").strip()
-        trigger_music_playback(query, music_proc_holder)
-        speak(reply_text)
-    elif intent == "weather":
-        speak(reply_text)
-        # Fetch actual data in background if needed
-    elif intent == "news":
-        speak(reply_text)
-    elif intent == "alarm":
-        # Handle alarm setting via voice
-        # This is a bit complex, usually handled by backend returning structured data
-        speak(reply_text)
-    else:
-        # Standard Conversational Reply
-        speak(reply_text)
+    for intent_obj in intents:
+        intent = intent_obj.get("intent", "general")
+        params = intent_obj.get("parameters", {})
+        
+        if intent == "music":
+            query = reply_text.replace("Searching for", "").replace("Playing", "").strip()
+            trigger_music_playback(query, music_proc_holder)
+            speak(reply_text)
+        elif intent == "weather":
+            speak(reply_text)
+        elif intent == "news":
+            speak(reply_text)
+        elif intent in ["cozy_setup", "focus_mode", "open_app"]:
+            from .desktop_link import trigger_desktop_action
+            speak(reply_text)
+            trigger_desktop_action(intent, params)
+        elif intent == "alarm":
+            speak(reply_text)
+        else:
+            # Standard Conversational Reply
+            speak(reply_text)
 
 if __name__ == "__main__":
     try:

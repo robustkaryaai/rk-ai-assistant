@@ -51,7 +51,7 @@ INTENTS
 - task: alarms, reminders, todos (use alarm intent for time-based alarms).
 - alarm: set alarms with specific times (extract time from prompt).
 - announcement: make announcements, broadcast messages, notify.
-- period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music.
+- period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music, cozy_setup, focus_mode, open_app.
 
 STRICT CLASSIFICATION RULES
 1) Generative intents (image, video, docx, ppt, note, planner, timetable, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note) MUST ONLY be triggered if the user EXPLICITLY uses a verb like "make", "generate", "create", "build", "write", "render", or "prepare". 
@@ -67,7 +67,10 @@ STRICT CLASSIFICATION RULES
 9) Stop/silence/cancel alarms → intent = "stop_alarm".
 10) "emergency", "fire", "evacuate", "alert" → "emergency_alarm" or "fire_alarm".
 11) Viva/interview/yourself/oral questions → "chat".
-12) Output must be pure JSON; do not wrap in markdown; no commentary.
+12) If the user says "make my setup cozy", "prepare coding environment", "open workspace" → intent = "cozy_setup".
+13) If the user says "activate focus mode", "don't disturb", "focus time" → intent = "focus_mode".
+14) If the user says "open [app name]", "launch [app name]" → intent = "open_app" and put app name in "app_name" parameter.
+15) Output must be pure JSON; do not wrap in markdown; no commentary.
 
 RESPONSE GENERATION (reply field)
 - For EVERY intent, generate a short, natural, and helpful spoken response in the "reply" field.

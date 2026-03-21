@@ -41,6 +41,10 @@ if _target_env:
     except Exception as e:
         print(f"[config] Error reading .env: {e}")
 
+# --- GLOBAL FLAGS (Loaded after .env) ---
+GEMINI_AVAILABLE = bool(os.getenv("GEMINI_API_KEY", ""))
+MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "1") == "1"
+
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -114,7 +118,6 @@ REQUEST_TIMEOUT = 8  # seconds (fail fast - weather/news shouldn't hang)
 
 # Gemini API (for direct fast responses)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_AVAILABLE = bool(GEMINI_API_KEY)
 GEMINI_API_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP", "")  # Backup key for failover
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
 USE_GEMINI_DIRECT = os.environ.get("USE_GEMINI_DIRECT", "1") == "1"  # Feature flag
@@ -150,7 +153,6 @@ BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "D0:78:1D:4F:F4:1E")
 BLUETOOTH_HCI = os.getenv("BLUETOOTH_HCI", "hci1")
 
 # Feature Toggles
-MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "1") == "1"
 MUTE_MODE = os.getenv("MUTE_MODE", "0") == "1"
 FORCE_OFFLINE = os.getenv("FORCE_OFFLINE", "0") == "1"
 ROUTINES_SYNC_URL = f"{BACKEND_BASE_URL}/routines"
