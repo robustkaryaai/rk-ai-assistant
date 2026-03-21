@@ -84,61 +84,73 @@ def _split_into_chunks(text: str) -> List[str]:
     return [s for s in sentences if s.strip()]
 
 def _speak_with_gtts(text: str, alsa_device: str = "pulse") -> bool:
-    """Standard Online TTS using Google TTS."""
-    cache_path = _get_cache_path(text)
-    if cache_path.exists():
+    """Standard Online TTS using Google TTS - Nuked and Rewritten for maximum reliability."""
+    import hashlib
+    import os
+    import subprocess
+    from pathlib import Path
+    
+    # 1. Setup paths
+    hash_val = hashlib.md5(text.encode()).hexdigest()
+    mp3_path = CACHE_DIR / f"gtts_{hash_val}.mp3"
+    wav_path = CACHE_DIR / f"gtts_{hash_val}.wav"
+
+    # 2. Check Cache First
+    if wav_path.exists():
         try:
-            subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False, timeout=30)
+            subprocess.run(['paplay', '--device', alsa_device, str(wav_path)], check=True, timeout=15)
             return True
         except:
             pass
 
     try:
         from gtts import gTTS
-        import os
         
-        # 1. Generate MP3
-        temp_mp3 = cache_path.with_suffix('.mp3')
-        tts = gTTS(text=text, lang='en')
-        tts.save(str(temp_mp3))
+        # 3. Download from Google
+        print(f"[gtts] Downloading: {text[:30]}...")
+        tts = gTTS(text=text, lang='en', slow=False)
+        tts.save(str(mp3_path))
         
-        if not temp_mp3.exists():
+        if not mp3_path.exists() or mp3_path.stat().st_size == 0:
             return False
 
-        # 2. Try to play directly with mpg123 (fastest fallback for mp3)
+        # 4. Try Direct MP3 Playback (Fastest fallback)
         try:
-            res = subprocess.run(['mpg123', '-a', alsa_device, str(temp_mp3)], 
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=30)
+            # Try mpg123
+            res = subprocess.run(['mpg123', '-q', '-a', alsa_device, str(mp3_path)], timeout=20)
             if res.returncode == 0:
-                # Success! Let's convert to WAV in background for cache
-                subprocess.Popen(['ffmpeg', '-y', '-i', str(temp_mp3), str(cache_path)], 
+                # Convert in background for future WAV cache
+                subprocess.Popen(['ffmpeg', '-y', '-i', str(mp3_path), str(wav_path)], 
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                # Note: we don't delete temp_mp3 yet if we are converting
                 return True
         except:
             pass
 
-        # 3. Try to convert to WAV with ffmpeg and play with paplay
+        # 5. Convert to WAV (Standard reliable method)
         try:
-            subprocess.run(['ffmpeg', '-y', '-i', str(temp_mp3), str(cache_path)], 
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=20)
+            subprocess.run(['ffmpeg', '-y', '-i', str(mp3_path), str(wav_path)], 
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
             
-            if cache_path.exists():
-                subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False, timeout=30)
-                if temp_mp3.exists(): os.remove(str(temp_mp3))
+            if wav_path.exists():
+                subprocess.run(['paplay', '--device', alsa_device, str(wav_path)], check=True, timeout=15)
                 return True
         except:
             pass
 
-        # 4. Final attempt: play mp3 with play (sox)
+        # 6. Final Stand: use 'play' from sox
         try:
-            subprocess.run(['play', str(temp_mp3)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=30)
+            subprocess.run(['play', '-q', str(mp3_path)], timeout=20)
             return True
         except:
             pass
 
     except Exception as e:
-        print(f"[gtts] Fatal Error: {e}")
+        print(f"[gtts] Fatal Rewrite Error: {e}")
+    finally:
+        # Cleanup mp3 if wav exists
+        if mp3_path.exists() and wav_path.exists():
+            try: os.remove(str(mp3_path))
+            except: pass
     
     return False
 
