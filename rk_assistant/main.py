@@ -403,7 +403,7 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
         elif intent in ["cozy_setup", "focus_mode", "open_app"]:
             from .desktop_link import trigger_desktop_action
             speak(reply_text)
-            trigger_desktop_action(intent, params)
+            trigger_desktop_action(intent, params, slug=slug)
         elif intent == "alarm":
             speak(reply_text)
         else:
