@@ -937,13 +937,16 @@ def measure_ambient_rms(mic, recognizer, duration: float = 1.5) -> float:
     try:
         with no_alsa_err():
             with mic as source:
-                # Listen briefly (no phrase limit — just grab raw frames)
+                # Listen briefly
                 audio = recognizer.record(source, duration=duration)
         raw = audio.get_raw_data()
         if not raw:
-            return 0.0
-        rms = audioop.rms(raw, 2)   # 2 bytes = 16-bit samples
+            return 10.0 # Return small baseline instead of 0
+        rms = audioop.rms(raw, 2)
         return float(rms)
     except Exception as e:
-        print(f"[stt-engine] ambient RMS error: {e}")
-        return 0.0
+        # If resource is busy, return a 'loud enough' value to prevent entering night mode by mistake
+        if "busy" in str(e).lower() or "resource" in str(e).lower():
+            return float(NIGHT_AMBIENT_THRESHOLD + 1)
+        print(f"[audio] RMS error: {e}")
+        return 10.0

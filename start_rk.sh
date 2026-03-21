@@ -150,9 +150,8 @@ echo "[startup] Step 6: Starting background monitors..."
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r dev; do
         if [ "$dev" != "$SPEAKER_MAC" ]; then
             if ! bluetoothctl info "$dev" 2>/dev/null | grep -q "Connected: yes"; then
-                echo "[startup] Attempting to reconnect to phone/device $dev..."
                 # Run in background to avoid blocking speaker connection
-                ( timeout 15 bluetoothctl connect "$dev" &>/dev/null ) &
+                ( timeout 12 bluetoothctl connect "$dev" &>/dev/null ) &
             fi
         fi
     done

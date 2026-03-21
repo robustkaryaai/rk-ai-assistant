@@ -163,7 +163,18 @@ class NightProtocolMonitor:
                 continue
 
             # 2. Only run the RMS checking logic if feature is enabled
+            # AGENT FIX: Pause engine to avoid microphone resource clash
+            was_running = self.engine._running
+            if was_running:
+                self.engine.stop()
+                time.sleep(0.5) # Give ALSA a breath
+
             rms = measure_ambient_rms(self.mic, self.recognizer, duration=1.5)
+            
+            # AGENT FIX: Restart engine immediately after RMS check
+            if was_running:
+                self.engine.start()
+
             print(f"[night] Ambient RMS: {rms:.0f} (threshold: {NIGHT_AMBIENT_THRESHOLD})", flush=True)
 
             if rms < NIGHT_AMBIENT_THRESHOLD and rms > 0:
