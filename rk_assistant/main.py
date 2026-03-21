@@ -244,20 +244,30 @@ def main():
     print("[main] RK AI is ready.", flush=True)
 
     # 3. MAIN LOOP
+    was_muted = False
+    
     while True:
         try:
             # 🚀 Check if device is muted before starting STT
             from .command_poller import get_mute_state
-            if get_mute_state():
+            is_muted = get_mute_state()
+            
+            if is_muted:
                 # We still need to report state and update activity even when muted
                 # but we skip the heavy microphone/STT processing
                 report_state(slug_val, "muted")
                 update_activity()
+                was_muted = True
                 time.sleep(2)
                 continue
 
-            # Check if we just transitioned from muted to unmuted
-            # (In case we need to re-initialize something specific)
+            # 🚀 Transition from muted to unmuted: Re-calibrate if needed
+            if was_muted:
+                print("[main] Device unmuted. Re-initializing STT engines...", flush=True)
+                # Re-setup microphone volume and wait a bit for hardware to settle
+                setup_microphone_volume()
+                time.sleep(0.5)
+                was_muted = False
 
             update_activity() # Signal we are alive to reset monitor
             online = is_online()
