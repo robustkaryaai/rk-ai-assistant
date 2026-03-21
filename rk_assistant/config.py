@@ -114,6 +114,7 @@ REQUEST_TIMEOUT = 8  # seconds (fail fast - weather/news shouldn't hang)
 
 # Gemini API (for direct fast responses)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_AVAILABLE = bool(GEMINI_API_KEY)
 GEMINI_API_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP", "")  # Backup key for failover
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
 USE_GEMINI_DIRECT = os.environ.get("USE_GEMINI_DIRECT", "1") == "1"  # Feature flag
