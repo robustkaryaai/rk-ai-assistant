@@ -134,15 +134,27 @@ def main():
 
     is_first_boot = "--first-boot" in sys.argv
 
+    # 1. Check internet connectivity immediately
+    online = is_online()
+
     # 0.5 Start background managers
     print("[main] Starting background managers...", flush=True)
+    
+    def handle_backend_reply_sync(text: str):
+        """Sync wrapper for handle_backend_reply used by background managers."""
+        nonlocal online
+        if not text: return
+        # Create a mock music holder
+        mock_holder = {"proc": None}
+        handle_backend_reply(text, online, mock_holder, slug_val)
+
     alarm_manager.start_alarm_checker()
-    schedule_manager.start_scheduler()
+    schedule_manager.start_schedule_monitor(handle_backend_reply_sync)
     command_poller.start_command_poller(slug_val)
     start_reset_monitor()
 
-    # 1. Check internet connectivity immediately
-    online = is_online()
+    # Register voice callback for remote commands
+    command_poller.register_voice_callback(handle_backend_reply_sync)
     
     # 2. Normal Startup Greeting
     if online:
@@ -226,16 +238,7 @@ def main():
         except Exception as e:
             print(f"[stt] Error during microphone setup: {e}")
 
-    # Register voice command handler for command poller
-    def voice_callback(text):
-        nonlocal online
-        if online:
-            # We treat text as if it was spoken to the device
-            # Create a mock music holder
-            mock_holder = {"proc": None}
-            handle_backend_reply(text, online, mock_holder)
-            
-    command_poller.register_voice_callback(voice_callback)
+    # Voice command handler is now registered during manager startup
 
     music_proc_holder = {"proc": None}
     print("[main] RK AI is ready.", flush=True)
