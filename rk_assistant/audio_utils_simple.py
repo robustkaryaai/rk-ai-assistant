@@ -80,9 +80,19 @@ def _speak_with_gtts(text: str, alsa_device: str = "pulse") -> bool:
         success = False
         for attempt in range(2):
             try:
+                # Pre-clean the path to avoid Permission Denied if owned by root
+                if mp3_path.exists():
+                    try: os.remove(str(mp3_path))
+                    except: pass
+                
                 print(f"[gtts] Downloading: {text[:30]}... (Attempt {attempt+1})")
                 tts = gTTS(text=text, lang='en', slow=False)
                 tts.save(str(mp3_path))
+                
+                # Set permissions to 666 so anyone can read/write it
+                try: os.chmod(str(mp3_path), 0o666)
+                except: pass
+                
                 if mp3_path.exists() and mp3_path.stat().st_size > 0:
                     success = True
                     break

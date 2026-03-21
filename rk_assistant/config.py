@@ -45,11 +45,27 @@ if _target_env:
 GEMINI_AVAILABLE = bool(os.getenv("GEMINI_API_KEY", ""))
 MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "1") == "1"
 
+# --- DIRECTORIES ---
 DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
 CACHE_DIR = DATA_DIR / "cache"
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Ensure directories exist and are writable
+for d in [DATA_DIR, CACHE_DIR]:
+    try:
+        if not d.exists():
+            d.mkdir(parents=True, exist_ok=True)
+        # Force permissions to 777 to avoid user/root conflicts on Pi
+        os.chmod(str(d), 0o777)
+        
+        # Also fix permissions for existing files in the directory
+        for f in d.iterdir():
+            if f.is_file():
+                try:
+                    os.chmod(str(f), 0o666)
+                except:
+                    pass
+    except Exception as e:
+        print(f"[config] Warning: Could not set permissions for {d}: {e}")
 
 # File paths
 SLUG_FILE = BASE_DIR / "slug.txt"  # Pre-seeded unique 9-digit slug
