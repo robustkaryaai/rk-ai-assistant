@@ -107,8 +107,10 @@ def execute_command(cmd: dict, slug: str) -> None:
             date = payload.get('date')
             time_str = payload.get('time')
             task = payload.get('task')
-            schedule_manager.add_schedule(s_id, date, time_str, task)
-            result = f"Schedule set: {task} at {date} {time_str}"
+            is_recurring = payload.get('isRecurring', False)
+            days = payload.get('days', [])
+            schedule_manager.add_schedule(s_id, date, time_str, task, is_recurring, days)
+            result = f"Schedule set: {task} at {date or days} {time_str}"
             success = True
             try:
                 requests.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_schedules", json={"schedules": schedule_manager.list_schedules()}, timeout=5)

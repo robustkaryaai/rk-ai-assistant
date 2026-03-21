@@ -152,6 +152,16 @@ class NightProtocolMonitor:
                     return
                 time.sleep(5)
 
+            # 1. Check if the user even WANTS the Night Protocol auto-quiet feature enabled
+            if not settings_sync.is_night_protocol_enabled():
+                # If they disabled it from the mobile app, force the Pi out of night mode and skip RMS checks
+                if self.engine.night_mode:
+                    self.engine.set_night_mode(False)
+                    self.night_tts_suppressed = False
+                    print("[night] ☀️  Night protocol disabled by user app — normal mode restored.", flush=True)
+                continue
+
+            # 2. Only run the RMS checking logic if feature is enabled
             rms = measure_ambient_rms(self.mic, self.recognizer, duration=1.5)
             print(f"[night] Ambient RMS: {rms:.0f} (threshold: {NIGHT_AMBIENT_THRESHOLD})", flush=True)
 

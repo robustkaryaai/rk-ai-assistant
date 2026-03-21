@@ -11,6 +11,20 @@ import subprocess
 import threading
 import shutil
 import tempfile
+import requests
+
+def _push_stt_log(text: str):
+    """Pushes transcribed text to the backend stream for the RK AI Home mobile app."""
+    if not text or not text.strip(): return
+    slug = os.getenv("DEVICE_SLUG")
+    if not slug: return
+    try:
+        url = f"https://rk-ai-backend.onrender.com/device/{slug}/stt-log"
+        # Run asynchronously so we don't block the audio loop
+        threading.Thread(target=lambda: requests.post(url, json={"text": text}, timeout=2), daemon=True).start()
+    except:
+        pass
+
 try:
     import audioop
 except ModuleNotFoundError:
@@ -620,6 +634,7 @@ def wait_for_wake_word(use_offline: bool = True, recognizer=None, mic=None) -> b
                              text = r.recognize_google(audio).lower()
                              
                         print(f"[stt] (heard: '{text}')", flush=True)
+                        _push_stt_log(text)
                         if WAKE_WORD.lower() in text or any(w in text for w in WAKE_WORDS):
                             print("\n[wake] 🟢 Wake Word Detected!")
                             try:
@@ -843,6 +858,7 @@ class SmartSTTEngine:
 
         text_lower = text.lower().strip()
         print(f"[stt-engine] Heard: '{text_lower}'", flush=True)
+        _push_stt_log(text_lower)
 
         # Check for wake word
         wake_detected = (

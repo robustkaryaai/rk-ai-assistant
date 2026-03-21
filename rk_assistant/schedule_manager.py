@@ -20,17 +20,20 @@ def save_schedules(schedules):
     with open(SCHEDULE_FILE, "w") as f:
         json.dump(schedules, f)
 
-def add_schedule(id, date, time_str, task):
+def add_schedule(id, date, time_str, task, is_recurring=False, days=None):
+    if days is None: days = []
     schedules = load_schedules()
     schedules.append({
         "id": id,
         "date": date,
         "time": time_str,
         "task": task,
+        "is_recurring": is_recurring,
+        "days": days,
         "active": True
     })
     save_schedules(schedules)
-    print(f"[schedules] Added: {task} at {date} {time_str}")
+    print(f"[schedules] Added: {task} at {date} {time_str} {days if is_recurring else ''}")
 
 def delete_schedule(schedule_id):
     schedules = load_schedules()
@@ -46,15 +49,33 @@ def schedule_loop(voice_callback):
             now = datetime.now()
             current_date = now.strftime("%Y-%m-%d")
             current_time = now.strftime("%H:%M")
+            current_day = now.strftime("%a")
             
             schedules = load_schedules()
             updated = False
             
             for s in schedules:
-                if s["active"] and s["date"] == current_date and s["time"] == current_time:
+                if not s.get("active", True):
+                    continue
+                    
+                is_recurring = s.get("is_recurring", False)
+                days = s.get("days", [])
+                
+                if is_recurring:
+                    date_matches = not days or current_day in days
+                else:
+                    date_matches = (s.get("date") == current_date)
+                    
+                if date_matches and s.get("time") == current_time:
+                    # Prevent double firing in same minute
+                    if s.get("last_triggered") == f"{current_date}_{current_time}":
+                        continue
+                        
+                    s["last_triggered"] = f"{current_date}_{current_time}"
                     print(f"[schedules] Triggering task: {s['task']}")
-                    # Mark as inactive first to prevent double-triggering
-                    s["active"] = False
+                    
+                    if not is_recurring:
+                        s["active"] = False
                     updated = True
                     
                     # Execute task
