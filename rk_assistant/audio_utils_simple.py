@@ -43,36 +43,6 @@ def _speak_with_piper(text: str, alsa_device: str = "pulse") -> bool:
             return False
     return False
 
-def _speak_with_groq(text: str, alsa_device: str = "pulse") -> bool:
-    """Fast Online TTS using Groq (OpenAI-compatible)."""
-    if not GROQ_API_KEY:
-        return False
-        
-    cache_path = _get_cache_path(text)
-    if cache_path.exists():
-        subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
-        return True
-
-    try:
-        import requests
-        url = "https://api.groq.com/openai/v1/audio/speech"
-        headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-        data = {
-            "model": "tts-1", # Assuming Groq TTS model name
-            "input": text,
-            "voice": "alloy"
-        }
-        
-        resp = requests.post(url, headers=headers, json=data, timeout=10)
-        if resp.ok:
-            with open(cache_path, "wb") as f:
-                f.write(resp.content)
-            subprocess.run(['paplay', '--device', alsa_device, str(cache_path)], check=False)
-            return True
-    except Exception as e:
-        print(f"[groq-tts] Error: {e}")
-    return False
-
 def sanitize_text(text: str) -> str:
     """Clean up text for better TTS results."""
     return text.replace('*', '').replace('_', '').replace('`', '').strip()
@@ -100,18 +70,27 @@ def _speak_with_gtts(text: str, alsa_device: str = "pulse") -> bool:
         try:
             subprocess.run(['paplay', '--device', alsa_device, str(wav_path)], check=True, timeout=15)
             return True
-        except:
-            pass
+        except Exception as e:
+            print(f"[gtts] Cache play failed: {e}")
 
     try:
         from gtts import gTTS
         
-        # 3. Download from Google
-        print(f"[gtts] Downloading: {text[:30]}...")
-        tts = gTTS(text=text, lang='en', slow=False)
-        tts.save(str(mp3_path))
-        
-        if not mp3_path.exists() or mp3_path.stat().st_size == 0:
+        # 3. Download from Google (with retry)
+        success = False
+        for attempt in range(2):
+            try:
+                print(f"[gtts] Downloading: {text[:30]}... (Attempt {attempt+1})")
+                tts = gTTS(text=text, lang='en', slow=False)
+                tts.save(str(mp3_path))
+                if mp3_path.exists() and mp3_path.stat().st_size > 0:
+                    success = True
+                    break
+            except Exception as e:
+                print(f"[gtts] Download attempt {attempt+1} failed: {e}")
+                time.sleep(1)
+
+        if not success:
             return False
 
         # 4. Try Direct MP3 Playback (Fastest fallback)
@@ -123,26 +102,26 @@ def _speak_with_gtts(text: str, alsa_device: str = "pulse") -> bool:
                 subprocess.Popen(['ffmpeg', '-y', '-i', str(mp3_path), str(wav_path)], 
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return True
-        except:
-            pass
+        except Exception as e:
+            print(f"[gtts] mpg123 failed: {e}")
 
         # 5. Convert to WAV (Standard reliable method)
         try:
             subprocess.run(['ffmpeg', '-y', '-i', str(mp3_path), str(wav_path)], 
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=15)
             
             if wav_path.exists():
                 subprocess.run(['paplay', '--device', alsa_device, str(wav_path)], check=True, timeout=15)
                 return True
-        except:
-            pass
+        except Exception as e:
+            print(f"[gtts] ffmpeg/paplay failed: {e}")
 
         # 6. Final Stand: use 'play' from sox
         try:
             subprocess.run(['play', '-q', str(mp3_path)], timeout=20)
             return True
-        except:
-            pass
+        except Exception as e:
+            print(f"[gtts] sox play failed: {e}")
 
     except Exception as e:
         print(f"[gtts] Fatal Rewrite Error: {e}")
@@ -156,8 +135,8 @@ def _speak_with_gtts(text: str, alsa_device: str = "pulse") -> bool:
 
 def speak(text: str, online: bool = True):
     """
-    Main TTS entry point. Uses Piper (Offline), Groq (Fast Online), or gTTS (Fallback Online).
-    Nukes espeak if online=True as per user request.
+    Main TTS entry point. Uses Piper (Offline) or gTTS (Online).
+    If both fail, we use espeak as an absolute last resort.
     """
     text = sanitize_text(text)
     if not text: return
@@ -173,22 +152,26 @@ def speak(text: str, online: bool = True):
 
     # 🚀 Step 2: Try Piper (Instant Offline)
     if _is_piper_available():
-        if _speak_with_piper(text, alsa_device):
-            return
+        try:
+            if _speak_with_piper(text, alsa_device):
+                return
+        except Exception as e:
+            print(f"[tts] Piper failed: {e}")
 
-    # 🚀 Step 3: Try Groq (Fast Online)
+    # 🚀 Step 3: Try gTTS (Standard Online)
     if online and not FORCE_OFFLINE:
-        if _speak_with_groq(text, alsa_device):
-            return
-
-    # 🚀 Step 4: Try gTTS (Standard Online Fallback)
-    if online and not FORCE_OFFLINE:
-        if _speak_with_gtts(text, alsa_device):
-            return
+        try:
+            if _speak_with_gtts(text, alsa_device):
+                return
+        except Exception as e:
+            print(f"[tts] gTTS failed: {e}")
             
-    # 🚀 Step 5: Emergency Offline Fallback (ONLY if truly offline)
-    if not online or FORCE_OFFLINE:
-        print("[tts] Using Emergency Offline Fallback (espeak)")
-        subprocess.run(['espeak', '-v', 'en-us', text], check=False)
-    else:
-        print("[tts] ❌ ERROR: All online TTS engines failed and espeak is suppressed while online.")
+    # 🚀 Step 4: Absolute Emergency Fallback
+    # Even if online, if everything else failed, we MUST speak.
+    # The user hates the robotic voice, but silence is worse for a voice assistant.
+    print(f"[tts] ❌ ERROR: All preferred engines failed. Using espeak as last resort.")
+    try:
+        # Use a more natural espeak speed
+        subprocess.run(['espeak', '-s', '160', '-v', 'en-us', text], check=False, timeout=15)
+    except Exception as e:
+        print(f"[tts] 💀 CRITICAL ERROR: Even espeak failed: {e}")
