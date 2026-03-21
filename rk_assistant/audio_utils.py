@@ -619,7 +619,7 @@ def wait_for_wake_word(use_offline: bool = True, recognizer=None, mic=None) -> b
                         else:
                              text = r.recognize_google(audio).lower()
                              
-                        print(f"   (heard: '{text}')", end="\r")
+                        print(f"[stt] (heard: '{text}')", flush=True)
                         if WAKE_WORD.lower() in text or any(w in text for w in WAKE_WORDS):
                             print("\n[wake] 🟢 Wake Word Detected!")
                             try:

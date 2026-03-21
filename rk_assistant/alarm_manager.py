@@ -168,10 +168,16 @@ def play_alarm_sound(sound_file: Optional[str]):
         proc = subprocess.Popen(["paplay", full_path],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         _alarm_sound_procs.append(proc)
-        proc.wait()
-        _alarm_sound_procs = [p for p in _alarm_sound_procs if p.poll() is None]
         
-        _alarm_active = False
+        def wait_and_cleanup():
+            global _alarm_active, _alarm_sound_procs
+            proc.wait()
+            if proc in _alarm_sound_procs:
+                _alarm_sound_procs.remove(proc)
+            if not _alarm_sound_procs:
+                _alarm_active = False
+
+        threading.Thread(target=wait_and_cleanup, daemon=True).start()
     else:
         print(f"[alarm] Sound file not found: {full_path}")
 
