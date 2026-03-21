@@ -256,12 +256,19 @@ def start_alarm_checker() -> None:
                         updated_alarms.append(alarm)
                 
                 if any_triggered or len(updated_alarms) != len(alarms):
-                    save_alarms(updated_alarms)
+                    # Clean up one-time alarms that were triggered
+                    final_alarms = []
+                    for a in updated_alarms:
+                        # If it's a one-time alarm (no days) and was triggered, remove it
+                        if not a.get("days") and a.get("triggered_today"):
+                            continue
+                        final_alarms.append(a)
+                    save_alarms(final_alarms)
                 
             except Exception as e:
                 print(f"[alarm] Checker error: {e}")
             
-            time.sleep(30)  # Check every 30 seconds
+            time.sleep(10)  # Check more frequently (every 10s) to not miss the minute window
     
     thread = threading.Thread(target=check_alarms, daemon=True)
     thread.start()

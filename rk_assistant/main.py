@@ -249,10 +249,15 @@ def main():
             # 🚀 Check if device is muted before starting STT
             from .command_poller import get_mute_state
             if get_mute_state():
-                print("[main] Device is MUTED. Skipping STT loop.", end="\r")
+                # We still need to report state and update activity even when muted
+                # but we skip the heavy microphone/STT processing
                 report_state(slug_val, "muted")
+                update_activity()
                 time.sleep(2)
                 continue
+
+            # Check if we just transitioned from muted to unmuted
+            # (In case we need to re-initialize something specific)
 
             update_activity() # Signal we are alive to reset monitor
             online = is_online()
