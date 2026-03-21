@@ -246,6 +246,14 @@ def main():
     # 3. MAIN LOOP
     while True:
         try:
+            # 🚀 Check if device is muted before starting STT
+            from .command_poller import get_mute_state
+            if get_mute_state():
+                print("[main] Device is MUTED. Skipping STT loop.", end="\r")
+                report_state(slug_val, "muted")
+                time.sleep(2)
+                continue
+
             update_activity() # Signal we are alive to reset monitor
             online = is_online()
             
