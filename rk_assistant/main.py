@@ -113,7 +113,7 @@ def acquire_lock():
         fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return f
     except IOError:
-        print("[main] FATAL: Another instance of RK Assistant is already running. Exiting.")
+        print("[main] FATAL: Another instance of RK AI Home is already running. Exiting.")
         sys.exit(1)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -398,7 +398,15 @@ def main():
         night_monitor.start()
 
     music_proc_holder = {"proc": None}
-    print("[main] ✅ RK AI is ready (SmartSTT active).", flush=True)
+    print("[main] ✅ RK AI Home is ready (SmartSTT active).", flush=True)
+
+    # Speak startup greeting using the user-configured phrase from the app
+    try:
+        greeting = settings_sync.get_greeting_phrase()  # e.g. "Radhe Radhe"
+        assistant = settings_sync.get_assistant_name()  # e.g. "RK"
+        speak(f"{greeting}, {assistant} AI Home is ready to rock!")
+    except Exception as _e:
+        print(f"[main] Startup greeting failed: {_e}", flush=True)
 
     # ─── MAIN LOOP ───────────────────────────────────────────────────────────
     was_muted = False

@@ -54,18 +54,20 @@ for d in [DATA_DIR, CACHE_DIR]:
     try:
         if not d.exists():
             d.mkdir(parents=True, exist_ok=True)
-        # Force permissions to 777 to avoid user/root conflicts on Pi
-        os.chmod(str(d), 0o777)
-        
-        # Also fix permissions for existing files in the directory
+        # Best-effort chmod — silently skip if we lack permission
+        try:
+            os.chmod(str(d), 0o777)
+        except OSError:
+            pass  # Not critical — directory already exists and is accessible
+
         for f in d.iterdir():
             if f.is_file():
                 try:
                     os.chmod(str(f), 0o666)
-                except:
+                except OSError:
                     pass
     except Exception as e:
-        print(f"[config] Warning: Could not set permissions for {d}: {e}")
+        print(f"[config] Warning: Could not create directory {d}: {e}")
 
 # File paths
 SLUG_FILE = BASE_DIR / "slug.txt"  # Pre-seeded unique 9-digit slug
