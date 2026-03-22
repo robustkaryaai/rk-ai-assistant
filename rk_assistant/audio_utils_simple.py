@@ -8,6 +8,7 @@ import threading
 
 from .config import FORCE_OFFLINE
 from .hybrid_tts import contains_hindi, speak_with_options
+from .settings_sync import get_tts_config
 
 
 _tts_lock = threading.Lock()
@@ -17,8 +18,10 @@ def speak(
     text: str,
     online: bool = True,
     allow_network_tts: bool = True,
-    engine: str = "auto",
-    gender: str = "female",
+    engine: str | None = None,
+    gender: str | None = None,
+    voice: str | None = None,
+    language: str | None = None,
 ):
     """
     Preserve the assistant's existing speak() signature while routing to the
@@ -28,21 +31,32 @@ def speak(
     if not spoken_text:
         return
 
-    allow_gtts = bool(online and allow_network_tts and not FORCE_OFFLINE)
-    requested_engine = str(engine or "auto").strip().lower()
+    profile = get_tts_config()
+    requested_engine = str(engine or profile.get("engine") or "flite").strip().lower()
+    requested_gender = str(gender or profile.get("gender") or "female").strip().lower()
+    requested_voice = voice or profile.get("voice")
+    requested_language = str(language or profile.get("language") or "en").strip().lower()
 
-    # Offline-only call sites should never trigger network gTTS.
-    if not allow_gtts:
-        if requested_engine == "gtts":
-            requested_engine = "espeak"
-        elif requested_engine == "auto" and contains_hindi(spoken_text):
-            requested_engine = "espeak"
+    if requested_engine == "gtts":
+        requested_language = "hi"
+    elif requested_engine == "flite":
+        requested_language = "en"
+
+    allow_network_gtts = bool(online and allow_network_tts and not FORCE_OFFLINE)
+    allow_gtts = allow_network_gtts or requested_engine == "gtts"
+
+    # Offline auto mode should stay local unless the caller explicitly requested gTTS.
+    if not allow_network_gtts and requested_engine == "auto" and contains_hindi(spoken_text):
+        requested_engine = "espeak"
 
     with _tts_lock:
         print(f"🔊 {spoken_text}", flush=True)
         speak_with_options(
             text=spoken_text,
             engine=requested_engine,
-            gender=gender,
+            gender=requested_gender,
+            voice=requested_voice,
+            language=requested_language,
             allow_gtts=allow_gtts,
+            allow_network_gtts=allow_network_gtts,
         )

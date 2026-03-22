@@ -29,9 +29,27 @@ _FLITE_VOICES = {
     "male": "rms",
 }
 
+_FLITE_SUPPORTED_VOICES = {"slt", "rms", "awb"}
+
 _ESPEAK_VOICES = {
     "female": "en+f3",
     "male": "en+m3",
+}
+
+_ESPEAK_SUPPORTED_VOICES = {
+    "en+f3",
+    "en+f4",
+    "en+m3",
+    "en+m7",
+    "hi",
+    "hi+f3",
+}
+
+_GTTS_SUPPORTED_TLDS = {
+    "co.in",
+    "com",
+    "co.uk",
+    "com.au",
 }
 
 _FLITE_DURATION_STRETCH = os.getenv("RK_FLITE_DURATION_STRETCH", "1.12").strip() or "1.12"
@@ -70,39 +88,86 @@ def _normalize_engine(engine: str) -> str:
     return "auto"
 
 
-def _gtts_mp3_path(text: str, language: str) -> str:
-    cache_key = hashlib.md5(f"{language}:{text}".encode("utf-8")).hexdigest()
+def _normalize_language(language: str | None, text: str, engine: str | None = None) -> str:
+    language_name = str(language or "").strip().lower()
+    if engine == "gtts":
+        return "hi"
+    if language_name in {"hi", "hindi"}:
+        return "hi"
+    if language_name in {"en", "english"}:
+        return "en"
+    return "hi" if contains_hindi(text) else "en"
+
+
+def _normalize_flite_voice(gender: str, voice: str | None = None) -> str:
+    voice_name = str(voice or "").strip().lower()
+    if voice_name in _FLITE_SUPPORTED_VOICES:
+        return voice_name
+    return _FLITE_VOICES[_normalize_gender(gender)]
+
+
+def _normalize_espeak_voice(gender: str, voice: str | None = None, language: str | None = None) -> str:
+    language_name = _normalize_language(language, "", engine="espeak")
+    voice_name = str(voice or "").strip().lower()
+    if language_name == "hi":
+        if voice_name in {"hi", "hi+f3"}:
+            return voice_name
+        return "hi+f3" if _normalize_gender(gender) == "female" else "hi"
+    if voice_name in _ESPEAK_SUPPORTED_VOICES and not voice_name.startswith("hi"):
+        return voice_name
+    return _ESPEAK_VOICES[_normalize_gender(gender)]
+
+
+def _normalize_gtts_tld(voice: str | None = None) -> str:
+    tld = str(voice or "").strip().lower()
+    if tld in _GTTS_SUPPORTED_TLDS:
+        return tld
+    return "co.in"
+
+
+def _gtts_mp3_path(text: str, language: str, tld: str) -> str:
+    cache_key = hashlib.md5(f"{language}:{tld}:{text}".encode("utf-8")).hexdigest()
     return os.path.join(tempfile.gettempdir(), f"rk_tts_{cache_key}.mp3")
 
 
-def _speak_with_flite(text: str, gender: str) -> bool:
+def _speak_with_flite(text: str, gender: str, voice: str | None = None) -> bool:
     spoken_text = fix_text(text)
     if not spoken_text:
         return True
-    voice = _FLITE_VOICES[_normalize_gender(gender)]
+    voice_name = _normalize_flite_voice(gender, voice)
     slower_cmd = (
-        f"flite -voice {shlex.quote(voice)} "
+        f"flite -voice {shlex.quote(voice_name)} "
         f"-set duration_stretch={shlex.quote(_FLITE_DURATION_STRETCH)} "
         f"-t {shlex.quote(spoken_text)}"
     )
     if _run_command(slower_cmd):
         return True
-    cmd = f"flite -voice {shlex.quote(voice)} -t {shlex.quote(spoken_text)}"
+    cmd = f"flite -voice {shlex.quote(voice_name)} -t {shlex.quote(spoken_text)}"
     return _run_command(cmd)
 
 
-def _speak_with_gtts(text: str) -> bool:
+def _speak_with_gtts(
+    text: str,
+    language: str | None = None,
+    voice: str | None = None,
+    allow_network: bool = True,
+) -> bool:
     try:
         from gtts import gTTS
     except Exception:
         return False
 
-    language = "hi" if contains_hindi(text) else "en"
-    mp3_path = _gtts_mp3_path(text, language)
+    language_name = _normalize_language(language, text, engine="gtts")
+    tld = _normalize_gtts_tld(voice)
+    mp3_path = _gtts_mp3_path(text, language_name, tld)
 
     try:
+        if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
+            return _run_command(f"mpg123 -q {shlex.quote(mp3_path)}")
+        if not allow_network:
+            return False
         if not os.path.exists(mp3_path) or os.path.getsize(mp3_path) == 0:
-            tts = gTTS(text=text, lang=language, slow=False)
+            tts = gTTS(text=text, lang=language_name, tld=tld, slow=False)
             tts.save(mp3_path)
     except Exception:
         return False
@@ -110,15 +175,17 @@ def _speak_with_gtts(text: str) -> bool:
     return _run_command(f"mpg123 -q {shlex.quote(mp3_path)}")
 
 
-def _speak_with_espeak(text: str, gender: str) -> bool:
-    if contains_hindi(text):
-        voice = "hi"
-    else:
-        voice = _ESPEAK_VOICES[_normalize_gender(gender)]
-    cmd = f"espeak-ng -s {shlex.quote(_ESPEAK_SPEED)} -v {shlex.quote(voice)} {shlex.quote(text)}"
+def _speak_with_espeak(
+    text: str,
+    gender: str,
+    voice: str | None = None,
+    language: str | None = None,
+) -> bool:
+    voice_name = _normalize_espeak_voice(gender, voice, language or ("hi" if contains_hindi(text) else "en"))
+    cmd = f"espeak-ng -s {shlex.quote(_ESPEAK_SPEED)} -v {shlex.quote(voice_name)} {shlex.quote(text)}"
     if _run_command(cmd):
         return True
-    legacy_cmd = f"espeak -s {shlex.quote(_ESPEAK_SPEED)} -v {shlex.quote(voice)} {shlex.quote(text)}"
+    legacy_cmd = f"espeak -s {shlex.quote(_ESPEAK_SPEED)} -v {shlex.quote(voice_name)} {shlex.quote(text)}"
     return _run_command(legacy_cmd)
 
 
@@ -144,7 +211,10 @@ def speak_with_options(
     text: str,
     engine: str = "auto",
     gender: str = "female",
+    voice: str | None = None,
+    language: str | None = None,
     allow_gtts: bool = True,
+    allow_network_gtts: bool = True,
 ) -> None:
     """
     Internal entry point used by the assistant wrapper.
@@ -157,17 +227,33 @@ def speak_with_options(
     gender_name = _normalize_gender(gender)
     for engine_name in _build_engine_chain(engine, raw_text, allow_gtts=allow_gtts):
         try:
-            if engine_name == "flite" and _speak_with_flite(raw_text, gender_name):
+            if engine_name == "flite" and _speak_with_flite(raw_text, gender_name, voice=voice):
                 return
-            if engine_name == "gtts" and _speak_with_gtts(raw_text):
+            if engine_name == "gtts" and _speak_with_gtts(
+                raw_text,
+                language=language,
+                voice=voice,
+                allow_network=allow_network_gtts,
+            ):
                 return
-            if engine_name == "espeak" and _speak_with_espeak(raw_text, gender_name):
+            if engine_name == "espeak" and _speak_with_espeak(
+                raw_text,
+                gender_name,
+                voice=voice,
+                language=language,
+            ):
                 return
         except Exception:
             continue
 
 
-def speak(text: str, engine: str = "auto", gender: str = "female") -> None:
+def speak(
+    text: str,
+    engine: str = "auto",
+    gender: str = "female",
+    voice: str | None = None,
+    language: str | None = None,
+) -> None:
     """
     Public TTS entry point.
 
@@ -176,9 +262,17 @@ def speak(text: str, engine: str = "auto", gender: str = "female") -> None:
     - Fallbacks: Flite -> gTTS -> espeak-ng.
     """
     try:
-        speak_with_options(text=text, engine=engine, gender=gender, allow_gtts=True)
+        speak_with_options(
+            text=text,
+            engine=engine,
+            gender=gender,
+            voice=voice,
+            language=language,
+            allow_gtts=True,
+            allow_network_gtts=True,
+        )
     except Exception:
         try:
-            _speak_with_espeak(str(text or ""), gender)
+            _speak_with_espeak(str(text or ""), gender, voice=voice, language=language)
         except Exception:
             pass

@@ -13,17 +13,34 @@ import shutil
 import tempfile
 import requests
 
-def _push_stt_log(text: str):
+_stt_log_guard = threading.Lock()
+_last_stt_log_times = {}
+
+def _push_stt_log(text: str, throttle_sec: float = 0.0):
     """Pushes transcribed text to the backend stream for the RK AI Home mobile app."""
     if not text or not text.strip(): return
     slug = os.getenv("DEVICE_SLUG")
     if not slug: return
+    clean_text = str(text).strip()
+    if throttle_sec > 0:
+        now = time.time()
+        key = clean_text.lower()
+        with _stt_log_guard:
+            last = _last_stt_log_times.get(key, 0.0)
+            if (now - last) < throttle_sec:
+                return
+            _last_stt_log_times[key] = now
     try:
         url = f"https://rk-ai-backend.onrender.com/device/{slug}/stt-log"
         # Run asynchronously so we don't block the audio loop
-        threading.Thread(target=lambda: requests.post(url, json={"text": text}, timeout=2), daemon=True).start()
+        threading.Thread(target=lambda: requests.post(url, json={"text": clean_text}, timeout=2), daemon=True).start()
     except:
         pass
+
+
+def log_stt_status(text: str, throttle_sec: float = 0.0):
+    """Public helper for status-style STT log messages."""
+    _push_stt_log(text, throttle_sec=throttle_sec)
 
 try:
     import audioop
@@ -851,9 +868,11 @@ class SmartSTTEngine:
             text = self._transcribe(recognizer, audio)
         except Exception as e:
             print(f"[stt-engine] Transcription error: {e}")
+            log_stt_status("Couldn't understand that.", throttle_sec=4.0)
             return
 
         if not text:
+            log_stt_status("Couldn't understand that.", throttle_sec=4.0)
             return
 
         text_lower = text.lower().strip()

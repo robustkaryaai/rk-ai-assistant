@@ -23,7 +23,18 @@ device_settings = {
     'greeting_phrase': 'Radhe Radhe',
     'wake_words': ['rk', 'arc', 'hey rk', 'okay rk'],
     'night_protocol_enabled': True,
-    'smart_devices': []
+    'smart_devices': [],
+    'tts_config': {
+        'engine': 'flite',
+        'voice': 'slt',
+        'gender': 'female',
+        'language': 'en',
+    },
+    'xiaomi_cloud': {
+        'username': '',
+        'password': '',
+        'region': 'all',
+    },
 }
 
 def poll_device_settings(slug):
@@ -36,69 +47,7 @@ def poll_device_settings(slug):
     
     while True:
         try:
-            # Query Appwrite for device settings
-            headers = {
-                'X-Appwrite-Project': APPWRITE_PROJECT_ID
-            }
-            
-            url = f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}/collections/{APPWRITE_DEVICES_COLLECTION}/documents"
-            params = {
-                'queries': [f'equal("slug", "{slug}")'] # Quote the slug string!
-            }
-            
-            response = requests.get(url, headers=headers, params=params, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('documents') and len(data['documents']) > 0:
-                    device = data['documents'][0]
-                    
-                    # Update global settings (support both camelCase and snake_case)
-                    device_settings['is_muted'] = device.get('isMuted') if device.get('isMuted') is not None else device.get('is_muted', False)
-                    device_settings['memory_enabled'] = device.get('memoryEnabled') if device.get('memoryEnabled') is not None else device.get('memory_enabled', True)
-                    
-                    if device.get('assistantName'):
-                        device_settings['assistant_name'] = device['assistantName']
-                    
-                    if device.get('greetingPhrase'):
-                        device_settings['greeting_phrase'] = device['greetingPhrase']
-                        
-                    if device.get('wakeWords'):
-                        try:
-                            words = json.loads(device['wakeWords'])
-                            if isinstance(words, list):
-                                device_settings['wake_words'] = [w.lower() for w in words]
-                        except:
-                            pass
-                            
-                    # smart_devices: mobile app writes top-level attribute; legacy used systemStatus
-                    if device.get('smart_devices') is not None:
-                        try:
-                            devs = device['smart_devices']
-                            if isinstance(devs, str):
-                                devs = json.loads(devs)
-                            if isinstance(devs, list):
-                                device_settings['smart_devices'] = devs
-                        except Exception as de:
-                            print(f"[Settings Sync] smart_devices parse error: {de}")
-
-                    if device.get('systemStatus'):
-                        try:
-                            sys_status = json.loads(device['systemStatus'])
-                            if 'nightProtocolEnabled' in sys_status:
-                                device_settings['night_protocol_enabled'] = bool(sys_status['nightProtocolEnabled'])
-                            if 'smart_devices' in sys_status and not device_settings['smart_devices']:
-                                try:
-                                    devs = sys_status['smart_devices']
-                                    if isinstance(devs, str): devs = json.loads(devs)
-                                    device_settings['smart_devices'] = devs
-                                except Exception as de:
-                                    print(f"[Settings Sync] Found smart_devices format error: {de}")
-                        except:
-                            pass
-                    
-                    # print(f"[Settings Sync] Updated: muted={device_settings['is_muted']}") # noisy
-            
+            refresh_device_settings_now(slug)
         except Exception as e:
             print(f"[Settings Sync] Error polling Appwrite: {e}")
         
@@ -110,6 +59,83 @@ def start_settings_sync(slug):
     thread = Thread(target=poll_device_settings, args=(slug,), daemon=True)
     thread.start()
     print(f"[Settings Sync] Background sync started for {slug}")
+
+
+def refresh_device_settings_now(slug=None):
+    """Fetch the latest device settings immediately and apply them to local cache."""
+    slug = slug or DEVICE_SLUG
+    if not all([APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_DATABASE_ID, slug]):
+        return False
+
+    headers = {
+        'X-Appwrite-Project': APPWRITE_PROJECT_ID
+    }
+    url = f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}/collections/{APPWRITE_DEVICES_COLLECTION}/documents"
+    params = {
+        'queries': [f'equal("slug", "{slug}")']
+    }
+
+    response = requests.get(url, headers=headers, params=params, timeout=10)
+    if response.status_code != 200:
+        return False
+
+    data = response.json()
+    if not data.get('documents'):
+        return False
+
+    device = data['documents'][0]
+
+    device_settings['is_muted'] = device.get('isMuted') if device.get('isMuted') is not None else device.get('is_muted', False)
+    device_settings['memory_enabled'] = device.get('memoryEnabled') if device.get('memoryEnabled') is not None else device.get('memory_enabled', True)
+
+    if device.get('assistantName'):
+        device_settings['assistant_name'] = device['assistantName']
+
+    if device.get('greetingPhrase'):
+        device_settings['greeting_phrase'] = device['greetingPhrase']
+
+    if device.get('wakeWords'):
+        try:
+            words = json.loads(device['wakeWords'])
+            if isinstance(words, list):
+                device_settings['wake_words'] = [w.lower() for w in words]
+        except Exception:
+            pass
+
+    if device.get('smart_devices') is not None:
+        try:
+            devs = device['smart_devices']
+            if isinstance(devs, str):
+                devs = json.loads(devs)
+            if isinstance(devs, list):
+                device_settings['smart_devices'] = devs
+        except Exception as de:
+            print(f"[Settings Sync] smart_devices parse error: {de}")
+
+    if device.get('systemStatus'):
+        try:
+            sys_status = json.loads(device['systemStatus'])
+            if 'nightProtocolEnabled' in sys_status:
+                device_settings['night_protocol_enabled'] = bool(sys_status['nightProtocolEnabled'])
+            if isinstance(sys_status.get('ttsConfig'), dict):
+                tts_config = dict(device_settings['tts_config'])
+                tts_config.update(sys_status['ttsConfig'])
+                device_settings['tts_config'] = tts_config
+            if isinstance(sys_status.get('xiaomiCloud'), dict):
+                xiaomi_cloud = dict(device_settings['xiaomi_cloud'])
+                xiaomi_cloud.update(sys_status['xiaomiCloud'])
+                device_settings['xiaomi_cloud'] = xiaomi_cloud
+            if 'smart_devices' in sys_status and not device_settings['smart_devices']:
+                try:
+                    devs = sys_status['smart_devices']
+                    if isinstance(devs, str):
+                        devs = json.loads(devs)
+                    device_settings['smart_devices'] = devs
+                except Exception as de:
+                    print(f"[Settings Sync] Found smart_devices format error: {de}")
+        except Exception:
+            pass
+    return True
 
 def is_device_muted():
     """Check if device is currently muted"""
@@ -138,3 +164,13 @@ def is_night_protocol_enabled():
 def get_smart_devices():
     """Get the user's configured local smart bulbs/appliances"""
     return device_settings['smart_devices']
+
+
+def get_tts_config():
+    """Get the currently synced TTS configuration."""
+    return dict(device_settings['tts_config'])
+
+
+def get_xiaomi_cloud_config():
+    """Get the currently synced Xiaomi cloud configuration."""
+    return dict(device_settings['xiaomi_cloud'])

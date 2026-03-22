@@ -52,6 +52,7 @@ from .audio_utils import (
     create_stt_engine,
     measure_ambient_rms,
     SmartSTTEngine,
+    log_stt_status,
 )
 
 # Use Flite-first hybrid TTS with gTTS/espeak fallback
@@ -366,30 +367,32 @@ def main():
     suppress_startup_tts = "--quiet" in sys.argv
 
     # 2. Startup greeting (early: "starting up" — "ready to rock" plays after STT is live)
-    if online:
-        greeting = settings_sync.get_greeting_phrase()
-        quiet_flag = Path("/tmp/.quiet_startup")
-        if quiet_flag.exists():
-            print("[startup] Quiet mode active from night update.")
-            quiet_flag.unlink()
-            suppress_startup_tts = True
+    greeting = settings_sync.get_greeting_phrase()
+    quiet_flag = Path("/tmp/.quiet_startup")
+    if quiet_flag.exists():
+        print("[startup] Quiet mode active from night update.")
+        quiet_flag.unlink()
+        suppress_startup_tts = True
 
-        if is_first_boot:
-            print("[main] First boot detected.")
-            if not suppress_startup_tts:
-                speak("Radhe Radhe! RK AI assistant is starting up.")
-                time.sleep(0.6)
-                speak(f"{greeting}! I have connected to the internet now let me setup my things")
-                time.sleep(1)
-            sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
-            proc = play_audio_url(sound_path)
-            if proc:
-                proc.wait()
-        elif not suppress_startup_tts:
-            start_msg = f"{greeting}! RK AI assistant is starting up."
-            print(f"[main] {start_msg}")
-            speak(start_msg)
+    if is_first_boot:
+        print("[main] First boot detected.")
+        if not suppress_startup_tts:
+            speak("Radhe Radhe! RK AI assistant is starting up.", engine="gtts")
+            time.sleep(0.6)
+            if online:
+                speak(f"{greeting}! I have connected to the internet now let me setup my things", engine="gtts")
+            else:
+                speak(f"{greeting}! RK AI is waking up and getting ready.", engine="gtts")
             time.sleep(1)
+        sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
+        proc = play_audio_url(sound_path)
+        if proc:
+            proc.wait()
+    elif not suppress_startup_tts:
+        start_msg = f"{greeting}! RK AI assistant is starting up."
+        print(f"[main] {start_msg}")
+        speak(start_msg, engine="gtts")
+        time.sleep(1)
 
     # 3. Initialize and calibrate microphone
     recognizer = None
@@ -460,7 +463,7 @@ def main():
     if stt_engine:
         print("[main] Radhe Radhe! RK AI Assistant is ready to rock (SmartSTT active).", flush=True)
         if not suppress_startup_tts:
-            speak("Radhe Radhe! RK AI Assistant is ready to rock.")
+            speak("Radhe Radhe! RK AI Assistant is ready to rock.", engine="gtts")
     else:
         print("[main] RK AI Assistant running without STT (no microphone).", flush=True)
 
@@ -520,6 +523,7 @@ def main():
 
             # ── Wait for a command from the engine ─────────────────────────
             report_state(slug_val, "listening")
+            log_stt_status("Listening...", throttle_sec=12.0)
             if stt_engine:
                 try:
                     text = stt_engine.command_queue.get(timeout=1.0)
@@ -553,11 +557,13 @@ def main():
                         text = stt_engine.command_queue.get(timeout=6.0)
                     except queue.Empty:
                         print("[main] No follow-up command heard.")
+                        log_stt_status("Couldn't understand that.", throttle_sec=4.0)
                         continue
                 else:
                     continue
 
             if not text:
+                log_stt_status("Couldn't understand that.", throttle_sec=4.0)
                 continue
 
             update_activity()
