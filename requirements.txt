@@ -1,6 +1,5 @@
 requests
 sounddevice
-vosk; platform_machine != "armv6l"
 SpeechRecognition
 PyAudio
 gTTS==2.5.1
@@ -14,3 +13,7 @@ scikit-learn
 # sudo apt-get install -y python3-dbus python3-gi python3-gi-cairo libgirepository1.0-dev
 pocketsphinx
 bless
+python-kasa
+yeelight
+# Xiaomi / Mi Home Wi-Fi bulbs: local control (LAN + device token)
+python-miio

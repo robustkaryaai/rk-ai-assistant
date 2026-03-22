@@ -296,6 +296,12 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
             from .desktop_link import trigger_desktop_action
             speak(reply_text)
             trigger_desktop_action(intent, params, slug=slug)
+        elif intent == "lumina_coding":
+            from . import smart_home
+            from .desktop_link import trigger_desktop_action
+            smart_home.run_coding_ambience()
+            speak(reply_text)
+            trigger_desktop_action("lumina_coding_session", params, slug=slug)
         elif intent == "alarm":
             speak(reply_text)
         else:

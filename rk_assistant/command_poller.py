@@ -194,6 +194,42 @@ def execute_command(cmd: dict, slug: str) -> None:
                 result = "Missing SSID in set_wifi payload"
                 success = False
 
+        elif cmd_type == 'scan_network':
+            import rk_assistant.audio_utils as audio_utils_simple
+            audio_utils_simple.speak("Scanning local network for smart appliances...")
+            from .smart_home import discover_and_sync_devices
+            scan_res = discover_and_sync_devices(slug)
+            count = scan_res.get("count", 0)
+            if scan_res.get("success"):
+                audio_utils_simple.speak(f"Scan complete. Found {count} native devices.")
+                result = f"Network scan completed. Found {count} devices."
+                success = True
+            else:
+                audio_utils_simple.speak("Network scan encountered an error.")
+                result = f"Scan failed: {scan_res.get('error')}"
+                success = False
+
+        elif cmd_type == 'ecosystem_routine':
+            routine = payload.get('routine', 'lumina_coding')
+            from .desktop_link import trigger_desktop_action
+            from . import smart_home
+            if routine == 'lumina_coding':
+                amb = smart_home.run_coding_ambience()
+                audio_utils_simple.speak(amb)
+                ok = trigger_desktop_action(
+                    'lumina_coding_session',
+                    {
+                        'folder': payload.get('folder'),
+                        'ide': payload.get('ide'),
+                    },
+                    slug=slug,
+                )
+                result = f"Lumina flow: lights done, desktop relay {'ok' if ok else 'failed'}."
+                success = bool(ok)
+            else:
+                result = f"Unknown ecosystem routine: {routine}"
+                success = False
+
         else:
             result = f"Unknown command type: {cmd_type}"
             success = False

@@ -71,12 +71,23 @@ def poll_device_settings(slug):
                         except:
                             pass
                             
+                    # smart_devices: mobile app writes top-level attribute; legacy used systemStatus
+                    if device.get('smart_devices') is not None:
+                        try:
+                            devs = device['smart_devices']
+                            if isinstance(devs, str):
+                                devs = json.loads(devs)
+                            if isinstance(devs, list):
+                                device_settings['smart_devices'] = devs
+                        except Exception as de:
+                            print(f"[Settings Sync] smart_devices parse error: {de}")
+
                     if device.get('systemStatus'):
                         try:
                             sys_status = json.loads(device['systemStatus'])
                             if 'nightProtocolEnabled' in sys_status:
                                 device_settings['night_protocol_enabled'] = bool(sys_status['nightProtocolEnabled'])
-                            if 'smart_devices' in sys_status:
+                            if 'smart_devices' in sys_status and not device_settings['smart_devices']:
                                 try:
                                     devs = sys_status['smart_devices']
                                     if isinstance(devs, str): devs = json.loads(devs)

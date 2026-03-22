@@ -51,7 +51,7 @@ INTENTS
 - task: alarms, reminders, todos (use alarm intent for time-based alarms).
 - alarm: set alarms with specific times (extract time from prompt).
 - announcement: make announcements, broadcast messages, notify.
-- period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music, cozy_setup, focus_mode, open_app.
+- period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music, cozy_setup, focus_mode, open_app, lumina_coding.
 
 STRICT CLASSIFICATION RULES
 1) Generative intents (image, video, docx, ppt, note, planner, timetable, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note) MUST ONLY be triggered if the user EXPLICITLY uses a verb like "make", "generate", "create", "build", "write", "render", or "prepare". 
@@ -70,7 +70,8 @@ STRICT CLASSIFICATION RULES
 12) If the user says "make my setup cozy", "prepare coding environment", "open workspace" → intent = "cozy_setup".
 13) If the user says "activate focus mode", "don't disturb", "focus time" → intent = "focus_mode".
 14) If the user says "open [app name]", "launch [app name]" → intent = "open_app" and put app name in "app_name" parameter.
-15) Output must be pure JSON; do not wrap in markdown; no commentary.
+15) If the user is starting a coding session on Lumina OS / Lumina (e.g. "I'm coming to code on Lumina", "prepare my Lumina workspace", "set up Lumina for coding") → intent = "lumina_coding". Optional parameters: folder (path), ide (app name).
+16) Output must be pure JSON; do not wrap in markdown; no commentary.
 
 RESPONSE GENERATION (reply field)
 - For EVERY intent, generate a short, natural, and helpful spoken response in the "reply" field.
@@ -81,7 +82,7 @@ RESPONSE GENERATION (reply field)
 OUTPUT SCHEMA
 [
   {
-    "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "alarm" | "announcement" | "status" | "period_bell" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music",
+    "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "alarm" | "announcement" | "status" | "period_bell" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music" | "cozy_setup" | "focus_mode" | "open_app" | "lumina_coding",
     "reply": "Natural spoken response to the user",
     "parameters": {
       "prompt": "description or command",
@@ -105,6 +106,10 @@ User: "tell me about space"
 User: "make a poster for school science fair"
 [
   { "intent": "image", "reply": "I'll create a professional poster for your school science fair right now.", "parameters": { "prompt": "school science fair poster" } }
+]
+User: "I'm coming to code on Lumina, prep my space"
+[
+  { "intent": "lumina_coding", "reply": "On it — I'll brighten your space and wake your desktop for Lumina.", "parameters": { "prompt": "prepare Lumina coding workspace" } }
 ]
 
 Now only output JSON following the schema and rules. """.replace("{DEVICE_ID}", str(DEVICE_ID))
