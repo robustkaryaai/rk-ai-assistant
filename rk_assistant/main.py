@@ -320,6 +320,7 @@ def main():
     print("\n" + "="*30)
     print("✓ Initializing RK AI Assistant  v4 (SmartSTT)")
     print("="*30 + "\n")
+    print("Radhe Radhe! RK AI assistant is starting up.", flush=True)
 
     # 0. Identity
     slug_val, _ = read_slug()
@@ -348,26 +349,31 @@ def main():
     start_reset_monitor()
     command_poller.register_voice_callback(handle_backend_reply_sync)
 
-    # 2. Startup greeting
+    # Startup TTS off for --quiet or night handoff flag
+    suppress_startup_tts = "--quiet" in sys.argv
+
+    # 2. Startup greeting (early: "starting up" — "ready to rock" plays after STT is live)
     if online:
         greeting = settings_sync.get_greeting_phrase()
         quiet_flag = Path("/tmp/.quiet_startup")
-        is_quiet = "--quiet" in sys.argv
         if quiet_flag.exists():
             print("[startup] Quiet mode active from night update.")
             quiet_flag.unlink()
-            is_quiet = True
+            suppress_startup_tts = True
 
         if is_first_boot:
             print("[main] First boot detected.")
-            speak(f"{greeting}! I have connected to the internet now let me setup my things")
-            time.sleep(1)
+            if not suppress_startup_tts:
+                speak("Radhe Radhe! RK AI assistant is starting up.")
+                time.sleep(0.6)
+                speak(f"{greeting}! I have connected to the internet now let me setup my things")
+                time.sleep(1)
             sound_path = str(Path(__file__).parent / "sounds" / "preparing.mp3")
             proc = play_audio_url(sound_path)
             if proc:
                 proc.wait()
-        elif not is_quiet:
-            start_msg = f"{greeting}! RK AI Home is ready to rock!"
+        elif not suppress_startup_tts:
+            start_msg = f"{greeting}! RK AI assistant is starting up."
             print(f"[main] {start_msg}")
             speak(start_msg)
             time.sleep(1)
@@ -438,7 +444,12 @@ def main():
         night_monitor.start()
 
     music_proc_holder = {"proc": None}
-    print("[main] ✅ RK AI Home is ready (SmartSTT active).", flush=True)
+    if stt_engine:
+        print("[main] Radhe Radhe! RK AI Home is ready to rock (SmartSTT active).", flush=True)
+        if not suppress_startup_tts:
+            speak("Radhe Radhe! RK AI Home is ready to rock.")
+    else:
+        print("[main] RK AI Home running without STT (no microphone).", flush=True)
 
     # ─── MAIN LOOP ───────────────────────────────────────────────────────────
     was_muted = False

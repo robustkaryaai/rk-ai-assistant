@@ -195,7 +195,6 @@ def execute_command(cmd: dict, slug: str) -> None:
                 success = False
 
         elif cmd_type == 'scan_network':
-            import rk_assistant.audio_utils as audio_utils_simple
             audio_utils_simple.speak("Scanning local network for smart appliances...")
             from .smart_home import discover_and_sync_devices
             scan_res = discover_and_sync_devices(slug)
