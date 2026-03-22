@@ -263,32 +263,6 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
     print(f"[gemini] Processing: '{text}'")
     print(f"[gemini] User: {text}")
 
-    reply_text = ""
-    if USE_GEMINI_DIRECT and GEMINI_API_KEY:
-        try:
-            reply_text = gemini_client.get_conversational_response(
-                text,
-                api_key=GEMINI_API_KEY,
-                backup_key=GEMINI_API_KEY_BACKUP,
-                model_name=GEMINI_MODEL,
-                fallback_model=GEMINI_MODEL_FALLBACK,
-            )
-        except Exception as e:
-            print(f"[gemini] Direct error: {e}")
-
-    if not reply_text:
-        resp = post_text_to_backend(text, slug)
-        if isinstance(resp, dict):
-            reply_text = resp.get("reply", "")
-        else:
-            reply_text = str(resp)
-
-    if not reply_text:
-        speak("I am having trouble connecting to my brain.")
-        return
-
-    print(f"[gemini] Reply: {reply_text}")
-
     intents = gemini_client.classify_intent(
         text,
         api_key=GEMINI_API_KEY,
@@ -297,39 +271,70 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
         fallback_model=GEMINI_MODEL_FALLBACK,
     )
 
+    if not intents:
+        speak("I am having trouble connecting to my brain.")
+        return
+
+    wants_chat_response = any((intent_obj.get("intent") in ("chat", "general")) for intent_obj in intents)
+    reply_text = ""
+
+    if wants_chat_response:
+        if USE_GEMINI_DIRECT and GEMINI_API_KEY:
+            try:
+                reply_text = gemini_client.get_conversational_response(
+                    text,
+                    api_key=GEMINI_API_KEY,
+                    backup_key=GEMINI_API_KEY_BACKUP,
+                    model_name=GEMINI_MODEL,
+                    fallback_model=GEMINI_MODEL_FALLBACK,
+                )
+            except Exception as e:
+                print(f"[gemini] Direct error: {e}")
+
+        if not reply_text:
+            resp = post_text_to_backend(text, slug)
+            if isinstance(resp, dict):
+                reply_text = resp.get("reply", "")
+            else:
+                reply_text = str(resp)
+
+        if reply_text:
+            print(f"[gemini] Reply: {reply_text}")
+
     for intent_obj in intents:
         intent = intent_obj.get("intent", "general")
         params = intent_obj.get("parameters", {})
+        intent_reply = intent_obj.get("reply") or reply_text or ""
 
         if intent == "music":
             query = params.get("prompt") or text
             trigger_music_playback(query, music_proc_holder)
-            speak(reply_text)
+            speak(intent_reply or f"Playing {query}")
         elif intent in ("weather", "news"):
-            speak(reply_text)
+            speak(intent_reply or reply_text)
         elif intent in ("cozy_setup", "focus_mode", "open_app"):
             from .desktop_link import trigger_desktop_action
-            speak(reply_text)
+            speak(intent_reply or reply_text)
             trigger_desktop_action(intent, params, slug=slug)
         elif intent == "lumina_coding":
             from . import smart_home
             from .desktop_link import trigger_desktop_action
             smart_home.run_coding_ambience()
-            speak(reply_text)
+            speak(intent_reply or reply_text)
             trigger_desktop_action("lumina_coding_session", params, slug=slug)
         elif intent == "shutdown/exit":
             lowered = text.lower()
             desktop_words = ("computer", "desktop", "pc", "laptop", "mac", "windows")
             if any(word in lowered for word in desktop_words):
                 from .desktop_link import trigger_desktop_action
-                speak(reply_text or "Shutting down your desktop.")
+                speak(intent_reply or reply_text or "Shutting down your desktop.")
                 trigger_desktop_action("desktop_shutdown", params, slug=slug)
             else:
-                speak(reply_text)
+                speak(intent_reply or reply_text)
         elif intent == "alarm":
-            speak(reply_text)
+            speak(intent_reply or reply_text)
         else:
-            speak(reply_text)
+            speak(intent_reply or reply_text)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
