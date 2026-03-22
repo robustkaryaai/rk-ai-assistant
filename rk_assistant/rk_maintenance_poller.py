@@ -1,6 +1,7 @@
 import time
 import requests
 import sys
+from threading import Thread, Lock
 
 # Try to use correct paths dynamically
 from pathlib import Path
@@ -8,6 +9,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from rk_assistant.config import BACKEND_BASE_URL
 from rk_assistant.networking import read_slug
+
+_poller_thread = None
+_poller_lock = Lock()
 
 def run_poller():
     print("[maintenance] Standalone poller starting...")
@@ -27,6 +31,18 @@ def run_poller():
             print(f"[maintenance] Error pinging backend: {e}")
             
         time.sleep(45) # Ping every 45s for Shoom stability
+
+def start_maintenance_poller() -> None:
+    """Start the background maintenance polling loop once."""
+    global _poller_thread
+    with _poller_lock:
+        if _poller_thread and _poller_thread.is_alive():
+            print("[maintenance] Maintenance poller already running, skipping start.")
+            return
+
+        _poller_thread = Thread(target=run_poller, daemon=True)
+        _poller_thread.start()
+        print("[maintenance] Background maintenance poller started")
 
 if __name__ == "__main__":
     run_poller()

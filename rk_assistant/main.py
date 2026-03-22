@@ -101,6 +101,7 @@ from . import gemini_client
 from . import self_diagnosis
 from .error_monitor import register_error, get_monitor
 from . import alarm_manager
+from . import rk_maintenance_poller
 
 # Global State
 is_first_boot = False
@@ -375,6 +376,7 @@ def main():
     alarm_manager.start_alarm_checker()
     schedule_manager.start_schedule_monitor(handle_backend_reply_sync)
     command_poller.start_command_poller(slug_val)
+    rk_maintenance_poller.start_maintenance_poller()
     start_reset_monitor()
     command_poller.register_voice_callback(handle_backend_reply_sync)
 
