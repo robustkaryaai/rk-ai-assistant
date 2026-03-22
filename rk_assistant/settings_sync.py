@@ -22,7 +22,8 @@ device_settings = {
     'assistant_name': 'RK',
     'greeting_phrase': 'Radhe Radhe',
     'wake_words': ['rk', 'arc', 'hey rk', 'okay rk'],
-    'night_protocol_enabled': True
+    'night_protocol_enabled': True,
+    'smart_devices': []
 }
 
 def poll_device_settings(slug):
@@ -75,6 +76,13 @@ def poll_device_settings(slug):
                             sys_status = json.loads(device['systemStatus'])
                             if 'nightProtocolEnabled' in sys_status:
                                 device_settings['night_protocol_enabled'] = bool(sys_status['nightProtocolEnabled'])
+                            if 'smart_devices' in sys_status:
+                                try:
+                                    devs = sys_status['smart_devices']
+                                    if isinstance(devs, str): devs = json.loads(devs)
+                                    device_settings['smart_devices'] = devs
+                                except Exception as de:
+                                    print(f"[Settings Sync] Found smart_devices format error: {de}")
                         except:
                             pass
                     
@@ -115,3 +123,7 @@ def get_wake_words():
 def is_night_protocol_enabled():
     """Check if auto-quiet Night Protocol is enabled"""
     return device_settings['night_protocol_enabled']
+
+def get_smart_devices():
+    """Get the user's configured local smart bulbs/appliances"""
+    return device_settings['smart_devices']

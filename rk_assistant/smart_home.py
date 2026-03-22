@@ -1,29 +1,43 @@
 """
 Smart Home Controller for RK AI Assistant.
-Simulates Alexa-like local device control (Tuya, TPLink, generic HTTP relays).
+Reads the user's configured Wi-Fi appliances from Appwrite and sends local HTTP Webhooks.
 """
 
 import requests
 import time
 import json
+from .settings_sync import get_smart_devices
 
 def control_device(device_name: str, state: bool, color: str = None) -> str:
-    """
-    Attempts to control a local smart device on the network.
-    Because we don't have paid APIs, we ping typical smart home endpoints 
-    or just return a simulated success for the dashboard to track.
-    """
-    print(f"[SmartHome] Action: {'Turn ON' if state else 'Turn OFF'} | Device: {device_name} | Color: {color or 'default'}")
+    smart_devices = get_smart_devices()
+    print(f"[SmartHome] Action: {'Turn ON' if state else 'Turn OFF'} | Spoken: {device_name} | Color: {color or 'default'}")
     
-    # In a real environment, you'd scan for local IPs or match a config file here.
-    # For now, we simulate success so the Assistant can verbally confirm it.
+    device_name_lower = device_name.lower().strip()
+    matched_device = None
     
-    # Add a tiny delay to simulate network latency
-    time.sleep(0.5)
+    for d in smart_devices:
+        db_name = str(d.get("name", "")).lower()
+        if db_name in device_name_lower or device_name_lower in db_name:
+            matched_device = d
+            break
+            
+    if not matched_device:
+        # Provide a general answer if the user hasn't configured any device with this name
+        return f"I couldn't find a device named {device_name} in your Smart Home settings on the app."
     
-    action_str = "Turned on" if state else "Turned off"
-    suffix = f" and set color to {color}" if color else ""
-    return f"{action_str} the {device_name}{suffix}."
+    url = matched_device.get("on_url") if state else matched_device.get("off_url")
+    if not url:
+        return f"The {matched_device.get('name')} doesn't have a configured Web Hook U.R.L. for this action."
+        
+    try:
+        res = requests.get(url, timeout=4)
+        print(f"[SmartHome] Webhook executed: {res.status_code}")
+        action_str = "Turned on" if state else "Turned off"
+        suffix = f" and set color to {color}" if color else ""
+        return f"{action_str} the {matched_device.get('name')}{suffix}."
+    except Exception as e:
+        print(f"[SmartHome] Request failed: {e}")
+        return f"I tried to contact the {matched_device.get('name')}, but it didn't respond. Please check its connection."
     
 def is_smart_home_intent(text: str) -> bool:
     text_lower = text.lower()
@@ -45,11 +59,25 @@ def execute_smart_command(text: str) -> str:
     if " on" in text_lower or "start" in text_lower:
         state = True
         
-    device = "lights"
-    if "fan" in text_lower: device = "fan"
-    if "tv" in text_lower: device = "TV"
-    if "ac " in text_lower or "air conditioner" in text_lower: device = "AC"
-    
+    device = "lights" # Fallback guess
+    # Smarter extraction: "turn on the bedroom fan" -> "bedroom fan"
+    words = text_lower.split()
+    if "turn" in words:
+        try:
+            target_idx = words.index("the") + 1
+            device = " ".join(words[target_idx:])
+        except:
+            if "fan" in text_lower: device = "fan"
+            elif "tv" in text_lower: device = "TV"
+            elif "ac " in text_lower or "air conditioner" in text_lower: device = "AC"
+            elif "bulb" in text_lower or "light" in text_lower: device = "light"
+    else:
+        if "fan" in text_lower: device = "fan"
+        elif "tv" in text_lower: device = "TV"
+        elif "ac " in text_lower or "air conditioner" in text_lower: device = "AC"
+        elif "bulb" in text_lower or "light" in text_lower: device = "light"
+
+    # Color extraction (if applicable for smart bulbs)
     color = None
     colors = ["red", "blue", "green", "yellow", "purple", "white", "warm", "cool"]
     for c in colors:
