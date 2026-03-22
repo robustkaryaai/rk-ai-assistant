@@ -470,18 +470,19 @@ def sync_music_index():
         for f in files:
             filename = f.name
             vid_id = None
+            file_ext = f.suffix.lower().lstrip(".")
             
-            # Regex 1: ... [ID].mp3
-            # YouTube IDs are typically 11 chars, but can vary. 
-            # Look for [ID] pattern at end.
-            m = re.search(r"\[([a-zA-Z0-9_-]+)\]\.mp3$", filename)
+            # Regex 1: ... [ID].mp3 / .m4a / .webm
+            # YouTube IDs are typically 11 chars, but can vary.
+            # Look for [ID] pattern at end for any supported media extension.
+            m = re.search(r"\[([a-zA-Z0-9_-]+)\]\.(mp3|m4a|webm)$", filename)
             if m:
                 vid_id = m.group(1)
             else:
                 # Regex 2: ID.mp3 (Raw ID)
                 # Assume filename IS the ID if no brackets
                 # Limit to typical ID chars
-                m = re.search(r"^([a-zA-Z0-9_-]+)\.mp3$", filename)
+                m = re.search(r"^([a-zA-Z0-9_-]+)\.(mp3|m4a|webm)$", filename)
                 if m:
                      vid_id = m.group(1)
                      
@@ -509,9 +510,9 @@ def sync_music_index():
                                 print(f"[music] ✓ Added to index: {title}", flush=True)
                                 
                                 # Rename if raw ID (ID.mp3 -> Title [ID].mp3)
-                                if filename == f"{vid_id}.mp3":
+                                if filename == f"{vid_id}.{file_ext}":
                                      safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-                                     new_name = f"{safe_title} [{vid_id}].mp3"[:255]
+                                     new_name = f"{safe_title} [{vid_id}].{file_ext}"[:255]
                                      try:
                                          f.rename(cache_dir / new_name)
                                          print(f"[music] 📂 Renamed to: {new_name}", flush=True)

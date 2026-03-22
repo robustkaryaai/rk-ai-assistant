@@ -86,6 +86,7 @@ from .networking import (
     wait_for_internet,
     sync_wifi_from_appwrite,
     report_state,
+    report_night_mode,
 )
 from .offline_commands import match_offline_command, process_offline_command
 from .weather_news import fetch_news, fetch_weather
@@ -140,6 +141,27 @@ class NightProtocolMonitor:
         self._stop_evt = threading.Event()
         self.night_tts_suppressed = False   # main loop reads this flag
 
+    def _report_night_state(self, enabled: bool):
+        try:
+            from .networking import read_slug as _read_slug
+            slug, _ = _read_slug()
+            if slug:
+                report_night_mode(slug, enabled)
+        except Exception as e:
+            print(f"[night] Live state report failed: {e}", flush=True)
+
+    def _recent_activity_block(self) -> bool:
+        try:
+            from .reset_monitor import get_last_activity
+            last_activity = get_last_activity()
+            if not last_activity:
+                return False
+            inactivity = time.time() - last_activity
+            # If RK has been used recently, keep night mode from auto-engaging.
+            return inactivity < 600
+        except Exception:
+            return False
+
     def start(self):
         self._thread = threading.Thread(target=self._loop, daemon=True, name="night-protocol")
         self._thread.start()
@@ -162,6 +184,7 @@ class NightProtocolMonitor:
                 if self.engine.night_mode:
                     self.engine.set_night_mode(False)
                     self.night_tts_suppressed = False
+                    self._report_night_state(False)
                     print("[night] ☀️  Night protocol disabled by user app — normal mode restored.", flush=True)
                 continue
 
@@ -174,8 +197,19 @@ class NightProtocolMonitor:
                 if self.engine.night_mode:
                     self.engine.set_night_mode(False)
                     self.night_tts_suppressed = False
+                    self._report_night_state(False)
                     print("[night] ☀️  Daytime detected — night mode auto-exited.", flush=True)
                 continue  # Skip RMS checks entirely during the day
+
+            # 2.5. If RK has been actively used recently, do not let night protocol auto-engage.
+            if self._recent_activity_block():
+                self._quiet_streak = 0
+                if self.engine.night_mode:
+                    self.engine.set_night_mode(False)
+                    self.night_tts_suppressed = False
+                    self._report_night_state(False)
+                    print("[night] 💬 Recent assistant activity detected — night mode paused.", flush=True)
+                continue
 
             # 3. Only run the RMS checking logic if feature is enabled and it's night
             # AGENT FIX: Pause engine to avoid microphone resource clash
@@ -204,6 +238,7 @@ class NightProtocolMonitor:
                 self._quiet_streak = 0
                 self.engine.set_night_mode(True)
                 self.night_tts_suppressed = True
+                self._report_night_state(True)
                 print("[night] 🌙 Night protocol active — TTS suppressed.", flush=True)
                 # Send push notification to user's phone via backend
                 try:
@@ -233,6 +268,7 @@ class NightProtocolMonitor:
                 self._loud_streak = 0
                 self.engine.set_night_mode(False)
                 self.night_tts_suppressed = False
+                self._report_night_state(False)
                 # Announce end of night mode
                 try:
                     speak("Good morning. Night mode ended, I'm fully active again.")
@@ -379,6 +415,7 @@ def main():
     rk_maintenance_poller.start_maintenance_poller()
     start_reset_monitor()
     command_poller.register_voice_callback(handle_backend_reply_sync)
+    threading.Thread(target=music_manager.sync_music_index, daemon=True, name="music-index-sync").start()
 
     # Startup TTS off for --quiet or night handoff flag
     suppress_startup_tts = "--quiet" in sys.argv
