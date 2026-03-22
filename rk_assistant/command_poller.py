@@ -25,6 +25,19 @@ _backoff_until = 0
 MAX_FAILURES_BEFORE_BACKOFF = 5
 BACKOFF_DURATION = 15  # seconds — keep short so device recovers fast after Wi-Fi reboot
 
+
+def _mark_command_complete(cmd_id, slug: str, result: str, success: bool, cmd_type: str) -> None:
+    try:
+        requests.post(
+            f"{BACKEND_BASE_URL}/device/{slug}/commands/{cmd_id}/complete",
+            json={"result": result, "success": success},
+            timeout=10,
+        )
+        print(f"[commands] ✓ {cmd_type} completed: {result}")
+    except Exception as e:
+        print(f"[commands] Failed to mark command complete: {e}")
+
+
 def set_mute(muted: bool) -> str:
     """Set mute state"""
     global _muted
@@ -195,18 +208,38 @@ def execute_command(cmd: dict, slug: str) -> None:
                 success = False
 
         elif cmd_type == 'scan_network':
-            audio_utils_simple.speak("Scanning local network for smart appliances...")
-            from .smart_home import discover_and_sync_devices
-            scan_res = discover_and_sync_devices(slug)
-            count = scan_res.get("count", 0)
-            if scan_res.get("success"):
-                audio_utils_simple.speak(f"Scan complete. Found {count} native devices.")
-                result = f"Network scan completed. Found {count} devices."
-                success = True
-            else:
-                audio_utils_simple.speak("Network scan encountered an error.")
-                result = f"Scan failed: {scan_res.get('error')}"
-                success = False
+            cid, dev_slug = cmd_id, slug
+
+            def _scan_worker():
+                try:
+                    audio_utils_simple.speak("Scanning local network for smart appliances...")
+                    from .smart_home import discover_and_sync_devices
+                    scan_res = discover_and_sync_devices(dev_slug)
+                    count = scan_res.get("count", 0)
+                    if scan_res.get("success"):
+                        audio_utils_simple.speak(f"Scan complete. Found {count} native devices.")
+                        _mark_command_complete(
+                            cid, dev_slug,
+                            f"Network scan completed. Found {count} devices.",
+                            True,
+                            "scan_network",
+                        )
+                    else:
+                        audio_utils_simple.speak("Network scan encountered an error.")
+                        _mark_command_complete(
+                            cid, dev_slug,
+                            f"Scan failed: {scan_res.get('error')}",
+                            False,
+                            "scan_network",
+                        )
+                except Exception as ex:
+                    audio_utils_simple.speak("Network scan encountered an error.")
+                    _mark_command_complete(
+                        cid, dev_slug, f"Scan crashed: {ex}", False, "scan_network",
+                    )
+
+            Thread(target=_scan_worker, daemon=True).start()
+            return
 
         elif cmd_type == 'control_device':
             from .smart_home import control_device_by_id

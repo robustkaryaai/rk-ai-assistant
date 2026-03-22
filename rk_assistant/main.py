@@ -445,11 +445,11 @@ def main():
 
     music_proc_holder = {"proc": None}
     if stt_engine:
-        print("[main] Radhe Radhe! RK AI Home is ready to rock (SmartSTT active).", flush=True)
+        print("[main] Radhe Radhe! RK AI Assistant is ready to rock (SmartSTT active).", flush=True)
         if not suppress_startup_tts:
-            speak("Radhe Radhe! RK AI Home is ready to rock.")
+            speak("Radhe Radhe! RK AI Assistant is ready to rock.")
     else:
-        print("[main] RK AI Home running without STT (no microphone).", flush=True)
+        print("[main] RK AI Assistant running without STT (no microphone).", flush=True)
 
     # ─── MAIN LOOP ───────────────────────────────────────────────────────────
     was_muted = False

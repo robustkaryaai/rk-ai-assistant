@@ -61,7 +61,7 @@ def _format_control_error(err: Exception, device_label: str) -> str:
         return f"{device_label} timed out — check LAN, IP, or that the device is powered."
     if "connection" in msg or "refused" in msg or "unreachable" in msg or "no route" in msg:
         return f"{device_label} unreachable — offline, wrong IP, or wrong VLAN."
-    if "token" in msg or "auth" in msg or "invalid" in msg and "token" in msg:
+    if "token" in msg or "auth" in msg or ("invalid" in msg and "token" in msg):
         return f"{device_label} auth failed — check Mi token or pairing."
     if "name or service not known" in msg or "gaierror" in msg:
         return f"{device_label} DNS/hostname issue — use IP for local control."
@@ -181,7 +181,11 @@ def discover_and_sync_devices(slug: str) -> dict:
         from kasa import Discover
         
         async def find_kasa():
-            found = await Discover.discover()
+            try:
+                found = await asyncio.wait_for(Discover.discover(), timeout=18.0)
+            except asyncio.TimeoutError:
+                print("[SmartHome] Kasa discovery timed out (18s cap)")
+                found = {}
             for ip, dev in found.items():
                 await dev.update()
                 devices.append({
@@ -202,7 +206,10 @@ def discover_and_sync_devices(slug: str) -> dict:
     # 2. Yeelight Discovery
     try:
         from yeelight import discover_bulbs
-        found = discover_bulbs()
+        try:
+            found = discover_bulbs(timeout=4)
+        except TypeError:
+            found = discover_bulbs()
         for i, dev in enumerate(found):
             devices.append({
                 "id": f"yeelight_{dev.get('ip', i)}",
