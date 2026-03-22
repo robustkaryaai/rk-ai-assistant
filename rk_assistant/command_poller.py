@@ -72,7 +72,7 @@ def execute_voice_command(text: str) -> str:
             return f"Command '{text}' executing..."
         else:
             # Fallback
-            audio_utils_simple.speak(f"Executing command: {text}")
+            audio_utils_simple.speak(f"Executing command: {text}", allow_network_tts=False)
             return f"Command '{text}' queued (no handler)"
     except Exception as e:
         return f"Error: {str(e)}"
@@ -111,7 +111,7 @@ def execute_command(cmd: dict, slug: str) -> None:
         elif cmd_type == 'broadcast':
             text = payload.get('text', '')
             if text:
-                audio_utils_simple.speak(text)
+                audio_utils_simple.speak(text, allow_network_tts=False)
             result = f"Broadcasted: {text}"
             success = True
             
@@ -176,7 +176,7 @@ def execute_command(cmd: dict, slug: str) -> None:
             success = True
             
         elif cmd_type == 'shutdown':
-            audio_utils_simple.speak("Shutting down RexyCore Assistant")
+            audio_utils_simple.speak("Shutting down RexyCore Assistant", allow_network_tts=False)
             result = "Shutdown initiated"
             success = True
             # Note: Actual shutdown would be handled externally
@@ -185,7 +185,10 @@ def execute_command(cmd: dict, slug: str) -> None:
             ssid = payload.get('ssid')
             password = payload.get('password', '')
             if ssid:
-                audio_utils_simple.speak(f"Received new Wi-Fi credentials for {ssid}. I will reboot and connect now.")
+                audio_utils_simple.speak(
+                    f"Received new Wi-Fi credentials for {ssid}. I will reboot and connect now.",
+                    allow_network_tts=False,
+                )
                 result = f"Applying Wi-Fi credentials for {ssid}"
                 success = True
                 
@@ -212,12 +215,18 @@ def execute_command(cmd: dict, slug: str) -> None:
 
             def _scan_worker():
                 try:
-                    audio_utils_simple.speak("Scanning local network for smart appliances...")
+                    audio_utils_simple.speak(
+                        "Scanning local network for smart appliances.",
+                        allow_network_tts=False,
+                    )
                     from .smart_home import discover_and_sync_devices
                     scan_res = discover_and_sync_devices(dev_slug)
                     count = scan_res.get("count", 0)
                     if scan_res.get("success"):
-                        audio_utils_simple.speak(f"Scan complete. Found {count} native devices.")
+                        audio_utils_simple.speak(
+                            f"Scan complete. Found {count} devices.",
+                            allow_network_tts=False,
+                        )
                         _mark_command_complete(
                             cid, dev_slug,
                             f"Network scan completed. Found {count} devices.",
@@ -225,7 +234,7 @@ def execute_command(cmd: dict, slug: str) -> None:
                             "scan_network",
                         )
                     else:
-                        audio_utils_simple.speak("Network scan encountered an error.")
+                        audio_utils_simple.speak("Network scan failed.", allow_network_tts=False)
                         _mark_command_complete(
                             cid, dev_slug,
                             f"Scan failed: {scan_res.get('error')}",
@@ -233,7 +242,7 @@ def execute_command(cmd: dict, slug: str) -> None:
                             "scan_network",
                         )
                 except Exception as ex:
-                    audio_utils_simple.speak("Network scan encountered an error.")
+                    audio_utils_simple.speak("Network scan failed.", allow_network_tts=False)
                     _mark_command_complete(
                         cid, dev_slug, f"Scan crashed: {ex}", False, "scan_network",
                     )
@@ -268,7 +277,7 @@ def execute_command(cmd: dict, slug: str) -> None:
             from . import smart_home
             if routine == 'lumina_coding':
                 amb = smart_home.run_coding_ambience()
-                audio_utils_simple.speak(amb)
+                audio_utils_simple.speak(amb, allow_network_tts=False)
                 ok = trigger_desktop_action(
                     'lumina_coding_session',
                     {

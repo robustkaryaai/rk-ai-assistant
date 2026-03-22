@@ -8,13 +8,18 @@ Requires: pip install python-miio (same LAN as the Pi; token from Mi Cloud / ext
 
 import os
 import re
+import subprocess
 import requests
+import threading
 import time
 import json
 import asyncio
 from .settings_sync import get_smart_devices, device_settings
 
 BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'https://rk-ai-backend.onrender.com')
+
+# Only one discovery at a time — parallel scans break asyncio.run() and duplicate TTS/work.
+_discover_lock = threading.Lock()
 
 # Short TTL cache — avoids repeated list copies during one voice burst; invalidated on discovery.
 _DEVICES_CACHE_TTL_SEC = 3.0
@@ -32,6 +37,27 @@ _YEELIGHT_COLOR_RGB = {
     "warm": (255, 200, 120),
     "cool": (220, 235, 255),
 }
+
+
+def _lan_broadcast_addresses():
+    """/24 broadcast IPs for each non-loopback IPv4 on this host (helps Kasa UDP discovery)."""
+    try:
+        out = subprocess.run(
+            ["hostname", "-I"], capture_output=True, text=True, timeout=2, check=False
+        )
+        seen = []
+        for ip in (out.stdout or "").split():
+            ip = ip.strip()
+            if not ip or ip.startswith("127."):
+                continue
+            parts = ip.split(".")
+            if len(parts) == 4:
+                b = f"{parts[0]}.{parts[1]}.{parts[2]}.255"
+                if b not in seen:
+                    seen.append(b)
+        return seen
+    except Exception:
+        return []
 
 
 def _invalidate_devices_cache() -> None:
@@ -173,30 +199,53 @@ def _control_miio(ip: str, token: str, state: bool, model: str = None) -> None:
 
 
 def discover_and_sync_devices(slug: str) -> dict:
+    # Serialize scans — parallel asyncio.run + UDP discover corrupts results.
+    with _discover_lock:
+        return _discover_and_sync_devices_impl(slug)
+
+
+def _discover_and_sync_devices_impl(slug: str) -> dict:
     print("[SmartHome] Starting zero-config network discovery...")
     devices = []
-    
+
     # 1. TP-Link Kasa / Tapo Discovery
     try:
         from kasa import Discover
-        
+
         async def find_kasa():
+            merged = {}
             try:
-                found = await asyncio.wait_for(Discover.discover(), timeout=18.0)
+                batch = await asyncio.wait_for(Discover.discover(), timeout=14.0)
+                merged.update(batch)
             except asyncio.TimeoutError:
-                print("[SmartHome] Kasa discovery timed out (18s cap)")
-                found = {}
-            for ip, dev in found.items():
+                print("[SmartHome] Kasa default discover timed out (14s)")
+            except Exception as e:
+                print(f"[SmartHome] Kasa default discover: {e}")
+            if not merged:
+                for bcast in _lan_broadcast_addresses():
+                    try:
+                        batch = await asyncio.wait_for(
+                            Discover.discover(target=bcast), timeout=8.0
+                        )
+                        merged.update(batch)
+                    except TypeError:
+                        print("[SmartHome] python-kasa has no discover(target=) — try upgrading python-kasa")
+                        break
+                    except asyncio.TimeoutError:
+                        print(f"[SmartHome] Kasa timeout for {bcast}")
+                    except Exception as e:
+                        print(f"[SmartHome] Kasa {bcast}: {e}")
+            for ip, dev in merged.items():
                 await dev.update()
                 devices.append({
                     "id": f"kasa_{dev.mac}",
                     "name": dev.alias,
                     "type": "kasa",
                     "ip": ip,
-                    # Fallback URL for webhooks visually
-                    "on_url": f"http://{ip}/on", 
-                    "off_url": f"http://{ip}/off"
+                    "on_url": f"http://{ip}/on",
+                    "off_url": f"http://{ip}/off",
                 })
+
         asyncio.run(find_kasa())
     except ImportError:
         print("[SmartHome] python-kasa not installed, skipping Tapo/Kasa discovery")
@@ -207,7 +256,7 @@ def discover_and_sync_devices(slug: str) -> dict:
     try:
         from yeelight import discover_bulbs
         try:
-            found = discover_bulbs(timeout=4)
+            found = discover_bulbs(timeout=10)
         except TypeError:
             found = discover_bulbs()
         for i, dev in enumerate(found):
@@ -223,6 +272,12 @@ def discover_and_sync_devices(slug: str) -> dict:
         print("[SmartHome] yeelight not installed, skipping Yeelight discovery")
     except Exception as e:
         print(f"[SmartHome] Yeelight discovery error: {e}")
+
+    if not devices:
+        print(
+            "[SmartHome] No Kasa/Tapo/Yeelight found via LAN UDP. "
+            "Tuya-only / cloud-only gear needs manual webhook or Mi token in the app."
+        )
 
     # Deduplicate existing smart_devices manually configured by user
     existing = get_smart_devices()

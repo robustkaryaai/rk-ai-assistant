@@ -3,10 +3,14 @@ Simple audio utilities - just what we need.
 """
 import os
 import subprocess
+import threading
 import time
 import hashlib
 from pathlib import Path
 from typing import List, Optional
+
+# One TTS at a time — avoids ALSA/Pulse fights with STT and stacked gTTS downloads.
+_tts_lock = threading.Lock()
 from .config import CACHE_DIR, FORCE_OFFLINE, GROQ_API_KEY, BASE_DIR
 
 def _get_cache_path(text: str) -> Path:
@@ -85,7 +89,7 @@ def _speak_with_gtts(text: str, alsa_device: str = "pulse") -> bool:
                     try: os.remove(str(mp3_path))
                     except: pass
                 
-                print(f"[gtts] Downloading: {text[:30]}... (Attempt {attempt+1})")
+                print(f"[gtts] fetch (attempt {attempt + 1}) len={len(text)}", flush=True)
                 tts = gTTS(text=text, lang='en', slow=False)
                 tts.save(str(mp3_path))
                 
@@ -143,45 +147,43 @@ def _speak_with_gtts(text: str, alsa_device: str = "pulse") -> bool:
     
     return False
 
-def speak(text: str, online: bool = True):
+def speak(text: str, online: bool = True, allow_network_tts: bool = True):
     """
-    Main TTS entry point. Uses Piper (Offline) or gTTS (Online).
-    If both fail, we use espeak as an absolute last resort.
+    Main TTS entry point. Piper → (optional gTTS if allow_network_tts) → espeak.
+    allow_network_tts=False for command poller / scans — no repeated Google hits.
     """
     text = sanitize_text(text)
-    if not text: return
-    
-    print(f"🔊 {text}", flush=True)
-    alsa_device = "pulse"
+    if not text:
+        return
 
-    # 🚀 Step 1: Force PulseAudio to refresh sink list
-    try:
-        subprocess.run(['pacmd', 'list-sinks'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-    except:
-        pass
+    with _tts_lock:
+        print(f"🔊 {text}", flush=True)
+        alsa_device = "pulse"
 
-    # 🚀 Step 2: Try Piper (Instant Offline)
-    if _is_piper_available():
         try:
-            if _speak_with_piper(text, alsa_device):
-                return
-        except Exception as e:
-            print(f"[tts] Piper failed: {e}")
+            subprocess.run(['pacmd', 'list-sinks'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        except Exception:
+            pass
 
-    # 🚀 Step 3: Try gTTS (Standard Online)
-    if online and not FORCE_OFFLINE:
+        if _is_piper_available():
+            try:
+                if _speak_with_piper(text, alsa_device):
+                    return
+            except Exception as e:
+                print(f"[tts] Piper failed: {e}")
+
+        if allow_network_tts and online and not FORCE_OFFLINE:
+            try:
+                if _speak_with_gtts(text, alsa_device):
+                    return
+            except Exception as e:
+                print(f"[tts] gTTS failed: {e}")
+
+        if allow_network_tts:
+            print("[tts] preferred engines failed — espeak fallback", flush=True)
+        else:
+            print("[tts] offline chain (piper skipped/failed) — espeak", flush=True)
         try:
-            if _speak_with_gtts(text, alsa_device):
-                return
+            subprocess.run(['espeak', '-s', '160', '-v', 'en-us', text], check=False, timeout=15)
         except Exception as e:
-            print(f"[tts] gTTS failed: {e}")
-            
-    # 🚀 Step 4: Absolute Emergency Fallback
-    # Even if online, if everything else failed, we MUST speak.
-    # The user hates the robotic voice, but silence is worse for a voice assistant.
-    print(f"[tts] ❌ ERROR: All preferred engines failed. Using espeak as last resort.")
-    try:
-        # Use a more natural espeak speed
-        subprocess.run(['espeak', '-s', '160', '-v', 'en-us', text], check=False, timeout=15)
-    except Exception as e:
-        print(f"[tts] 💀 CRITICAL ERROR: Even espeak failed: {e}")
+            print(f"[tts] espeak failed: {e}", flush=True)

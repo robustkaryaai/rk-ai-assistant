@@ -82,7 +82,7 @@ def schedule_loop(voice_callback):
                     if voice_callback:
                         threading.Thread(target=voice_callback, args=(s["task"],), daemon=True).start()
                     else:
-                        speak(f"Executing scheduled task: {s['task']}")
+                        speak(f"Executing scheduled task: {s['task']}", allow_network_tts=False)
             
             if updated:
                 save_schedules(schedules)
