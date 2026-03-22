@@ -215,18 +215,10 @@ def execute_command(cmd: dict, slug: str) -> None:
 
             def _scan_worker():
                 try:
-                    audio_utils_simple.speak(
-                        "Scanning local network for smart appliances.",
-                        allow_network_tts=False,
-                    )
                     from .smart_home import discover_and_sync_devices
                     scan_res = discover_and_sync_devices(dev_slug)
                     count = scan_res.get("count", 0)
                     if scan_res.get("success"):
-                        audio_utils_simple.speak(
-                            f"Scan complete. Found {count} devices.",
-                            allow_network_tts=False,
-                        )
                         _mark_command_complete(
                             cid, dev_slug,
                             f"Network scan completed. Found {count} devices.",
@@ -234,7 +226,6 @@ def execute_command(cmd: dict, slug: str) -> None:
                             "scan_network",
                         )
                     else:
-                        audio_utils_simple.speak("Network scan failed.", allow_network_tts=False)
                         _mark_command_complete(
                             cid, dev_slug,
                             f"Scan failed: {scan_res.get('error')}",
@@ -242,7 +233,6 @@ def execute_command(cmd: dict, slug: str) -> None:
                             "scan_network",
                         )
                 except Exception as ex:
-                    audio_utils_simple.speak("Network scan failed.", allow_network_tts=False)
                     _mark_command_complete(
                         cid, dev_slug, f"Scan crashed: {ex}", False, "scan_network",
                     )

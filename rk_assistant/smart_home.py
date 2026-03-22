@@ -9,6 +9,7 @@ Requires: pip install python-miio (same LAN as the Pi; token from Mi Cloud / ext
 import os
 import re
 import subprocess
+import sys
 import requests
 import threading
 import time
@@ -37,6 +38,103 @@ _YEELIGHT_COLOR_RGB = {
     "warm": (255, 200, 120),
     "cool": (220, 235, 255),
 }
+
+
+def _discover_miio_entries():
+    """Find Xiaomi MiIO devices on LAN (Mi Home). Cloud app link alone does not expose LAN control."""
+    entries = []
+
+    try:
+        from miio.discovery import Discovery
+
+        if hasattr(Discovery, "discover_mdns"):
+            md = Discovery.discover_mdns(timeout=6)
+            if md:
+                for item in md:
+                    ip = getattr(item, "ip", None)
+                    if ip is None and hasattr(item, "dinfo") and callable(getattr(item, "dinfo", None)):
+                        try:
+                            info = item.dinfo()
+                            ip = getattr(info, "ip", None) if info else None
+                        except Exception:
+                            ip = None
+                    if not ip:
+                        continue
+                    tok = getattr(item, "token", None)
+                    rec = {
+                        "id": f"miio_{ip}",
+                        "name": f"Xiaomi {ip}",
+                        "type": "miio",
+                        "ip": ip,
+                        "on_url": f"http://{ip}/on",
+                        "off_url": f"http://{ip}/off",
+                    }
+                    if tok and len(str(tok).replace(" ", "")) == 32:
+                        rec["token"] = str(tok).replace(" ", "").lower()
+                    entries.append(rec)
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"[SmartHome] MiIO mDNS: {e}")
+
+    def _run_cli_discover():
+        import shutil
+
+        for cmd in (
+            ["miiocli", "discover"],
+            [sys.executable, "-m", "miio.cli", "discover"],
+        ):
+            if cmd[0] != sys.executable and not shutil.which(cmd[0]):
+                continue
+            try:
+                r = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=24,
+                    check=False,
+                )
+                return (r.stdout or "") + "\n" + (r.stderr or "")
+            except Exception:
+                continue
+        return ""
+
+    text = _run_cli_discover()
+    if text.strip():
+        seen_ip = {e["ip"] for e in entries}
+        for m in re.finditer(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b", text):
+            ip = m.group(1)
+            if ip.startswith("127.") or ip in seen_ip:
+                continue
+            seen_ip.add(ip)
+            tok = None
+            tm = re.search(
+                rf"{re.escape(ip)}[^\n]{{0,160}}(?i)token[:=\s]+([0-9a-f]{{32}})",
+                text,
+            )
+            if tm:
+                tok = tm.group(1).lower()
+            rec = {
+                "id": f"miio_{ip}",
+                "name": f"Xiaomi {ip}",
+                "type": "miio",
+                "ip": ip,
+                "on_url": f"http://{ip}/on",
+                "off_url": f"http://{ip}/off",
+            }
+            if tok:
+                rec["token"] = tok
+            entries.append(rec)
+
+    if not entries:
+        print(
+            "[SmartHome] No MiIO devices discovered. "
+            "Ensure bulbs are on the same Wi‑Fi as the Pi, LAN control enabled in Mi Home, "
+            "and run: pip install python-miio (optional: miiocli on PATH)."
+        )
+    else:
+        print(f"[SmartHome] MiIO discovery: {len(entries)} candidate(s) on LAN")
+    return entries
 
 
 def _lan_broadcast_addresses():
@@ -273,10 +371,19 @@ def _discover_and_sync_devices_impl(slug: str) -> dict:
     except Exception as e:
         print(f"[SmartHome] Yeelight discovery error: {e}")
 
+    # 3. Xiaomi MiIO (Mi Home — same LAN as Pi; not visible from cloud app alone)
+    try:
+        for d in _discover_miio_entries():
+            if d["ip"] not in {x.get("ip") for x in devices}:
+                devices.append(d)
+    except Exception as e:
+        print(f"[SmartHome] MiIO discovery error: {e}")
+
     if not devices:
         print(
-            "[SmartHome] No Kasa/Tapo/Yeelight found via LAN UDP. "
-            "Tuya-only / cloud-only gear needs manual webhook or Mi token in the app."
+            "[SmartHome] No LAN devices found (Kasa/Tapo/Yeelight/MiIO). "
+            "Tuya-only or cloud-only gear: add webhooks in the app. "
+            "Mi Home: enable LAN control + same Wi‑Fi as RK; add 32-char token in app if toggle is missing."
         )
 
     # Deduplicate existing smart_devices manually configured by user
