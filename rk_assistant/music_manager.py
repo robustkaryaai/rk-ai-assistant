@@ -4,6 +4,7 @@ import subprocess
 import shutil
 import os
 import json
+import re
 from .audio_utils import speak
 import signal
 from typing import Optional, List, Dict, Any
@@ -57,6 +58,20 @@ def clean_music_query(query):
             clean_q = clean_q[:-len(word)-1]
             
     return clean_q.strip()
+
+def _has_stop_command(norm_query: str) -> bool:
+    """Detect an explicit stop/cancel command, not ordinary words like 'official'."""
+    if not norm_query:
+        return False
+
+    patterns = [
+        r"\bstop\b",
+        r"\boff\b",
+        r"\bcancel\b",
+        r"\bshut\s+up\b",
+        r"\bquiet\b",
+    ]
+    return any(re.search(pattern, norm_query) for pattern in patterns)
 
 def search_local_and_play(norm_query):
     """
@@ -362,7 +377,7 @@ def play_music(query: str):
     print(f"[music] 🧹 Cleaned Query: '{norm_query}' (Original: '{query}')", flush=True)
 
     # 🚀 HANDLE STOP COMMANDS EXPLICITLY
-    if any(word in norm_query for word in ["stop", "off", "cancel", "shut up", "quiet"]):
+    if _has_stop_command(norm_query):
         print("[music] 🛑 Stop command detected. Terminating playback.")
         stop_music()
         return None

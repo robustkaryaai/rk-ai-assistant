@@ -302,7 +302,7 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
         params = intent_obj.get("parameters", {})
 
         if intent == "music":
-            query = reply_text.replace("Searching for", "").replace("Playing", "").strip()
+            query = params.get("prompt") or text
             trigger_music_playback(query, music_proc_holder)
             speak(reply_text)
         elif intent in ("weather", "news"):

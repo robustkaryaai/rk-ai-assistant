@@ -181,6 +181,8 @@ def run_all_tests():
             sample_prompt = "Who is the president?"
             print_user_prompt(sample_prompt)
             gemini_resp = classify_intent(sample_prompt, api_key=GEMINI_API_KEY, backup_key=GEMINI_API_KEY_BACKUP)
+            if gemini_resp:
+                print(f"   🧠 Intent Classification: {gemini_resp}")
             log_result("Gemini Cloud Interface", bool(gemini_resp), "(Successfully parsed JSON)")
         except Exception as e:
             log_result("Gemini Cloud Interface", False, f"({e})")
