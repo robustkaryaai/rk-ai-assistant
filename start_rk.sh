@@ -121,8 +121,30 @@ if [ ! -f "/tmp/.bt_setup_done" ]; then
     sudo touch "/tmp/.bt_setup_done"
 fi
 
+
 # ─── 2. Background Tasks ──────────────────────────────────
 echo "[startup] Step 6: Starting background monitors..."
+
+# Helper: Force audio routing to speaker and silence any phone cards
+lock_speaker_audio() {
+    local SPEAKER_MAC="$1"
+    local CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
+    local SINK_NAME="bluez_sink.${SPEAKER_MAC//:/_}.a2dp_sink"
+
+    # 1. Set speaker profile and default sink
+    pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null || true
+    sleep 0.5
+    pacmd set-default-sink "$SINK_NAME" &>/dev/null || true
+
+    # 2. Silence ALL other BT cards (phones, tablets, etc)
+    pacmd list-cards 2>/dev/null | grep 'bluez_card' | awk '{print $NF}' | while read -r card; do
+        if [ "$card" != "$CARD_NAME" ]; then
+            echo "[startup] 🔇 Setting non-speaker card $card to 'off'"
+            pacmd set-card-profile "$card" off &>/dev/null || true
+        fi
+    done
+}
+
 # Auto-trust and Speaker Reconnect loop
 (
   echo "[startup] Bluetooth monitor started."
@@ -141,11 +163,6 @@ echo "[startup] Step 6: Starting background monitors..."
   # Ensure speaker isn't stuck in a "connect/disconnect" loop by checking state
   REBOOT_COUNT=0
   while true; do
-    # 1. Trust all paired devices
-    bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r dev; do
-        bluetoothctl trust "$dev" &>/dev/null
-    done
-
     # 1. Trust all paired devices
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r dev; do
         bluetoothctl trust "$dev" &>/dev/null
@@ -174,13 +191,9 @@ echo "[startup] Step 6: Starting background monitors..."
         if bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
             echo "[startup] Bluetooth connected to $SPEAKER_MAC."
             REBOOT_COUNT=0
-            # Set sink profile and default
-            CARD_NAME="bluez_card.${SPEAKER_MAC//:/_}"
-            SINK_NAME="bluez_sink.${SPEAKER_MAC//:/_}.a2dp_sink"
-            pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null || true
-            sleep 1
-            pacmd set-default-sink "$SINK_NAME" &>/dev/null || true
-            # Signal that we have a speaker (TRUST connection without aggressive sink check)
+            # Lock audio to speaker and silence phone cards
+            lock_speaker_audio "$SPEAKER_MAC"
+            # Signal that we have a speaker
             touch "/tmp/.speaker_ready"
         else
             echo "[startup] ❌ Connection failed. Retrying ($((REBOOT_COUNT+1))/3)..."
@@ -188,7 +201,8 @@ echo "[startup] Step 6: Starting background monitors..."
             rm -f "/tmp/.speaker_ready"
         fi
     else
-        # Already connected
+        # Already connected — still enforce audio lock every cycle to prevent phones stealing sink
+        lock_speaker_audio "$SPEAKER_MAC"
         touch "/tmp/.speaker_ready"
         REBOOT_COUNT=0
     fi
