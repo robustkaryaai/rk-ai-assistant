@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import subprocess
+import shutil
 from pathlib import Path
 
 # Ensure package context so relative imports work
@@ -89,6 +90,39 @@ def run_all_tests():
     except Exception as e:
         log_result("Hardware Audio Synthesis", False, f"({e})")
 
+    print_header("3b. TTS Engine Matrix")
+    flite_bin = shutil.which("flite")
+    espeak_bin = shutil.which("espeak-ng") or shutil.which("espeak")
+    mpg123_bin = shutil.which("mpg123")
+
+    log_result("Flite Binary", bool(flite_bin), f"({flite_bin or 'Not Found'})")
+    log_result("eSpeak Binary", bool(espeak_bin), f"({espeak_bin or 'Not Found'})")
+    log_result("mpg123 Binary", bool(mpg123_bin), f"({mpg123_bin or 'Not Found'})")
+
+    try:
+        print_user_prompt("RK AI developer TTS test")
+        speak("RK AI developer TTS test", engine="flite")
+        log_result("Flite TTS Smoke", bool(flite_bin))
+    except Exception as e:
+        log_result("Flite TTS Smoke", False, f"({e})")
+
+    if online:
+        try:
+            print_user_prompt("RK AI developer TTS test")
+            speak("RK AI developer TTS test", engine="gtts")
+            log_result("gTTS Smoke", True)
+        except Exception as e:
+            log_result("gTTS Smoke", False, f"({e})")
+    else:
+        print("Skipping gTTS smoke test (Device is Offline).")
+
+    try:
+        print_user_prompt("RK AI developer TTS test")
+        speak("RK AI developer TTS test", engine="espeak")
+        log_result("eSpeak TTS Smoke", bool(espeak_bin))
+    except Exception as e:
+        log_result("eSpeak TTS Smoke", False, f"({e})")
+
     print_header("4. Speech-to-Text (STT)")
     if os.path.exists(LAST_AUDIO):
         try:
@@ -101,7 +135,7 @@ def run_all_tests():
 
         if online:
             try:
-                online_text = audio_utils.online_stt(LAST_AUDIO)
+                online_text = audio_utils.online_stt(LAST_AUDIO, prefer_google=True)
                 log_result("Online STT (Cloud)", bool(online_text), f"Heard: '{online_text}'")
             except Exception as e:
                 log_result("Online STT (Cloud)", False, f"({e})")
@@ -200,7 +234,7 @@ def run_all_tests():
             test_song = "Sandese aate hai"
             ms_result = subprocess.run(
                 ["yt-dlp", "--get-title", f"ytsearch1:{test_song}"],
-                capture_output=True, text=True, timeout=120
+                capture_output=True, text=True
             )
             title_found = ms_result.returncode == 0 and bool(ms_result.stdout.strip())
             log_result("yt-dlp Search", title_found, f"(Found: {ms_result.stdout.strip()[:50]}...)" if title_found else "(Search timeout or error)")

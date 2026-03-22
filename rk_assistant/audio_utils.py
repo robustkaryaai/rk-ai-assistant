@@ -136,6 +136,34 @@ def _transcribe_with_groq(audio_data) -> str:
         print(f"[groq-stt] Error: {e}")
     return ""
 
+
+def _transcribe_with_google(audio_data) -> str:
+    """Transcribe audio with Google Speech Recognition and one normalized retry."""
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return ""
+
+    recognizer = sr.Recognizer()
+    try:
+        text = recognizer.recognize_google(audio_data)
+        if text:
+            return text
+    except sr.UnknownValueError:
+        pass
+    except sr.RequestError as e:
+        print(f"[stt] Google API Error: {e}", flush=True)
+        return ""
+
+    try:
+        norm_audio = _normalize_audio(audio_data)
+        text = recognizer.recognize_google(norm_audio)
+        if text:
+            print(f"[stt] (Normalized) Heard: '{text}'", flush=True)
+            return text
+    except Exception as e:
+        print(f"[stt] Google retry error: {e}", flush=True)
+
+    return ""
+
 def setup_microphone_volume():
     """Force hardware capture gain to 100% using amixer."""
     try:
@@ -371,7 +399,7 @@ def live_stt_listen(recognizer, mic, slug, timeout=7, phrase_time_limit=10):
         
     return ""
 
-def online_stt(audio_path: Path) -> str:
+def online_stt(audio_path: Path, prefer_google: bool = False) -> str:
     """Transcribe audio file using Google STT."""
     if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
         return ""
@@ -382,7 +410,10 @@ def online_stt(audio_path: Path) -> str:
         recognizer = sr.Recognizer()
         with sr.AudioFile(str(audio_path)) as source:
             audio = recognizer.record(source)
-            
+
+            if prefer_google or STT_ENGINE_ONLINE == "google":
+                return _transcribe_with_google(audio)
+
             # 🚀 Prefer Groq (Instant response)
             if GROQ_API_KEY:
                 print("[stt] Processing via Groq STT...", flush=True)
@@ -398,17 +429,7 @@ def online_stt(audio_path: Path) -> str:
                     print(f"[stt] Gemini STT error: {e}")
                     return ""
 
-            try:
-                return recognizer.recognize_google(audio)
-            except sr.UnknownValueError:
-                # RETRY ONCE WITH NORMALIZATION
-                try:
-                    norm_audio = _normalize_audio(audio)
-                    text = recognizer.recognize_google(norm_audio)
-                    print(f"[stt] (Normalized) Heard: '{text}'", flush=True)
-                    return text
-                except Exception:
-                    return ""
+            return _transcribe_with_google(audio)
                 
     except Exception:
         return ""
