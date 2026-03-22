@@ -195,8 +195,8 @@ def sanitize_text(text):
 
 def speak(text):
     """
-    Delegate text-to-speech rendering to the improved hybrid audio_utils_simple
-    which handles chunking, fast caching, and drops espeak entirely.
+    Delegate text-to-speech rendering to the lightweight Flite-first hybrid
+    wrapper used across the assistant.
     """
     from .audio_utils_simple import speak as simple_speak
     simple_speak(text)

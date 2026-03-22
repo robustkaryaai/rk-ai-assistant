@@ -54,7 +54,7 @@ from .audio_utils import (
     SmartSTTEngine,
 )
 
-# Use new hybrid TTS (gTTS online, espeak offline)
+# Use Flite-first hybrid TTS with gTTS/espeak fallback
 from .audio_utils_simple import speak
 
 from .config import (
