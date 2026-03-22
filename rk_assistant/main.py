@@ -162,7 +162,19 @@ class NightProtocolMonitor:
                     print("[night] ☀️  Night protocol disabled by user app — normal mode restored.", flush=True)
                 continue
 
-            # 2. Only run the RMS checking logic if feature is enabled
+            # 2. TIME-OF-DAY GATE: Only allow night mode to activate between 10 PM - 7 AM
+            import datetime as _dt
+            _hour = _dt.datetime.now().hour
+            _is_nighttime = _hour >= 22 or _hour < 7  # 10 PM to 7 AM
+            if not _is_nighttime:
+                # Daytime: if we're somehow in night mode, exit it
+                if self.engine.night_mode:
+                    self.engine.set_night_mode(False)
+                    self.night_tts_suppressed = False
+                    print("[night] ☀️  Daytime detected — night mode auto-exited.", flush=True)
+                continue  # Skip RMS checks entirely during the day
+
+            # 3. Only run the RMS checking logic if feature is enabled and it's night
             # AGENT FIX: Pause engine to avoid microphone resource clash
             was_running = self.engine._running
             if was_running:
@@ -184,12 +196,34 @@ class NightProtocolMonitor:
                 self._loud_streak += 1
                 self._quiet_streak = 0
 
-            # Enter night mode
+            # Enter night mode — only during night hours (already gated above)
             if self._quiet_streak >= NIGHT_CONFIRM_COUNT and not self.engine.night_mode:
                 self._quiet_streak = 0
                 self.engine.set_night_mode(True)
                 self.night_tts_suppressed = True
                 print("[night] 🌙 Night protocol active — TTS suppressed.", flush=True)
+                # Send push notification to user's phone via backend
+                try:
+                    import threading as _thr
+                    import requests as _rq
+                    from .config import BACKEND_BASE_URL
+                    from .networking import read_slug as _rs
+                    _slug, _ = _rs()
+                    if _slug:
+                        _thr.Thread(
+                            target=lambda: _rq.post(
+                                f"{BACKEND_BASE_URL}/device/{_slug}/notify",
+                                json={
+                                    "title": "RK AI Home 🌙",
+                                    "body": "Night mode activated — I'll stay quiet until morning.",
+                                    "type": "night_mode"
+                                },
+                                timeout=5
+                            ),
+                            daemon=True
+                        ).start()
+                except Exception as _ne:
+                    print(f"[night] Push notification failed: {_ne}", flush=True)
 
             # Exit night mode
             if self._loud_streak >= 2 and self.engine.night_mode:
@@ -327,7 +361,7 @@ def main():
             if proc:
                 proc.wait()
         elif not is_quiet:
-            start_msg = f"{greeting}! RK AI assistant is starting up"
+            start_msg = f"{greeting}! RK AI Home is ready to rock!"
             print(f"[main] {start_msg}")
             speak(start_msg)
             time.sleep(1)
@@ -400,14 +434,6 @@ def main():
     music_proc_holder = {"proc": None}
     print("[main] ✅ RK AI Home is ready (SmartSTT active).", flush=True)
 
-    # Speak startup greeting using the user-configured phrase from the app
-    try:
-        greeting = settings_sync.get_greeting_phrase()  # e.g. "Radhe Radhe"
-        assistant = settings_sync.get_assistant_name()  # e.g. "RK"
-        speak(f"{greeting}, {assistant} AI Home is ready to rock!")
-    except Exception as _e:
-        print(f"[main] Startup greeting failed: {_e}", flush=True)
-
     # ─── MAIN LOOP ───────────────────────────────────────────────────────────
     was_muted = False
 
@@ -463,6 +489,7 @@ def main():
                                     if night_monitor else False)
 
             # ── Wait for a command from the engine ─────────────────────────
+            report_state(slug_val, "listening")
             if stt_engine:
                 try:
                     text = stt_engine.command_queue.get(timeout=1.0)
@@ -505,6 +532,7 @@ def main():
 
             update_activity()
             print(f"[main] Command received: '{text}'", flush=True)
+            report_state(slug_val, "thinking")
 
             # ── Play listen chime ─────────────────────────────────────────
             play_audio_file_local("listen.wav")
