@@ -7,13 +7,144 @@ Requires: pip install python-miio (same LAN as the Pi; token from Mi Cloud / ext
 """
 
 import os
+import re
 import requests
 import time
 import json
 import asyncio
-from .settings_sync import get_smart_devices
+from .settings_sync import get_smart_devices, device_settings
 
 BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'https://rk-ai-backend.onrender.com')
+
+# Short TTL cache — avoids repeated list copies during one voice burst; invalidated on discovery.
+_DEVICES_CACHE_TTL_SEC = 3.0
+_devices_cache_ts = 0.0
+_devices_cache_list = None
+
+# Voice color names → RGB (Yeelight LAN)
+_YEELIGHT_COLOR_RGB = {
+    "red": (255, 0, 0),
+    "green": (0, 255, 0),
+    "blue": (0, 0, 255),
+    "yellow": (255, 255, 0),
+    "purple": (128, 0, 128),
+    "white": (255, 255, 255),
+    "warm": (255, 200, 120),
+    "cool": (220, 235, 255),
+}
+
+
+def _invalidate_devices_cache() -> None:
+    global _devices_cache_ts, _devices_cache_list
+    _devices_cache_list = None
+    _devices_cache_ts = 0.0
+
+
+def _get_smart_devices_cached():
+    """Shallow snapshot of hub list (refreshed from RAM or TTL)."""
+    global _devices_cache_ts, _devices_cache_list
+    now = time.time()
+    if _devices_cache_list is not None and (now - _devices_cache_ts) < _DEVICES_CACHE_TTL_SEC:
+        return _devices_cache_list
+    raw = get_smart_devices()
+    if not raw:
+        _devices_cache_list = []
+    else:
+        _devices_cache_list = list(raw)
+    _devices_cache_ts = now
+    return _devices_cache_list
+
+
+def _format_control_error(err: Exception, device_label: str) -> str:
+    msg = str(err).lower()
+    if "timeout" in msg or "timed out" in msg:
+        return f"{device_label} timed out — check LAN, IP, or that the device is powered."
+    if "connection" in msg or "refused" in msg or "unreachable" in msg or "no route" in msg:
+        return f"{device_label} unreachable — offline, wrong IP, or wrong VLAN."
+    if "token" in msg or "auth" in msg or "invalid" in msg and "token" in msg:
+        return f"{device_label} auth failed — check Mi token or pairing."
+    if "name or service not known" in msg or "gaierror" in msg:
+        return f"{device_label} DNS/hostname issue — use IP for local control."
+    return f"{device_label}: {str(err)[:160]}"
+
+
+def _match_device_by_voice_query(query: str, devices: list):
+    """
+    Prefer stable id match, then token overlap + longest name — avoids 'light' matching every device.
+    """
+    if not devices:
+        return None
+    q = (query or "").lower().strip()
+    if not q:
+        return None
+
+    # 1) Exact id (e.g. user or automation passes kasa_abc / yeelight_192...)
+    for d in devices:
+        did = d.get("id")
+        if did and str(did).lower() == q:
+            return d
+
+    # 2) Single device — unambiguous
+    if len(devices) == 1:
+        return devices[0]
+
+    stop = frozenset(
+        "the a an on off turn switch my to please all lights light lights "
+        "it that this".split()
+    )
+    q_tokens = set(re.findall(r"[a-z0-9]+", q)) - stop
+    if not q_tokens:
+        q_tokens = set(re.findall(r"[a-z0-9]+", q))
+
+    best = None
+    best_score = -1
+    for d in devices:
+        name = str(d.get("name", "")).lower().strip()
+        if not name:
+            continue
+        d_tokens = set(re.findall(r"[a-z0-9]+", name))
+        overlap = len(q_tokens & d_tokens)
+        if len(name) >= 3 and name in q:
+            overlap += 4
+        if len(q) >= 3 and q in name:
+            overlap += 2
+        # Prefer longer names on tie (more specific, e.g. "bedroom light" vs "light")
+        tie_break = len(name)
+        score = overlap * 1000 + tie_break
+        if overlap >= 1 and score > best_score:
+            best_score = score
+            best = d
+
+    if best is not None and best_score >= 1000:  # token overlap and/or substring boost
+        return best
+
+    # 3) Last resort: only if query is a single generic word and exactly one bulb-like name matches
+    generic = frozenset(("light", "lights", "bulb", "lamp", "fan", "plug"))
+    if q in generic or (len(q_tokens) > 0 and q_tokens.issubset(generic)):
+        candidates = [d for d in devices if any(
+            x in str(d.get("name", "")).lower() for x in ("light", "bulb", "lamp")
+        )]
+        if len(candidates) == 1:
+            return candidates[0]
+
+    return None
+
+
+def _yeelight_apply_color(bulb, color_name) -> None:
+    if not color_name:
+        return
+    c = str(color_name).lower().strip()
+    if c not in _YEELIGHT_COLOR_RGB:
+        return
+    r, g, b = _YEELIGHT_COLOR_RGB[c]
+    rgb_int = (r << 16) | (g << 8) | b
+    try:
+        bulb.set_rgb(rgb_int)
+    except Exception:
+        try:
+            bulb.set_rgb(r, g, b)
+        except Exception as ex:
+            print(f"[SmartHome] yeelight set_rgb failed: {ex}")
 
 
 def _control_miio(ip: str, token: str, state: bool, model: str = None) -> None:
@@ -99,55 +230,73 @@ def discover_and_sync_devices(slug: str) -> dict:
     # Sync back to Appwrite systemStatus via Backend
     print(f"[SmartHome] Scan complete. Found {len(devices)} native devices. Syncing {len(final_devices)} total...")
     try:
-        res = requests.post(f"{BACKEND_BASE_URL}/device/{slug}/update-status", json={"smart_devices": final_devices}, timeout=10)
-        return {"success": True, "count": len(devices), "devices": final_devices}
+        requests.post(
+            f"{BACKEND_BASE_URL}/device/{slug}/update-status",
+            json={"smart_devices": final_devices},
+            timeout=10,
+        )
+        try:
+            device_settings["smart_devices"] = final_devices
+        except Exception as ex:
+            print(f"[SmartHome] local device_settings update: {ex}")
+        _invalidate_devices_cache()
+        return {
+            "success": True,
+            "count": len(devices),
+            "devices_found": list(devices),
+            "total_registered": len(final_devices),
+            "devices": final_devices,
+        }
     except Exception as e:
         print(f"[SmartHome] Sync failed: {e}")
         return {"success": False, "error": str(e)}
 
 
 def control_device(device_name: str, state: bool, color: str = None) -> str:
-    smart_devices = get_smart_devices()
+    smart_devices = _get_smart_devices_cached()
     print(f"[SmartHome] Action: {'Turn ON' if state else 'Turn OFF'} | Spoken: {device_name} | Color: {color or 'default'}")
-    
-    device_name_lower = device_name.lower().strip()
-    matched_device = None
-    
-    for d in smart_devices:
-        db_name = str(d.get("name", "")).lower()
-        if db_name in device_name_lower or device_name_lower in db_name:
-            matched_device = d
-            break
-            
+
+    matched_device = _match_device_by_voice_query(device_name, smart_devices)
     if not matched_device:
-        return f"I couldn't find a device named {device_name} in your Smart Home settings."
-    
+        return f"I couldn't find a device matching «{device_name}» in your hub list. Say the name you saved or add more words (e.g. bedroom light)."
+
+    return _apply_power(matched_device, state, color)
+
+
+def _apply_power(matched_device: dict, state: bool, color: str = None) -> str:
+    """Apply on/off to a matched device record (kasa / yeelight / miio / webhook)."""
     dev_type = matched_device.get("type", "webhook")
     ip = matched_device.get("ip")
-    
+
     try:
-        # NATIVE KASA CONTROL
         if dev_type == "kasa" and ip:
             from kasa import SmartDevice
-            async def toggle_kasa():
+
+            async def kasa_power():
                 dev = SmartDevice(ip)
                 await dev.update()
-                if state: await dev.turn_on()
-                else: await dev.turn_off()
-            asyncio.run(toggle_kasa())
-            action_str = "Turned on" if state else "Turned off"
-            return f"{action_str} the {matched_device.get('name')}."
-            
-        # NATIVE YEELIGHT CONTROL
-        elif dev_type == "yeelight" and ip:
-            from yeelight import Bulb
-            bulb = Bulb(ip)
-            if state: bulb.turn_on()
-            else: bulb.turn_off()
+                if state:
+                    await dev.turn_on()
+                else:
+                    await dev.turn_off()
+
+            asyncio.run(kasa_power())
             action_str = "Turned on" if state else "Turned off"
             return f"{action_str} the {matched_device.get('name')}."
 
-        # XIAOMI / MI HOME (miio) — type "miio", fields: ip, token, optional miio_model
+        elif dev_type == "yeelight" and ip:
+            from yeelight import Bulb
+
+            bulb = Bulb(ip)
+            if state:
+                bulb.turn_on()
+                _yeelight_apply_color(bulb, color)
+            else:
+                bulb.turn_off()
+            action_str = "Turned on" if state else "Turned off"
+            suffix = f" ({color})" if state and color else ""
+            return f"{action_str} the {matched_device.get('name')}{suffix}."
+
         elif dev_type in ("miio", "xiaomi", "mihome") and ip:
             token = matched_device.get("token") or matched_device.get("mi_token")
             if not token:
@@ -158,22 +307,115 @@ def control_device(device_name: str, state: bool, color: str = None) -> str:
                 return "python-miio is not installed on the hub. Run: pip install python-miio"
             action_str = "Turned on" if state else "Turned off"
             return f"{action_str} the {matched_device.get('name')}."
-            
-        # GENERIC WEBHOOK CONTROL
+
         else:
             url = matched_device.get("on_url") if state else matched_device.get("off_url")
             if not url:
                 return f"The {matched_device.get('name')} doesn't have a configured URL for this action."
-                
+
             res = requests.get(url, timeout=4)
             print(f"[SmartHome] Webhook executed: {res.status_code}")
             action_str = "Turned on" if state else "Turned off"
             suffix = f" and set color to {color}" if color else ""
             return f"{action_str} the {matched_device.get('name')}{suffix}."
-            
+
+    except requests.exceptions.Timeout as e:
+        print(f"[SmartHome] timeout: {e}")
+        return _format_control_error(e, matched_device.get("name", "Device"))
+    except requests.exceptions.RequestException as e:
+        print(f"[SmartHome] request error: {e}")
+        return _format_control_error(e, matched_device.get("name", "Device"))
     except Exception as e:
         print(f"[SmartHome] Request/Native Protocol failed: {e}")
-        return f"I tried to contact the {matched_device.get('name')}, but it didn't respond. Please check its connection."
+        return _format_control_error(e, matched_device.get("name", "Device"))
+
+
+def control_device_by_id(device_id: str, action: str = "toggle") -> str:
+    """
+    Control a device by stable id (from discovery / smart_devices list).
+    action: toggle | on | off
+    """
+    action = (action or "toggle").lower().strip()
+    if action not in ("toggle", "on", "off"):
+        return f"Unknown action: {action}"
+
+    smart_devices = _get_smart_devices_cached()
+    matched = next((d for d in smart_devices if d.get("id") == device_id), None)
+    if not matched:
+        return f"No device with id {device_id} in your hub list."
+
+    dev_type = matched.get("type", "webhook")
+    ip = matched.get("ip")
+    name = matched.get("name") or "device"
+
+    if action == "toggle":
+        try:
+            if dev_type == "kasa" and ip:
+                from kasa import SmartDevice
+
+                async def kasa_toggle():
+                    dev = SmartDevice(ip)
+                    await dev.update()
+                    if dev.is_on:
+                        await dev.turn_off()
+                    else:
+                        await dev.turn_on()
+
+                asyncio.run(kasa_toggle())
+                return f"Toggled {name}."
+
+            if dev_type == "yeelight" and ip:
+                from yeelight import Bulb
+
+                bulb = Bulb(ip)
+                try:
+                    bulb.toggle()
+                except Exception:
+                    try:
+                        props = bulb.get_properties()
+                        if isinstance(props, dict) and props.get("power") == "on":
+                            bulb.turn_off()
+                        else:
+                            bulb.turn_on()
+                    except Exception:
+                        bulb.turn_on()
+                return f"Toggled {name}."
+
+            if dev_type in ("miio", "xiaomi", "mihome") and ip:
+                token = matched.get("token") or matched.get("mi_token")
+                if not token:
+                    return f"Add a Mi token for {name} on the hub."
+                try:
+                    from miio import Device
+
+                    tok = token.replace(" ", "").strip().lower()
+                    mdl = matched.get("miio_model")
+                    dev = Device(ip, tok, model=mdl) if mdl else Device(ip, tok)
+                    try:
+                        dev.send("toggle", [])
+                    except Exception:
+                        _control_miio(ip, tok, True, matched.get("miio_model"))
+                    return f"Toggled {name}."
+                except ImportError:
+                    return "python-miio is not installed on the hub."
+                except Exception as e:
+                    print(f"[SmartHome] miio toggle: {e}")
+                    return _apply_power(matched, True, None)
+
+            tu = matched.get("toggle_url")
+            if tu:
+                requests.get(tu, timeout=4)
+                return f"Toggled {name}."
+            return (
+                f"Toggle needs a native device (Kasa/Yeelight/Mi) or a toggle_url for webhooks. "
+                f"Configure {name} or use Turn on/off from voice."
+            )
+
+        except Exception as e:
+            print(f"[SmartHome] toggle failed: {e}")
+            return f"I couldn't toggle {name}: {e}"
+
+    return _apply_power(matched, action == "on", None)
     
 def is_smart_home_intent(text: str) -> bool:
     text_lower = text.lower()
@@ -191,17 +433,20 @@ def run_coding_ambience() -> str:
     Turn on all paired smart devices for a coding session (bright workspace).
     Called before relaying Lumina / desktop actions to the PC.
     """
-    devices = get_smart_devices()
+    devices = _get_smart_devices_cached()
     if not devices:
         return "No smart devices are paired yet. Pair lights in the RK app under Smart Hub, then try again."
 
     messages = []
     for d in devices:
-        name = d.get("name") or "light"
+        did = d.get("id")
         try:
-            messages.append(control_device(name, True, None))
+            if did:
+                messages.append(control_device_by_id(str(did), "on"))
+            else:
+                messages.append(control_device(d.get("name") or "light", True, None))
         except Exception as e:
-            print(f"[SmartHome] run_coding_ambience failed for {name}: {e}")
+            print(f"[SmartHome] run_coding_ambience failed for {d.get('name')}: {e}")
     return " ".join(messages) if messages else "Smart devices did not respond."
 
 

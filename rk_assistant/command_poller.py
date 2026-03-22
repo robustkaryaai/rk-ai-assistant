@@ -209,6 +209,27 @@ def execute_command(cmd: dict, slug: str) -> None:
                 result = f"Scan failed: {scan_res.get('error')}"
                 success = False
 
+        elif cmd_type == 'control_device':
+            from .smart_home import control_device_by_id
+            device_id = payload.get('id') or payload.get('device_id')
+            action = (payload.get('action') or 'toggle').lower()
+            if not device_id:
+                result = "control_device: missing id in payload"
+                success = False
+            else:
+                result = control_device_by_id(str(device_id), action)
+                fail_markers = (
+                    "couldn't find",
+                    "no device with id",
+                    "didn't respond",
+                    "don't have",
+                    "unknown action",
+                    "add a",
+                    "toggle needs",
+                    "not installed",
+                )
+                success = not any(m in result.lower() for m in fail_markers)
+
         elif cmd_type == 'ecosystem_routine':
             routine = payload.get('routine', 'lumina_coding')
             from .desktop_link import trigger_desktop_action
