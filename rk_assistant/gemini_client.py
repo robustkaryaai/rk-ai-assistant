@@ -166,14 +166,18 @@ def classify_intent(
         model_name: Primary Gemini model to use
         fallback_model: Fallback Gemini model (used if primary model fails/times out)
     """
+    prompt_text = str(text or "").strip()
+    if prompt_text:
+        print(f"[gemini] User: {prompt_text}", flush=True)
+
     if not GEMINI_AVAILABLE:
         print("[gemini] Library not available, defaulting to chat intent")
-        return [{"intent": "chat", "parameters": {"prompt": text}}]
+        return [{"intent": "chat", "parameters": {"prompt": prompt_text}}]
     
     keys_to_try = _build_key_chain(api_key=api_key, backup_key=backup_key)
     if not keys_to_try:
         print("[gemini] No API keys provided, defaulting to chat")
-        return [{"intent": "chat", "parameters": {"prompt": text}}]
+        return [{"intent": "chat", "parameters": {"prompt": prompt_text}}]
 
     models_to_try = _build_model_chain(model_name=model_name, fallback_model=fallback_model)
     
@@ -194,7 +198,7 @@ def classify_intent(
                     
                     # 🚀 Lowered timeout for faster failover/response
                     client = genai.Client(api_key=key, http_options={'timeout': 15000}) 
-                    full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{text}\""
+                    full_prompt = f"{SYSTEM_PROMPT}\n\nUser: \"{prompt_text}\""
                     
                     response = client.models.generate_content(
                         model=current_model,
@@ -239,7 +243,7 @@ def classify_intent(
                     break  # Non-503 or retries exhausted → next model/key
     
     print(f"[gemini] All attempts failed. Last error: {last_error[:80]}. Defaulting to chat.")
-    return [{"intent": "chat", "parameters": {"prompt": text}}]
+    return [{"intent": "chat", "parameters": {"prompt": prompt_text}}]
 
 
 def get_conversational_response(

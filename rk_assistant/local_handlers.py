@@ -232,7 +232,9 @@ def handle_intent(intent: str, parameters: Dict[str, Any], original_text: str = 
     Main router for local intent handling.
     """
     print(f"[local] Handling intent locally: {intent}", flush=True)
-    
+    if original_text:
+        print(f"[local] User: {original_text}", flush=True)
+
     if intent == "music":
         return handle_music(parameters)
     

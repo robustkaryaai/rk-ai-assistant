@@ -261,6 +261,7 @@ def trigger_music_playback(query, music_proc_holder):
 def handle_backend_reply(text, online, music_proc_holder, slug):
     """Process text via Gemini or Backend and handle the response actions."""
     print(f"[gemini] Processing: '{text}'")
+    print(f"[gemini] User: {text}")
 
     reply_text = ""
     if USE_GEMINI_DIRECT and GEMINI_API_KEY:
