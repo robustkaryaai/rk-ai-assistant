@@ -278,6 +278,14 @@ def execute_command(cmd: dict, slug: str) -> None:
                 )
                 result = f"Lumina flow: lights done, desktop relay {'ok' if ok else 'failed'}."
                 success = bool(ok)
+            elif routine == 'desktop_shutdown':
+                ok = trigger_desktop_action(
+                    'desktop_shutdown',
+                    {},
+                    slug=slug,
+                )
+                result = f"Desktop shutdown relay {'ok' if ok else 'failed'}."
+                success = bool(ok)
             else:
                 result = f"Unknown ecosystem routine: {routine}"
                 success = False
