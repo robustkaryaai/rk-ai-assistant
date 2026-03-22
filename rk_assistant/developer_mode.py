@@ -36,6 +36,12 @@ def print_header(title: str):
     print(f" [TEST RUN] {title}")
     print("=" * 60)
 
+
+def print_user_prompt(prompt: str):
+    prompt_text = str(prompt or "").strip()
+    if prompt_text:
+        print(f"User: {prompt_text}")
+
 def run_all_tests():
     pass_count = 0
     total_count = 0
@@ -120,6 +126,7 @@ def run_all_tests():
     for intent, phrases in TRAINING_DATA.items():
         if not phrases: continue
         phrase = phrases[0] # Test the primary trigger phrase for EVERY feature
+        print_user_prompt(phrase)
         
         cmd = match_offline_command(phrase)
         if cmd == intent:
@@ -137,7 +144,9 @@ def run_all_tests():
     if online:
         print_header("6. Gemini API Routing (Online)")
         try:
-            gemini_resp = classify_intent("Who is the president?", api_key=GEMINI_API_KEY, backup_key=GEMINI_API_KEY_BACKUP)
+            sample_prompt = "Who is the president?"
+            print_user_prompt(sample_prompt)
+            gemini_resp = classify_intent(sample_prompt, api_key=GEMINI_API_KEY, backup_key=GEMINI_API_KEY_BACKUP)
             log_result("Gemini Cloud Interface", bool(gemini_resp), "(Successfully parsed JSON)")
         except Exception as e:
             log_result("Gemini Cloud Interface", False, f"({e})")
