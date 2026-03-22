@@ -6,13 +6,14 @@ Uses Gemini to classify user intents and return structured JSON.
 from __future__ import annotations
 
 import json
-from typing import Dict, Any, Optional, List
+import time
+from typing import Dict, Any, Optional, List, Tuple
 
 from .config import (
-    GEMINI_AVAILABLE, 
-    GEMINI_MODEL_PRIMARY, 
-    GEMINI_MODEL_FALLBACK, 
-    SLUG_FILE
+    GEMINI_AVAILABLE,
+    GEMINI_MODEL_PRIMARY,
+    GEMINI_MODEL_FALLBACK,
+    SLUG_FILE,
 )
 
 try:
@@ -302,6 +303,58 @@ def transcribe_audio(audio_bytes: bytes, api_key: str) -> str:
     except Exception as e:
         print(f"[gemini-stt] Error: {e}")
         return ""
+
+def parse_smart_home_command(
+    text: str,
+    api_key: Optional[str] = None,
+    backup_key: Optional[str] = None,
+) -> Optional[Tuple[bool, str, Optional[str]]]:
+    """
+    Small LLM pass for natural smart-home phrasing when rules miss the device target.
+    Returns (on?, device_phrase_or_ALL, color_or_None) or None.
+    """
+    if not GEMINI_AVAILABLE or not text or not str(text).strip():
+        return None
+    keys = [k for k in (api_key, backup_key) if k]
+    if not keys:
+        return None
+    prompt = (
+        "You parse smart-home voice commands. Reply with ONLY valid JSON, no markdown:\n"
+        '{"action":"on"|"off","target":"short English device name or ALL for whole home",'
+        '"color":null|"red"|"blue"|"green"|"yellow"|"purple"|"white"|"warm"|"cool"}\n'
+        f'Utterance: {json.dumps(text.strip())}'
+    )
+    for key in keys:
+        try:
+            client = genai.Client(api_key=key, http_options={"timeout": 10000})
+            response = client.models.generate_content(
+                model=GEMINI_MODEL_PRIMARY,
+                contents=prompt,
+            )
+            raw = (response.text or "").strip()
+            if raw.startswith("```"):
+                raw = raw.split("```", 2)[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            raw = raw.strip()
+            data = json.loads(raw)
+            act = str(data.get("action", "")).lower()
+            if act not in ("on", "off"):
+                continue
+            tgt = data.get("target") or ""
+            tgt = str(tgt).strip()
+            if not tgt:
+                continue
+            col = data.get("color")
+            col = str(col).lower().strip() if col else None
+            if col in ("none", "null", ""):
+                col = None
+            return (act == "on", tgt, col)
+        except Exception as e:
+            print(f"[gemini] smart_home parse: {e}", flush=True)
+            continue
+    return None
+
 
 def test_gemini_connection(api_key: str) -> bool:
     """Test if Gemini API is working with the provided key using new SDK."""

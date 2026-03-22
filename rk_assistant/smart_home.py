@@ -16,6 +16,7 @@ import time
 import json
 import asyncio
 from .settings_sync import get_smart_devices, device_settings
+from .config import RK_WEBHOOK_SECRET, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP
 
 BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'https://rk-ai-backend.onrender.com')
 
@@ -28,6 +29,13 @@ _devices_cache_ts = 0.0
 _devices_cache_list = None
 
 # Voice color names → RGB (Yeelight LAN)
+def _webhook_request_headers() -> dict:
+    h = {}
+    if RK_WEBHOOK_SECRET:
+        h["X-RK-Webhook-Secret"] = RK_WEBHOOK_SECRET
+    return h
+
+
 _YEELIGHT_COLOR_RGB = {
     "red": (255, 0, 0),
     "green": (0, 255, 0),
@@ -482,7 +490,7 @@ def _apply_power(matched_device: dict, state: bool, color: str = None) -> str:
             if not url:
                 return f"The {matched_device.get('name')} doesn't have a configured URL for this action."
 
-            res = requests.get(url, timeout=4)
+            res = requests.get(url, timeout=4, headers=_webhook_request_headers())
             print(f"[SmartHome] Webhook executed: {res.status_code}")
             action_str = "Turned on" if state else "Turned off"
             suffix = f" and set color to {color}" if color else ""
@@ -573,7 +581,7 @@ def control_device_by_id(device_id: str, action: str = "toggle") -> str:
 
             tu = matched.get("toggle_url")
             if tu:
-                requests.get(tu, timeout=4)
+                requests.get(tu, timeout=4, headers=_webhook_request_headers())
                 return f"Toggled {name}."
             return (
                 f"Toggle needs a native device (Kasa/Yeelight/Mi) or a toggle_url for webhooks. "
@@ -587,16 +595,181 @@ def control_device_by_id(device_id: str, action: str = "toggle") -> str:
     return _apply_power(matched, action == "on", None)
     
 def is_smart_home_intent(text: str) -> bool:
-    text_lower = text.lower()
-    if "turn on" in text_lower or "turn off" in text_lower or "switch" in text_lower:
-        if any(w in text_lower for w in ["light", "bulb", "fan", "ac ", "tv", "plug", "socket"]):
+    t = (text or "").lower()
+    if any(
+        x in t
+        for x in (
+            "turn on",
+            "turn off",
+            "switch on",
+            "switch off",
+            "lights out",
+            "power on",
+            "power off",
+            "all lights",
+            "every light",
+            "everything off",
+            "everything on",
+            "shut off",
+            "flip on",
+            "flip off",
+        )
+    ):
+        if any(
+            w in t
+            for w in (
+                "light",
+                "bulb",
+                "lamp",
+                "fan",
+                "plug",
+                "socket",
+                "switch",
+                "strip",
+                "tv",
+                "ac ",
+                "air con",
+                "outlet",
+                "device",
+                "room",
+                "all ",
+                "every ",
+            )
+        ):
             return True
-            
-    if "lights out" in text_lower or "dim the lights" in text_lower:
+        for d in _get_smart_devices_cached():
+            name = str(d.get("name", "")).lower().strip()
+            if len(name) >= 3 and name in t:
+                return True
+    if re.search(r"\b(dim|brighten)\s+(the\s+)?(lights?|room)\b", t):
         return True
-        
     return False
     
+_VOICE_COLORS = ("red", "blue", "green", "yellow", "purple", "white", "warm", "cool")
+
+
+def _extract_color_from_text(text: str):
+    tl = text.lower()
+    for c in _VOICE_COLORS:
+        if re.search(rf"\b{re.escape(c)}\b", tl):
+            return c
+    return None
+
+
+def _parse_smart_home_rules(text: str) -> tuple:
+    """
+    Alexa-style rule parse → (state: bool, device_query: str, color: str|None).
+    device_query '__all__' = whole home; '' = unknown target (try LLM / hub names).
+    """
+    raw = text or ""
+    t = raw.lower().strip()
+    t = re.sub(r"[^\w\s\-\']", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    color = _extract_color_from_text(t)
+    t_dev = t
+    for c in _VOICE_COLORS:
+        t_dev = re.sub(rf"\b{re.escape(c)}\b", " ", t_dev)
+    t_dev = re.sub(r"\s+", " ", t_dev).strip()
+
+    if "lights out" in t or re.search(
+        r"\b(all|every|everything)\s+(the\s+)?(lights?|devices?|plugs?|bulbs?)\s+off\b", t_dev
+    ) or t_dev in ("all off", "everything off", "switch off all", "turn off all"):
+        return False, "__all__", color
+    if re.search(
+        r"\b(all|every|everything)\s+(the\s+)?(lights?|devices?|plugs?|bulbs?)\s+on\b", t_dev
+    ) or t_dev in ("all on", "everything on"):
+        return True, "__all__", color
+
+    m = re.search(r"\b(?:turn|switch|flip)\s+(on|off)\s+(?:the\s+)?(.+)$", t_dev)
+    if m:
+        return m.group(1) == "on", m.group(2).strip(), color
+
+    m = re.search(r"\b(?:turn|switch|flip)\s+(?:the\s+)?(.+?)\s+(on|off)\s*$", t_dev)
+    if m:
+        phrase = m.group(1).strip()
+        if phrase not in ("it", "that", "this", "them", "there", "here"):
+            return m.group(2) == "on", phrase, color
+
+    m = re.search(r"\b(?:power|switch)\s+(on|off)\s+(?:the\s+)?(.+)$", t_dev)
+    if m:
+        return m.group(1) == "on", m.group(2).strip(), color
+
+    on_hit = bool(re.search(r"\b(turn on|switch on|power on|enable|activate)\b", t_dev))
+    off_hit = bool(
+        re.search(r"\b(turn off|switch off|power off|disable|deactivate|shut off)\b", t_dev)
+    )
+    if on_hit or off_hit:
+        state = on_hit and not off_hit
+        rest = t_dev
+        for pat in (
+            r"\bturn\s+on\s+(?:the\s+)?",
+            r"\bturn\s+off\s+(?:the\s+)?",
+            r"\bswitch\s+on\s+(?:the\s+)?",
+            r"\bswitch\s+off\s+(?:the\s+)?",
+            r"\bpower\s+on\s+(?:the\s+)?",
+            r"\bpower\s+off\s+(?:the\s+)?",
+            r"\benable\s+(?:the\s+)?",
+            r"\bdisable\s+(?:the\s+)?",
+            r"\bactivate\s+(?:the\s+)?",
+            r"\bdeactivate\s+(?:the\s+)?",
+            r"\bshut\s+off\s+(?:the\s+)?",
+        ):
+            rest = re.sub(pat, "", rest, count=1)
+        rest = re.sub(r"\s+", " ", rest).strip()
+        if rest and rest not in ("it", "that", "this", "please"):
+            return state, rest, color
+
+    # Hub name appears in utterance (e.g. "bedroom lamp is too bright" → off is harder; keep simple)
+    if on_hit or off_hit:
+        devs = _get_smart_devices_cached()
+        best = ""
+        best_name = ""
+        for d in devs:
+            name = str(d.get("name", "")).strip()
+            if len(name) < 2:
+                continue
+            nl = name.lower()
+            if nl in t_dev and len(name) > len(best_name):
+                best_name = name
+                best = name
+        if best:
+            return (on_hit and not off_hit), best, color
+
+    # Keyword-only device guess (legacy)
+    if "fan" in t_dev:
+        return (on_hit or not off_hit), "fan", color
+    if "plug" in t_dev or "socket" in t_dev or "outlet" in t_dev:
+        return (on_hit or not off_hit), "plug", color
+    if "tv" in t_dev:
+        return (on_hit or not off_hit), "TV", color
+    if "ac" in t_dev or "air conditioner" in t_dev or "aircon" in t_dev:
+        return (on_hit or not off_hit), "AC", color
+    if "bulb" in t_dev or "lamp" in t_dev or "light" in t_dev:
+        return (on_hit or not off_hit), "light", color
+
+    return (on_hit and not off_hit) if (on_hit ^ off_hit) else True, "", color
+
+
+def _control_all_devices(state: bool, color: str = None) -> str:
+    devs = _get_smart_devices_cached()
+    if not devs:
+        return "No devices in your hub yet. Add them in the RK app under Smart Hub."
+    parts = []
+    for d in devs:
+        did = d.get("id")
+        try:
+            if did:
+                parts.append(control_device_by_id(str(did), "on" if state else "off"))
+            else:
+                nm = d.get("name") or "device"
+                parts.append(control_device(nm, state, color))
+        except Exception as e:
+            parts.append(str(e))
+    # Keep voice reply short
+    ok = sum(1 for p in parts if "off" in p.lower() or "on" in p.lower() or "toggled" in p.lower())
+    return f"Ran whole-home {'on' if state else 'off'} for {ok} of {len(devs)} devices."
+
+
 def run_coding_ambience() -> str:
     """
     Turn on all paired smart devices for a coding session (bright workspace).
@@ -620,36 +793,32 @@ def run_coding_ambience() -> str:
 
 
 def execute_smart_command(text: str) -> str:
-    text_lower = text.lower()
-    
-    state = False
-    if " on" in text_lower or "start" in text_lower:
-        state = True
-        
-    device = "lights" # Fallback guess
-    words = text_lower.split()
-    if "turn" in words:
-        try:
-            target_idx = words.index("the") + 1
-            device = " ".join(words[target_idx:])
-        except:
-            if "fan" in text_lower: device = "fan"
-            elif "tv" in text_lower: device = "TV"
-            elif "ac " in text_lower or "air conditioner" in text_lower: device = "AC"
-            elif "bulb" in text_lower or "light" in text_lower: device = "light"
-            elif "plug" in text_lower or "socket" in text_lower: device = "plug"
-    else:
-        if "fan" in text_lower: device = "fan"
-        elif "tv" in text_lower: device = "TV"
-        elif "ac " in text_lower or "air conditioner" in text_lower: device = "AC"
-        elif "bulb" in text_lower or "light" in text_lower: device = "light"
-        elif "plug" in text_lower or "socket" in text_lower: device = "plug"
+    state, query, color = _parse_smart_home_rules(text)
 
-    color = None
-    colors = ["red", "blue", "green", "yellow", "purple", "white", "warm", "cool"]
-    for c in colors:
-        if c in text_lower:
-            color = c
-            break
-            
-    return control_device(device, state, color)
+    if query == "__all__":
+        return _control_all_devices(state, color)
+
+    if not query.strip():
+        try:
+            from .gemini_client import parse_smart_home_command
+
+            gh = parse_smart_home_command(text, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP)
+            if gh:
+                state, gq, gc = gh
+                if gc:
+                    color = gc
+                if gq:
+                    if str(gq).upper() == "ALL" or str(gq).strip().lower() in (
+                        "all devices",
+                        "everything",
+                        "whole house",
+                    ):
+                        return _control_all_devices(state, color)
+                    query = str(gq).strip()
+        except Exception as e:
+            print(f"[SmartHome] LLM parse skipped: {e}")
+
+    if not query.strip():
+        query = "light"
+
+    return control_device(query, state, color)

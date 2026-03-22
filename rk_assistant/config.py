@@ -185,6 +185,9 @@ MUTE_MODE = os.getenv("MUTE_MODE", "0") == "1"
 FORCE_OFFLINE = os.getenv("FORCE_OFFLINE", "0") == "1"
 ROUTINES_SYNC_URL = f"{BACKEND_BASE_URL}/routines"
 
+# Optional shared secret for HTTP webhook devices (sent as X-RK-Webhook-Secret)
+RK_WEBHOOK_SECRET = os.getenv("RK_WEBHOOK_SECRET", "").strip()
+
 # Offline command whitelist (100 max). Keep short strings for cheap checks.
 OFFLINE_COMMANDS = [
     # Greetings and conversational
