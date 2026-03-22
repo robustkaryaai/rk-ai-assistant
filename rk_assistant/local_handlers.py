@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Dict, Any
 from . import gemini_client
-from .config import GEMINI_API_KEY, GEMINI_MODEL
+from .config import GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, GEMINI_MODEL, GEMINI_MODEL_FALLBACK
 
 
 def handle_music(parameters: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,7 +92,9 @@ def handle_chat(text: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
     reply = gemini_client.get_conversational_response(
         text,
         api_key=GEMINI_API_KEY,
-        model_name=GEMINI_MODEL
+        backup_key=GEMINI_API_KEY_BACKUP,
+        model_name=GEMINI_MODEL,
+        fallback_model=GEMINI_MODEL_FALLBACK,
     )
     
     return {

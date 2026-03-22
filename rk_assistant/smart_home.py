@@ -1,9 +1,7 @@
 """
 Smart Home Controller for RK AI Assistant.
-Reads the user's configured Wi-Fi appliances from Appwrite and sends local HTTP Webhooks.
-Includes discovery for TP-Link (Kasa/Tapo) and Yeelight LAN.
-Xiaomi / Mi Home Wi-Fi bulbs: add manually in the RK app (IP + 32-char token) with type "miio".
-Requires: pip install python-miio (same LAN as the Pi; token from Mi Cloud / extractor tools).
+Focused on Xiaomi / Mi Home LAN discovery and local MiIO control.
+RK tries to discover supported devices and tokens automatically on the same Wi-Fi.
 """
 
 import os
@@ -50,7 +48,7 @@ _YEELIGHT_COLOR_RGB = {
 
 
 def _discover_miio_entries():
-    """Find Xiaomi MiIO devices on LAN (Mi Home). Cloud app link alone does not expose LAN control."""
+    """Find Xiaomi MiIO devices on LAN and keep only entries with usable local tokens."""
     entries = []
 
     try:
@@ -73,7 +71,12 @@ def _discover_miio_entries():
                     rec = {
                         "id": f"miio_{ip}",
                         "name": f"Xiaomi {ip}",
+                        "provider": "xiaomi",
+                        "brand": "Xiaomi",
                         "type": "miio",
+                        "room": "",
+                        "cloud": False,
+                        "control_via": "hub",
                         "ip": ip,
                         "on_url": f"http://{ip}/on",
                         "off_url": f"http://{ip}/off",
@@ -126,7 +129,12 @@ def _discover_miio_entries():
             rec = {
                 "id": f"miio_{ip}",
                 "name": f"Xiaomi {ip}",
+                "provider": "xiaomi",
+                "brand": "Xiaomi",
                 "type": "miio",
+                "room": "",
+                "cloud": False,
+                "control_via": "hub",
                 "ip": ip,
                 "on_url": f"http://{ip}/on",
                 "off_url": f"http://{ip}/off",
@@ -135,15 +143,27 @@ def _discover_miio_entries():
                 rec["token"] = tok
             entries.append(rec)
 
-    if not entries:
+    connected_entries = []
+    skipped = 0
+    for entry in entries:
+        token = str(entry.get("token") or "").replace(" ", "").strip().lower()
+        if len(token) == 32:
+            entry["token"] = token
+            connected_entries.append(entry)
+        else:
+            skipped += 1
+
+    if not connected_entries:
         print(
-            "[SmartHome] No MiIO devices discovered. "
-            "Ensure bulbs are on the same Wi‑Fi as the Pi, LAN control enabled in Mi Home, "
-            "and run: pip install python-miio (optional: miiocli on PATH)."
+            "[SmartHome] No Xiaomi MiIO devices discovered with usable local tokens. "
+            "Ensure the device is on the same Wi-Fi as RK and python-miio is installed."
         )
     else:
-        print(f"[SmartHome] MiIO discovery: {len(entries)} candidate(s) on LAN")
-    return entries
+        print(
+            f"[SmartHome] Xiaomi discovery: {len(connected_entries)} ready device(s)"
+            + (f" | skipped {skipped} without token" if skipped else "")
+        )
+    return connected_entries
 
 
 def _lan_broadcast_addresses():
@@ -357,75 +377,10 @@ def discover_and_sync_devices(slug: str) -> dict:
 
 
 def _discover_and_sync_devices_impl(slug: str) -> dict:
-    print("[SmartHome] Starting zero-config network discovery...")
+    print("[SmartHome] Starting Xiaomi network discovery...")
     devices = []
 
-    # 1. TP-Link Kasa / Tapo Discovery
-    try:
-        from kasa import Discover
-
-        async def find_kasa():
-            merged = {}
-            try:
-                batch = await asyncio.wait_for(Discover.discover(), timeout=14.0)
-                merged.update(batch)
-            except asyncio.TimeoutError:
-                print("[SmartHome] Kasa default discover timed out (14s)")
-            except Exception as e:
-                print(f"[SmartHome] Kasa default discover: {e}")
-            if not merged:
-                for bcast in _lan_broadcast_addresses():
-                    try:
-                        batch = await asyncio.wait_for(
-                            Discover.discover(target=bcast), timeout=8.0
-                        )
-                        merged.update(batch)
-                    except TypeError:
-                        print("[SmartHome] python-kasa has no discover(target=) — try upgrading python-kasa")
-                        break
-                    except asyncio.TimeoutError:
-                        print(f"[SmartHome] Kasa timeout for {bcast}")
-                    except Exception as e:
-                        print(f"[SmartHome] Kasa {bcast}: {e}")
-            for ip, dev in merged.items():
-                await dev.update()
-                devices.append({
-                    "id": f"kasa_{dev.mac}",
-                    "name": dev.alias,
-                    "type": "kasa",
-                    "ip": ip,
-                    "on_url": f"http://{ip}/on",
-                    "off_url": f"http://{ip}/off",
-                })
-
-        asyncio.run(find_kasa())
-    except ImportError:
-        print("[SmartHome] python-kasa not installed, skipping Tapo/Kasa discovery")
-    except Exception as e:
-        print(f"[SmartHome] Kasa discovery error: {e}")
-
-    # 2. Yeelight Discovery
-    try:
-        from yeelight import discover_bulbs
-        try:
-            found = discover_bulbs(timeout=10)
-        except TypeError:
-            found = discover_bulbs()
-        for i, dev in enumerate(found):
-            devices.append({
-                "id": f"yeelight_{dev.get('ip', i)}",
-                "name": f"Yeelight Bulb {i+1}",
-                "type": "yeelight",
-                "ip": dev['ip'],
-                "on_url": f"http://{dev['ip']}/on",
-                "off_url": f"http://{dev['ip']}/off"
-            })
-    except ImportError:
-        print("[SmartHome] yeelight not installed, skipping Yeelight discovery")
-    except Exception as e:
-        print(f"[SmartHome] Yeelight discovery error: {e}")
-
-    # 3. Xiaomi MiIO (Mi Home — same LAN as Pi; not visible from cloud app alone)
+    # Xiaomi MiIO (Mi Home — same LAN as RK; auto-connect only when a token is discovered)
     try:
         for d in _discover_miio_entries():
             if d["ip"] not in {x.get("ip") for x in devices}:
@@ -435,23 +390,24 @@ def _discover_and_sync_devices_impl(slug: str) -> dict:
 
     if not devices:
         print(
-            "[SmartHome] No LAN devices found (Kasa/Tapo/Yeelight/MiIO). "
-            "Tuya-only or cloud-only gear: add webhooks in the app. "
-            "Mi Home: enable LAN control + same Wi‑Fi as RK; add 32-char token in app if toggle is missing."
+            "[SmartHome] No Xiaomi devices auto-connected. "
+            "Only devices discovered with a usable local MiIO token are added."
         )
 
-    # Deduplicate existing smart_devices manually configured by user
+    # Preserve existing Xiaomi devices and merge in fresh discoveries by IP.
     existing = get_smart_devices()
-    existing_ips = {d.get("ip") for d in existing if d.get("ip")}
-    
-    # Combine user configs with new discoveries
-    final_devices = list(existing)
+    existing_xiaomi = [
+        d for d in existing
+        if str(d.get("provider") or d.get("type") or "").lower() in ("xiaomi", "miio", "mihome")
+    ]
+    existing_ips = {d.get("ip") for d in existing_xiaomi if d.get("ip")}
+
+    final_devices = list(existing_xiaomi)
     for d in devices:
         if d["ip"] not in existing_ips:
             final_devices.append(d)
 
-    # Sync back to Appwrite systemStatus via Backend
-    print(f"[SmartHome] Scan complete. Found {len(devices)} native devices. Syncing {len(final_devices)} total...")
+    print(f"[SmartHome] Xiaomi scan complete. Found {len(devices)} ready device(s). Syncing {len(final_devices)} total...")
     try:
         requests.post(
             f"{BACKEND_BASE_URL}/device/{slug}/update-status",

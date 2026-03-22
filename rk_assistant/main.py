@@ -66,6 +66,7 @@ from .config import (
     GEMINI_API_KEY,
     GEMINI_API_KEY_BACKUP,
     GEMINI_MODEL,
+    GEMINI_MODEL_FALLBACK,
     USE_GEMINI_DIRECT,
     SILENCE_TIMEOUT,
     PHRASE_TIME_LIMIT,
@@ -263,7 +264,13 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
     reply_text = ""
     if USE_GEMINI_DIRECT and GEMINI_API_KEY:
         try:
-            reply_text = gemini_client.get_conversational_response(text, api_key=GEMINI_API_KEY)
+            reply_text = gemini_client.get_conversational_response(
+                text,
+                api_key=GEMINI_API_KEY,
+                backup_key=GEMINI_API_KEY_BACKUP,
+                model_name=GEMINI_MODEL,
+                fallback_model=GEMINI_MODEL_FALLBACK,
+            )
         except Exception as e:
             print(f"[gemini] Direct error: {e}")
 
@@ -280,7 +287,13 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
 
     print(f"[gemini] Reply: {reply_text}")
 
-    intents = gemini_client.classify_intent(text, api_key=GEMINI_API_KEY)
+    intents = gemini_client.classify_intent(
+        text,
+        api_key=GEMINI_API_KEY,
+        backup_key=GEMINI_API_KEY_BACKUP,
+        model_name=GEMINI_MODEL,
+        fallback_model=GEMINI_MODEL_FALLBACK,
+    )
 
     for intent_obj in intents:
         intent = intent_obj.get("intent", "general")

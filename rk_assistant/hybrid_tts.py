@@ -34,6 +34,9 @@ _ESPEAK_VOICES = {
     "male": "en+m3",
 }
 
+_FLITE_DURATION_STRETCH = os.getenv("RK_FLITE_DURATION_STRETCH", "1.12").strip() or "1.12"
+_ESPEAK_SPEED = os.getenv("RK_ESPEAK_SPEED", "145").strip() or "145"
+
 
 def contains_hindi(text: str) -> bool:
     """Return True when the text contains Devanagari characters."""
@@ -77,6 +80,13 @@ def _speak_with_flite(text: str, gender: str) -> bool:
     if not spoken_text:
         return True
     voice = _FLITE_VOICES[_normalize_gender(gender)]
+    slower_cmd = (
+        f"flite -voice {shlex.quote(voice)} "
+        f"-set duration_stretch={shlex.quote(_FLITE_DURATION_STRETCH)} "
+        f"-t {shlex.quote(spoken_text)}"
+    )
+    if _run_command(slower_cmd):
+        return True
     cmd = f"flite -voice {shlex.quote(voice)} -t {shlex.quote(spoken_text)}"
     return _run_command(cmd)
 
@@ -105,10 +115,10 @@ def _speak_with_espeak(text: str, gender: str) -> bool:
         voice = "hi"
     else:
         voice = _ESPEAK_VOICES[_normalize_gender(gender)]
-    cmd = f"espeak-ng -s 160 -v {shlex.quote(voice)} {shlex.quote(text)}"
+    cmd = f"espeak-ng -s {shlex.quote(_ESPEAK_SPEED)} -v {shlex.quote(voice)} {shlex.quote(text)}"
     if _run_command(cmd):
         return True
-    legacy_cmd = f"espeak -s 160 -v {shlex.quote(voice)} {shlex.quote(text)}"
+    legacy_cmd = f"espeak -s {shlex.quote(_ESPEAK_SPEED)} -v {shlex.quote(voice)} {shlex.quote(text)}"
     return _run_command(legacy_cmd)
 
 
