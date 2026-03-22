@@ -19,6 +19,7 @@ from .settings_sync import get_smart_devices, device_settings
 from .config import RK_WEBHOOK_SECRET, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP
 
 BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'https://rk-ai-backend.onrender.com')
+DEVICE_SLUG = os.getenv('DEVICE_SLUG', '').strip()
 
 # Only one discovery at a time — parallel scans break asyncio.run() and duplicate TTS/work.
 _discover_lock = threading.Lock()
@@ -200,6 +201,32 @@ def _format_control_error(err: Exception, device_label: str) -> str:
     return f"{device_label}: {str(err)[:160]}"
 
 
+def _backend_proxy_control(device_id: str, action: str, payload: dict = None) -> str:
+    if not DEVICE_SLUG:
+        return "Smart-home cloud control needs DEVICE_SLUG on the RK hub."
+
+    try:
+        res = requests.post(
+            f"{BACKEND_BASE_URL}/device/{DEVICE_SLUG}/smart-home/control",
+            json={
+                "id": device_id,
+                "action": action,
+                "payload": payload or {},
+            },
+            timeout=10,
+        )
+        data = res.json() if res.content else {}
+        if not res.ok:
+            return data.get("error") or f"Cloud control failed ({res.status_code})."
+        return ""
+    except requests.exceptions.Timeout as e:
+        return _format_control_error(e, "Cloud device")
+    except requests.exceptions.RequestException as e:
+        return _format_control_error(e, "Cloud device")
+    except Exception as e:
+        return str(e)
+
+
 def _match_device_by_voice_query(query: str, devices: list):
     """
     Prefer stable id match, then token overlap + longest name — avoids 'light' matching every device.
@@ -231,20 +258,39 @@ def _match_device_by_voice_query(query: str, devices: list):
     best = None
     best_score = -1
     for d in devices:
-        name = str(d.get("name", "")).lower().strip()
-        if not name:
-            continue
-        d_tokens = set(re.findall(r"[a-z0-9]+", name))
-        overlap = len(q_tokens & d_tokens)
-        if len(name) >= 3 and name in q:
-            overlap += 4
-        if len(q) >= 3 and q in name:
-            overlap += 2
-        # Prefer longer names on tie (more specific, e.g. "bedroom light" vs "light")
-        tie_break = len(name)
-        score = overlap * 1000 + tie_break
-        if overlap >= 1 and score > best_score:
-            best_score = score
+        candidates = [str(d.get("name", "")).lower().strip()]
+        room = str(d.get("room", "")).lower().strip()
+        if room:
+            candidates.append(room)
+            nm = str(d.get("name", "")).lower().strip()
+            if nm:
+                candidates.append(f"{room} {nm}")
+        brand = str(d.get("brand", "")).lower().strip()
+        if brand:
+            candidates.append(brand)
+        for alias in (d.get("aliases") or []):
+            alias = str(alias).lower().strip()
+            if alias:
+                candidates.append(alias)
+
+        local_best = -1
+        local_name = ""
+        for name in candidates:
+            if not name:
+                continue
+            d_tokens = set(re.findall(r"[a-z0-9]+", name))
+            overlap = len(q_tokens & d_tokens)
+            if len(name) >= 3 and name in q:
+                overlap += 4
+            if len(q) >= 3 and q in name:
+                overlap += 2
+            score = overlap * 1000 + len(name)
+            if overlap >= 1 and score > local_best:
+                local_best = score
+                local_name = name
+
+        if local_best > best_score:
+            best_score = local_best
             best = d
 
     if best is not None and best_score >= 1000:  # token overlap and/or substring boost
@@ -446,6 +492,17 @@ def _apply_power(matched_device: dict, state: bool, color: str = None) -> str:
     ip = matched_device.get("ip")
 
     try:
+        if matched_device.get("control_via") == "backend_proxy" or matched_device.get("provider") == "tuya":
+            err = _backend_proxy_control(
+                str(matched_device.get("id") or matched_device.get("provider_device_id") or ""),
+                "on" if state else "off",
+                {"color": color} if color else {},
+            )
+            if err:
+                return err
+            action_str = "Turned on" if state else "Turned off"
+            return f"{action_str} the {matched_device.get('name')}."
+
         if dev_type == "kasa" and ip:
             from kasa import SmartDevice
 
@@ -527,6 +584,21 @@ def control_device_by_id(device_id: str, action: str = "toggle") -> str:
 
     if action == "toggle":
         try:
+            if matched.get("control_via") == "backend_proxy" or matched.get("provider") == "tuya":
+                current = None
+                raw_status = matched.get("raw_status") or []
+                if isinstance(raw_status, list):
+                    switch_code = ((matched.get("control_codes") or {}).get("switch")) or ""
+                    for row in raw_status:
+                        if row.get("code") == switch_code or "switch" in str(row.get("code", "")):
+                            if isinstance(row.get("value"), bool):
+                                current = row.get("value")
+                                break
+                err = _backend_proxy_control(device_id, "off" if current else "on")
+                if err:
+                    return err
+                return f"Toggled {name}."
+
             if dev_type == "kasa" and ip:
                 from kasa import SmartDevice
 
