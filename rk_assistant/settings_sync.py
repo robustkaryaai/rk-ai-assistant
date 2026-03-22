@@ -30,11 +30,6 @@ device_settings = {
         'gender': 'female',
         'language': 'en',
     },
-    'xiaomi_oauth': {
-        'linked': False,
-        'user_id': '',
-        'region': 'all',
-    },
 }
 
 def poll_device_settings(slug):
@@ -121,13 +116,6 @@ def refresh_device_settings_now(slug=None):
                 tts_config = dict(device_settings['tts_config'])
                 tts_config.update(sys_status['ttsConfig'])
                 device_settings['tts_config'] = tts_config
-            if isinstance(sys_status.get('xiaomiOAuth'), dict):
-                xiaomi_oauth = dict(device_settings['xiaomi_oauth'])
-                incoming = dict(sys_status['xiaomiOAuth'])
-                if 'userId' in incoming and 'user_id' not in incoming:
-                    incoming['user_id'] = incoming['userId']
-                xiaomi_oauth.update(incoming)
-                device_settings['xiaomi_oauth'] = xiaomi_oauth
             if 'smart_devices' in sys_status and not device_settings['smart_devices']:
                 try:
                     devs = sys_status['smart_devices']
@@ -172,8 +160,3 @@ def get_smart_devices():
 def get_tts_config():
     """Get the currently synced TTS configuration."""
     return dict(device_settings['tts_config'])
-
-
-def get_xiaomi_oauth_config():
-    """Get the Xiaomi OAuth identity metadata synced from the app/backend."""
-    return dict(device_settings['xiaomi_oauth'])

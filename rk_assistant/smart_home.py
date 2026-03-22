@@ -14,11 +14,10 @@ import time
 import json
 import asyncio
 from typing import Dict, List
-from .settings_sync import get_smart_devices, get_xiaomi_oauth_config, device_settings
+from .settings_sync import get_smart_devices, device_settings
 from .config import RK_WEBHOOK_SECRET, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP
 
 BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'https://rk-ai-backend.onrender.com')
-XIAOMI_OAUTH_API_BASE_URL = os.getenv('XIAOMI_OAUTH_API_BASE_URL', BACKEND_BASE_URL)
 DEVICE_SLUG = os.getenv('DEVICE_SLUG', '').strip()
 
 # Only one discovery at a time — parallel scans break asyncio.run() and duplicate TTS/work.
@@ -206,31 +205,6 @@ def _merge_xiaomi_devices(*groups: List[dict]) -> List[dict]:
 
             merged[key] = combined
     return list(merged.values())
-
-
-def _fetch_backend_xiaomi_devices() -> List[dict]:
-    cfg = get_xiaomi_oauth_config()
-    user_id = str(cfg.get("user_id") or cfg.get("userId") or "").strip()
-    if not user_id:
-        return []
-
-    try:
-        response = requests.get(
-            f"{XIAOMI_OAUTH_API_BASE_URL.rstrip('/')}/xiaomi/devices/{user_id}",
-            timeout=10,
-        )
-        payload = response.json() if response.ok else {}
-        if not response.ok:
-            print(f"[SmartHome] Xiaomi OAuth device fetch failed | status={response.status_code} detail={payload}")
-            return []
-
-        devices = payload.get("devices") if isinstance(payload, dict) else []
-        entries = [item for item in devices if isinstance(item, dict)]
-        print(f"[SmartHome] Xiaomi OAuth device fetch OK | user_id={user_id} devices={len(entries)}")
-        return entries
-    except Exception as exc:
-        print(f"[SmartHome] Xiaomi OAuth device fetch error | err={exc}")
-        return []
 
 
 def _lan_broadcast_addresses():
@@ -444,9 +418,8 @@ def discover_and_sync_devices(slug: str) -> dict:
 
 
 def _discover_and_sync_devices_impl(slug: str) -> dict:
-    print("[SmartHome] Starting Xiaomi discovery (LAN + backend-synced devices)...")
+    print("[SmartHome] Starting Xiaomi LAN discovery...")
     local_devices = []
-    oauth_devices = []
 
     # Xiaomi MiIO (LAN)
     try:
@@ -462,20 +435,17 @@ def _discover_and_sync_devices_impl(slug: str) -> dict:
             "No usable LAN tokens were found from local discovery."
         )
 
-    # Pull merged OAuth + QR devices from the backend service when a Xiaomi user identity is linked.
-    oauth_devices = _fetch_backend_xiaomi_devices()
-
-    # Preserve backend-synced Xiaomi devices and merge in any fresh LAN discoveries.
+    # Preserve existing Xiaomi devices and merge in any fresh LAN discoveries.
     existing = get_smart_devices()
     existing_xiaomi = [
         d for d in existing
         if str(d.get("provider") or d.get("type") or "").lower() in ("xiaomi", "miio", "mihome")
     ]
-    final_devices = _merge_xiaomi_devices(existing_xiaomi, oauth_devices, local_devices)
+    final_devices = _merge_xiaomi_devices(existing_xiaomi, local_devices)
 
     print(
         "[SmartHome] Xiaomi merge complete | "
-        f"existing={len(existing_xiaomi)} oauth={len(oauth_devices)} local={len(local_devices)} total={len(final_devices)}"
+        f"existing={len(existing_xiaomi)} local={len(local_devices)} total={len(final_devices)}"
     )
     try:
         requests.post(
@@ -490,10 +460,9 @@ def _discover_and_sync_devices_impl(slug: str) -> dict:
         _invalidate_devices_cache()
         return {
             "success": True,
-            "count": len(local_devices) + len(oauth_devices),
+            "count": len(local_devices),
             "local_count": len(local_devices),
-            "oauth_count": len(oauth_devices),
-            "devices_found": list(oauth_devices) + list(local_devices),
+            "devices_found": list(local_devices),
             "total_registered": len(final_devices),
             "devices": final_devices,
         }

@@ -316,6 +316,15 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
             smart_home.run_coding_ambience()
             speak(reply_text)
             trigger_desktop_action("lumina_coding_session", params, slug=slug)
+        elif intent == "shutdown/exit":
+            lowered = text.lower()
+            desktop_words = ("computer", "desktop", "pc", "laptop", "mac", "windows")
+            if any(word in lowered for word in desktop_words):
+                from .desktop_link import trigger_desktop_action
+                speak(reply_text or "Shutting down your desktop.")
+                trigger_desktop_action("desktop_shutdown", params, slug=slug)
+            else:
+                speak(reply_text)
         elif intent == "alarm":
             speak(reply_text)
         else:

@@ -99,8 +99,9 @@ STRICT CLASSIFICATION RULES
 12) If the user says "make my setup cozy", "prepare coding environment", "open workspace" → intent = "cozy_setup".
 13) If the user says "activate focus mode", "don't disturb", "focus time" → intent = "focus_mode".
 14) If the user says "open [app name]", "launch [app name]" → intent = "open_app" and put app name in "app_name" parameter.
-15) If the user is starting a coding session on Lumina OS / Lumina (e.g. "I'm coming to code on Lumina", "prepare my Lumina workspace", "set up Lumina for coding") → intent = "lumina_coding". Optional parameters: folder (path), ide (app name).
-16) Output must be pure JSON; do not wrap in markdown; no commentary.
+15) If the user is starting a coding session on Lumina OS / Lumina (e.g. "I'm coming to code on Lumina", "prepare my Lumina workspace", "set up Lumina for coding", "I'm coming for coding") → intent = "lumina_coding". Optional parameters: folder (path), ide (app name).
+16) If the user says "turn the computer off", "shut down the desktop", "power off my PC" → intent = "shutdown/exit".
+17) Output must be pure JSON; do not wrap in markdown; no commentary.
 
 RESPONSE GENERATION (reply field)
 - For EVERY intent, generate a short, natural, and helpful spoken response in the "reply" field.
@@ -139,6 +140,10 @@ User: "make a poster for school science fair"
 User: "I'm coming to code on Lumina, prep my space"
 [
   { "intent": "lumina_coding", "reply": "On it — I'll brighten your space and wake your desktop for Lumina.", "parameters": { "prompt": "prepare Lumina coding workspace" } }
+]
+User: "turn the computer off"
+[
+  { "intent": "shutdown/exit", "reply": "Okay, I'll shut the computer down.", "parameters": { "prompt": "turn the computer off" } }
 ]
 
 Now only output JSON following the schema and rules. """.replace("{DEVICE_ID}", str(DEVICE_ID))
