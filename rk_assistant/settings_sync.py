@@ -30,11 +30,6 @@ device_settings = {
         'gender': 'female',
         'language': 'en',
     },
-    'xiaomi_cloud': {
-        'username': '',
-        'password': '',
-        'region': 'all',
-    },
 }
 
 def poll_device_settings(slug):
@@ -121,10 +116,6 @@ def refresh_device_settings_now(slug=None):
                 tts_config = dict(device_settings['tts_config'])
                 tts_config.update(sys_status['ttsConfig'])
                 device_settings['tts_config'] = tts_config
-            if isinstance(sys_status.get('xiaomiCloud'), dict):
-                xiaomi_cloud = dict(device_settings['xiaomi_cloud'])
-                xiaomi_cloud.update(sys_status['xiaomiCloud'])
-                device_settings['xiaomi_cloud'] = xiaomi_cloud
             if 'smart_devices' in sys_status and not device_settings['smart_devices']:
                 try:
                     devs = sys_status['smart_devices']
@@ -169,8 +160,3 @@ def get_smart_devices():
 def get_tts_config():
     """Get the currently synced TTS configuration."""
     return dict(device_settings['tts_config'])
-
-
-def get_xiaomi_cloud_config():
-    """Get the currently synced Xiaomi cloud configuration."""
-    return dict(device_settings['xiaomi_cloud'])

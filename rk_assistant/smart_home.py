@@ -14,7 +14,7 @@ import time
 import json
 import asyncio
 from typing import Dict, List
-from .settings_sync import get_smart_devices, get_xiaomi_cloud_config, refresh_device_settings_now, device_settings
+from .settings_sync import get_smart_devices, device_settings
 from .config import RK_WEBHOOK_SECRET, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP
 
 BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'https://rk-ai-backend.onrender.com')
@@ -169,57 +169,7 @@ def _discover_miio_entries():
     return connected_entries
 
 
-_XIAOMI_CLOUD_REGION_ALIASES = {
-    "": "all",
-    "all": "all",
-    "cn": "cn",
-    "china": "cn",
-    "de": "de",
-    "germany": "de",
-    "ru": "ru",
-    "russia": "ru",
-    "sg": "sg",
-    "singapore": "sg",
-    "us": "us",
-    "usa": "us",
-    "i2": "i2",
-    "in": "i2",
-    "india": "i2",
-}
-
-
-def _normalize_xiaomi_cloud_region(region: str) -> str:
-    return _XIAOMI_CLOUD_REGION_ALIASES.get(str(region or "").strip().lower(), "all")
-
-
-def _is_valid_miio_token(token: str) -> bool:
-    token = str(token or "").strip().lower()
-    return len(token) == 32 and re.fullmatch(r"[0-9a-f]{32}", token) is not None
-
-
-def _extract_xiaomi_ip(raw: dict) -> str:
-    for key in ("localip", "ip", "localIp", "local_ip"):
-        val = raw.get(key)
-        if val:
-            return str(val).strip()
-    return ""
-
-
-def _extract_xiaomi_token(raw: dict) -> str:
-    for key in ("token", "miotDtoken"):
-        val = raw.get(key)
-        if val:
-            token = str(val).replace(" ", "").strip().lower()
-            if _is_valid_miio_token(token):
-                return token
-    return ""
-
-
-def _is_child_xiaomi_device(raw: dict) -> bool:
-    return bool(raw.get("parent_id") or raw.get("parentId") or raw.get("pid"))
-
-
-def _cloud_merge_key(device: dict) -> str:
+def _xiaomi_merge_key(device: dict) -> str:
     did = str(device.get("did") or "").strip()
     ip = str(device.get("ip") or "").strip()
     dev_id = str(device.get("id") or "").strip()
@@ -230,148 +180,13 @@ def _cloud_merge_key(device: dict) -> str:
     return f"id:{dev_id}"
 
 
-def _miio_cloud_probe(ip: str, token: str, model: str = "") -> bool:
-    if not ip or not _is_valid_miio_token(token):
-        return False
-    try:
-        try:
-            from miio import DeviceFactory
-
-            dev = DeviceFactory.create(ip, token)
-            info = dev.info()
-        except Exception:
-            from miio import Device
-
-            dev = Device(ip, token, model=model or None)
-            info = dev.info()
-        model_name = getattr(info, "model", None) if info else None
-        print(f"[SmartHome][MiCloud] Local MiIO validation OK | ip={ip} model={model_name or model or 'unknown'}")
-        return True
-    except Exception as e:
-        print(f"[SmartHome][MiCloud] Local MiIO validation failed | ip={ip} model={model or 'unknown'} err={e}")
-        return False
-
-
-def _discover_micloud_entries() -> List[dict]:
-    """Fetch Xiaomi cloud devices using micloud and keep locally controllable MiIO entries."""
-    try:
-        refresh_device_settings_now(DEVICE_SLUG)
-    except Exception as e:
-        print(f"[SmartHome][MiCloud] Settings refresh before cloud login failed | err={e}")
-
-    cfg = get_xiaomi_cloud_config()
-    username = str(cfg.get("username") or "").strip()
-    password = str(cfg.get("password") or "").strip()
-    region = _normalize_xiaomi_cloud_region(cfg.get("region"))
-
-    if not username or not password:
-        print("[SmartHome][MiCloud] No Xiaomi cloud credentials configured; skipping cloud token retrieval.")
-        return []
-
-    try:
-        from micloud import MiCloud
-    except ImportError:
-        print("[SmartHome][MiCloud] micloud is not installed on the hub. Run: pip install micloud")
-        return []
-
-    print(f"[SmartHome][MiCloud] Login start | user={username} region={region}")
-    try:
-        mc = MiCloud(username, password)
-        mc.login()
-        service_token = mc.get_token()
-        print(f"[SmartHome][MiCloud] Login OK | service_token={'yes' if service_token else 'no'}")
-    except Exception as e:
-        print(f"[SmartHome][MiCloud] Login failed | err={e}")
-        return []
-
-    try:
-        raw_devices = mc.get_devices() if region == "all" else mc.get_devices(country=region)
-    except TypeError:
-        raw_devices = mc.get_devices(region) if region != "all" else mc.get_devices()
-    except Exception as e:
-        print(f"[SmartHome][MiCloud] get_devices failed | err={e}")
-        return []
-
-    if isinstance(raw_devices, dict):
-        if isinstance(raw_devices.get("result"), list):
-            raw_devices = raw_devices["result"]
-        elif isinstance(raw_devices.get("devices"), list):
-            raw_devices = raw_devices["devices"]
-        else:
-            raw_devices = list(raw_devices.values())
-    elif not isinstance(raw_devices, list):
-        raw_devices = list(raw_devices or [])
-
-    print(f"[SmartHome][MiCloud] Retrieved {len(raw_devices)} cloud device record(s)")
-
-    entries = []
-    skipped_no_token = 0
-    skipped_no_ip = 0
-    skipped_child = 0
-    skipped_not_local = 0
-
-    for raw in raw_devices:
-        if not isinstance(raw, dict):
-            continue
-
-        did = str(raw.get("did") or raw.get("id") or "").strip()
-        name = str(raw.get("name") or raw.get("desc") or "Xiaomi Device").strip()
-        model = str(raw.get("model") or "").strip()
-        ip = _extract_xiaomi_ip(raw)
-        token = _extract_xiaomi_token(raw)
-        locale = str(raw.get("locale") or region).strip()
-
-        if _is_child_xiaomi_device(raw):
-            skipped_child += 1
-            print(f"[SmartHome][MiCloud] Skip child/subdevice | did={did or 'unknown'} model={model or 'unknown'}")
-            continue
-        if not token:
-            skipped_no_token += 1
-            print(f"[SmartHome][MiCloud] Skip no token | did={did or 'unknown'} model={model or 'unknown'}")
-            continue
-        if not ip:
-            skipped_no_ip += 1
-            print(f"[SmartHome][MiCloud] Skip no local IP | did={did or 'unknown'} model={model or 'unknown'}")
-            continue
-        if not _miio_cloud_probe(ip, token, model):
-            skipped_not_local += 1
-            continue
-
-        entries.append({
-            "id": f"miio_cloud_{did or ip}",
-            "did": did,
-            "name": name,
-            "provider": "xiaomi",
-            "brand": "Xiaomi",
-            "type": "miio",
-            "room": "",
-            "cloud": True,
-            "source": "micloud",
-            "control_via": "hub",
-            "ip": ip,
-            "token": token,
-            "miio_model": model,
-            "locale": locale,
-            "on_url": f"http://{ip}/on",
-            "off_url": f"http://{ip}/off",
-        })
-        print(f"[SmartHome][MiCloud] Added | did={did or 'unknown'} ip={ip} model={model or 'unknown'}")
-
-    print(
-        "[SmartHome][MiCloud] Done | "
-        f"ready={len(entries)} no_token={skipped_no_token} no_ip={skipped_no_ip} "
-        f"child={skipped_child} not_local={skipped_not_local}"
-    )
-    return entries
-
-
 def _merge_xiaomi_devices(*groups: List[dict]) -> List[dict]:
     merged: Dict[str, dict] = {}
     for group in groups:
         for item in group or []:
             if not isinstance(item, dict):
                 continue
-            key = _cloud_merge_key(item)
+            key = _xiaomi_merge_key(item)
             previous = merged.get(key, {})
             combined = {**previous, **item}
 
@@ -603,9 +418,8 @@ def discover_and_sync_devices(slug: str) -> dict:
 
 
 def _discover_and_sync_devices_impl(slug: str) -> dict:
-    print("[SmartHome] Starting Xiaomi discovery (local + cloud)...")
+    print("[SmartHome] Starting Xiaomi discovery (LAN + backend-synced devices)...")
     local_devices = []
-    cloud_devices = []
 
     # Xiaomi MiIO (LAN)
     try:
@@ -615,30 +429,23 @@ def _discover_and_sync_devices_impl(slug: str) -> dict:
     except Exception as e:
         print(f"[SmartHome] MiIO discovery error: {e}")
 
-    # Xiaomi Mi Cloud token retrieval
-    try:
-        cloud_devices = _discover_micloud_entries()
-    except Exception as e:
-        print(f"[SmartHome] MiCloud discovery error: {e}")
-
-    if not local_devices and not cloud_devices:
+    if not local_devices:
         print(
             "[SmartHome] No Xiaomi devices auto-connected. "
-            "No usable LAN tokens were found from local discovery or Xiaomi cloud."
+            "No usable LAN tokens were found from local discovery."
         )
 
-    # Preserve existing Xiaomi devices and merge in fresh discoveries.
+    # Preserve backend-synced Xiaomi devices and merge in any fresh LAN discoveries.
     existing = get_smart_devices()
     existing_xiaomi = [
         d for d in existing
         if str(d.get("provider") or d.get("type") or "").lower() in ("xiaomi", "miio", "mihome")
     ]
-    final_devices = _merge_xiaomi_devices(existing_xiaomi, local_devices, cloud_devices)
+    final_devices = _merge_xiaomi_devices(existing_xiaomi, local_devices)
 
     print(
         "[SmartHome] Xiaomi merge complete | "
-        f"existing={len(existing_xiaomi)} local={len(local_devices)} cloud={len(cloud_devices)} "
-        f"total={len(final_devices)}"
+        f"existing={len(existing_xiaomi)} local={len(local_devices)} total={len(final_devices)}"
     )
     try:
         requests.post(
@@ -653,10 +460,9 @@ def _discover_and_sync_devices_impl(slug: str) -> dict:
         _invalidate_devices_cache()
         return {
             "success": True,
-            "count": len(local_devices) + len(cloud_devices),
+            "count": len(local_devices),
             "local_count": len(local_devices),
-            "cloud_count": len(cloud_devices),
-            "devices_found": list(local_devices) + list(cloud_devices),
+            "devices_found": list(local_devices),
             "total_registered": len(final_devices),
             "devices": final_devices,
         }
