@@ -32,7 +32,7 @@ def speak(
         return
 
     profile = get_tts_config()
-    requested_engine = str(engine or profile.get("engine") or "flite").strip().lower()
+    requested_engine = str(engine or profile.get("engine") or "gtts").strip().lower()
     requested_gender = str(gender or profile.get("gender") or "female").strip().lower()
     requested_voice = voice or profile.get("voice")
     requested_language = str(language or profile.get("language") or "en").strip().lower()
@@ -43,11 +43,14 @@ def speak(
         requested_language = "en"
 
     allow_network_gtts = bool(online and allow_network_tts and not FORCE_OFFLINE)
-    allow_gtts = allow_network_gtts or requested_engine == "gtts"
+    allow_gtts = allow_network_gtts
 
-    # Offline auto mode should stay local unless the caller explicitly requested gTTS.
-    if not allow_network_gtts and requested_engine == "auto" and contains_hindi(spoken_text):
-        requested_engine = "espeak"
+    # When gTTS is selected but the device is offline, fall back to local engines.
+    if not allow_network_gtts:
+        if requested_engine == "gtts":
+            requested_engine = "espeak" if contains_hindi(spoken_text) else "flite"
+        elif requested_engine == "auto" and contains_hindi(spoken_text):
+            requested_engine = "espeak"
 
     with _tts_lock:
         print(f"🔊 {spoken_text}", flush=True)

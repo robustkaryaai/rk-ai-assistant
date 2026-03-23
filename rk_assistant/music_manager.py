@@ -5,16 +5,29 @@ import shutil
 import os
 import json
 import re
+import time
 from .audio_utils import speak
 import signal
+import threading
 from typing import Optional, List, Dict, Any
 from difflib import SequenceMatcher
 
 from threading import Lock
 
 current_player = None
+current_track_info = None
+prefetched_track_info = None
 last_played_query = None
 _search_lock = Lock() # 🚀 Prevent duplicate overlapping searches
+_state_lock = Lock()
+_prefetch_lock = Lock()
+_housekeeping_lock = Lock()
+_music_state = "idle"
+_playlist_generation = 0
+_housekeeping_started = False
+
+_STATUS_UNSET = object()
+_SUPPORTED_EXTS = ("mp3", "m4a", "webm")
 
 def get_related_song_recommendation(title: str) -> Optional[str]:
     """Use Gemini to get a related song title based on the current one."""
@@ -72,6 +85,467 @@ def _has_stop_command(norm_query: str) -> bool:
         r"\bquiet\b",
     ]
     return any(re.search(pattern, norm_query) for pattern in patterns)
+
+
+def _songs_dir():
+    from pathlib import Path
+    cache_dir = Path(os.getcwd()) / "songs"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def _index_path():
+    return _songs_dir() / "index.json"
+
+
+def _stats_path():
+    return _songs_dir() / "track_stats.json"
+
+
+def _load_json_file(path, default):
+    try:
+        if path.exists():
+            with open(path, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[music] JSON load error for {path.name}: {e}", flush=True)
+    return default
+
+
+def _save_json_file(path, data):
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"[music] JSON save error for {path.name}: {e}", flush=True)
+
+
+def _safe_title(title: str) -> str:
+    return "".join(c for c in str(title or "") if c.isalnum() or c in (" ", "-", "_")).strip() or "track"
+
+
+def _short_title(title: str) -> str:
+    speak_title = str(title or "").partition("|")[0].strip()
+    words = speak_title.split()
+    return " ".join(words[:5]) if len(words) > 5 else speak_title
+
+
+def _get_slug() -> Optional[str]:
+    try:
+        from .networking import read_slug
+        slug, _ = read_slug()
+        return slug
+    except Exception:
+        return None
+
+
+def _push_backend_status(busy_state=None, download_progress=_STATUS_UNSET):
+    try:
+        from .config import BACKEND_BASE_URL
+        import requests
+        slug = _get_slug()
+        if not slug:
+            return
+
+        payload = {}
+        if busy_state is not None:
+            payload["busyState"] = busy_state
+        if download_progress is not _STATUS_UNSET:
+            payload["downloadProgress"] = download_progress
+        if not payload:
+            return
+        requests.post(f"{BACKEND_BASE_URL}/device/{slug}/update-status", json=payload, timeout=3)
+    except Exception as e:
+        print(f"[music] Backend status push failed: {e}", flush=True)
+
+
+def _set_music_state(state: str, download_progress=_STATUS_UNSET):
+    global _music_state
+    with _state_lock:
+        _music_state = state
+    _push_backend_status(busy_state=state, download_progress=download_progress)
+
+
+def get_runtime_state() -> Optional[str]:
+    with _state_lock:
+        return _music_state if _music_state in {"searching", "downloading", "playing"} else None
+
+
+def _clear_download_progress():
+    _push_backend_status(download_progress=None)
+
+
+def _extract_vid_id(filename: str) -> Optional[str]:
+    match = re.search(r"\[([a-zA-Z0-9_-]+)\]\.(mp3|m4a|webm)$", filename)
+    if match:
+        return match.group(1)
+    match = re.search(r"^([a-zA-Z0-9_-]+)\.(mp3|m4a|webm)$", filename)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _find_cached_file(vid_id: str):
+    cache_dir = _songs_dir()
+    import glob
+    matches = []
+    for ext in _SUPPORTED_EXTS:
+        matches.extend(list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}")))
+    if matches:
+        return str(matches[0])
+    for ext in _SUPPORTED_EXTS:
+        exact = cache_dir / f"{vid_id}.{ext}"
+        if exact.exists():
+            return str(exact)
+    return None
+
+
+def _load_index() -> Dict[str, Dict[str, Any]]:
+    return _load_json_file(_index_path(), {})
+
+
+def _save_index(index: Dict[str, Dict[str, Any]]):
+    _save_json_file(_index_path(), index)
+
+
+def _append_query_to_index(vid_id: str, title: str, norm_query: str):
+    index = _load_index()
+    current_data = index.get(vid_id, {})
+    queries = current_data.get("queries", [])
+    if norm_query and norm_query not in queries:
+        queries.append(norm_query)
+    index[vid_id] = {"title": title, "queries": queries}
+    _save_index(index)
+
+
+def _record_play(track: Dict[str, Any]):
+    vid_id = track.get("vid_id")
+    if not vid_id:
+        return
+    stats = _load_json_file(_stats_path(), {})
+    entry = stats.get(vid_id, {})
+    entry["title"] = track.get("title", "")
+    entry["file_path"] = track.get("file_path", "")
+    entry["play_count"] = int(entry.get("play_count", 0)) + 1
+    entry["last_played_at"] = int(time.time())
+    stats[vid_id] = entry
+    _save_json_file(_stats_path(), stats)
+
+
+def _spawn_player(file_path: str):
+    if not file_path or not os.path.exists(file_path):
+        return None
+    if file_path.endswith(".mp3"):
+        return subprocess.Popen(["mpg123", "-o", "pulse", "-q", file_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pipeline = f"ffmpeg -hide_banner -loglevel error -i '{file_path}' -f wav - | paplay 2>/dev/null || ffmpeg -hide_banner -loglevel error -i '{file_path}' -f wav - | aplay -D pulse -q 2>/dev/null"
+    return subprocess.Popen(pipeline, shell=True, preexec_fn=os.setsid)
+
+
+def _resolve_local_track(norm_query: str) -> Optional[Dict[str, Any]]:
+    index = _load_index()
+    if not index:
+        return None
+
+    best_match = None
+    best_score = 0.0
+    for vid_id, data in index.items():
+        title = data.get("title", "").lower()
+        if not title:
+            continue
+
+        for pq in data.get("queries", []):
+            pq_clean = clean_music_query(pq)
+            score_q = SequenceMatcher(None, norm_query, pq_clean).ratio()
+            if score_q > best_score:
+                best_score = score_q
+                best_match = vid_id
+            score_raw = SequenceMatcher(None, norm_query, pq).ratio()
+            if score_raw > best_score:
+                best_score = score_raw
+                best_match = vid_id
+
+        score1 = SequenceMatcher(None, norm_query, title).ratio()
+        q_words = set(norm_query.split())
+        t_words = set(title.split())
+        score2 = (len(q_words.intersection(t_words)) / len(q_words)) if q_words else 0.0
+        current_score = max(score1, score2)
+        if current_score > best_score:
+            best_score = current_score
+            best_match = vid_id
+        if norm_query in title or title in norm_query:
+            best_score = max(best_score, 0.8)
+
+    if best_score <= 0.6 or not best_match:
+        return None
+
+    found_file = _find_cached_file(best_match)
+    if not found_file:
+        return None
+
+    title = index.get(best_match, {}).get("title", best_match)
+    print(f"[music] ✅ Found local match! Score: {best_score:.2f} (ID: {best_match})", flush=True)
+    _append_query_to_index(best_match, title, norm_query)
+    return {
+        "vid_id": best_match,
+        "title": title,
+        "file_path": found_file,
+        "query": norm_query,
+        "source": "local",
+    }
+
+
+def _search_youtube_match(norm_query: str) -> Optional[Dict[str, str]]:
+    search_cmd = [
+        "yt-dlp",
+        "--force-ipv4",
+        "--get-title",
+        "--get-id",
+        f"ytsearch1:{norm_query}",
+    ]
+    search_res = subprocess.run(search_cmd, capture_output=True, text=True)
+    if search_res.returncode != 0:
+        return None
+    lines = search_res.stdout.strip().split("\n")
+    if len(lines) < 2:
+        return None
+    return {"title": lines[0].strip(), "vid_id": lines[1].strip()}
+
+
+def _download_track(track: Dict[str, Any], first_song: bool = False) -> Optional[Dict[str, Any]]:
+    cache_dir = _songs_dir()
+    title = track["title"]
+    vid_id = track["vid_id"]
+    safe_title = _safe_title(title)
+    file_path_template = str(cache_dir / f"{safe_title} [{vid_id}].%(ext)s"[:255])
+    safe_url = f"https://www.youtube.com/watch?v={vid_id}"
+
+    if first_song:
+        speak(f"Downloading {_short_title(title)}")
+        _set_music_state("downloading", f"Downloading: {title}")
+    else:
+        _push_backend_status(download_progress=f"Downloading next: {title}")
+
+    print(f"[music] ⬇️  Downloading... ({title})", flush=True)
+    dl_cmd = [
+        "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
+        "-f", "ba[ext=m4a]/ba", "-o", file_path_template, safe_url,
+    ]
+    subprocess.run(dl_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    final_file = _find_cached_file(vid_id)
+    if not final_file:
+        if first_song:
+            _clear_download_progress()
+        return None
+
+    track = dict(track)
+    track["file_path"] = final_file
+    _append_query_to_index(vid_id, title, track.get("query", ""))
+    _clear_download_progress()
+    return track
+
+
+def _prepare_track(norm_query: str, announce: bool = True, prefetch: bool = False) -> Optional[Dict[str, Any]]:
+    if not norm_query:
+        return None
+
+    local_track = _resolve_local_track(norm_query)
+    if local_track:
+        return local_track
+
+    if not _search_lock.acquire(blocking=False):
+        print(f"[music] ✋ Search already in progress. Skipping duplicate search for: {norm_query}")
+        return None
+
+    try:
+        if announce:
+            speak(f"Searching online for {norm_query}")
+            _set_music_state("searching", None)
+        else:
+            _push_backend_status(download_progress=f"Searching next: {norm_query}")
+
+        match = _search_youtube_match(norm_query)
+        if not match:
+            _clear_download_progress()
+            return None
+
+        title = match["title"]
+        vid_id = match["vid_id"]
+        print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
+        cached_file = _find_cached_file(vid_id)
+        track = {
+            "vid_id": vid_id,
+            "title": title,
+            "file_path": cached_file,
+            "query": norm_query,
+            "source": "youtube",
+        }
+        _append_query_to_index(vid_id, title, norm_query)
+
+        if cached_file and os.path.exists(cached_file):
+            _clear_download_progress()
+            return track
+
+        return _download_track(track, first_song=announce and not prefetch)
+    finally:
+        _search_lock.release()
+
+
+def _prefetch_next_track(finished_track: Dict[str, Any], generation: int):
+    global prefetched_track_info
+    suggestion = get_related_song_recommendation(finished_track.get("title", ""))
+    if not suggestion:
+        return
+    suggestion_query = clean_music_query(suggestion)
+    if not suggestion_query:
+        return
+    print(f"[music] 🔮 Prefetching next suggestion: {suggestion_query}", flush=True)
+    next_track = _prepare_track(suggestion_query, announce=False, prefetch=True)
+    if not next_track:
+        return
+    with _prefetch_lock:
+        if generation != _playlist_generation:
+            return
+        if current_track_info and next_track.get("vid_id") == current_track_info.get("vid_id"):
+            return
+        prefetched_track_info = next_track
+        print(f"[music] ✅ Next track ready: {next_track.get('title')}", flush=True)
+
+
+def _start_prefetch_thread(track: Dict[str, Any], generation: int):
+    threading.Thread(
+        target=_prefetch_next_track,
+        args=(dict(track), generation),
+        daemon=True,
+        name=f"music-prefetch-{generation}",
+    ).start()
+
+
+def _on_track_finished(proc, generation: int):
+    global current_player, current_track_info, prefetched_track_info
+    try:
+        proc.wait()
+    except Exception:
+        return
+
+    if generation != _playlist_generation:
+        return
+    if current_player is not proc:
+        return
+
+    with _prefetch_lock:
+        next_track = prefetched_track_info
+        prefetched_track_info = None
+
+    if next_track:
+        print(f"[music] ▶️  Autoplaying prefetched track: {next_track.get('title')}", flush=True)
+        _play_track(next_track, announce=False, generation=generation, allow_prefetch=True)
+        return
+
+    current_player = None
+    current_track_info = None
+    _set_music_state("idle", None)
+
+
+def _play_track(track: Dict[str, Any], announce: bool, generation: int, allow_prefetch: bool = True):
+    global current_player, current_track_info
+    proc = _spawn_player(track.get("file_path"))
+    if not proc:
+        return None
+
+    current_player = proc
+    current_track_info = dict(track)
+    _record_play(track)
+    _set_music_state("playing", None)
+    if announce:
+        speak(f"Playing {_short_title(track.get('title', 'music'))}")
+    if allow_prefetch:
+        _start_prefetch_thread(track, generation)
+    threading.Thread(
+        target=_on_track_finished,
+        args=(proc, generation),
+        daemon=True,
+        name=f"music-monitor-{generation}",
+    ).start()
+    return proc
+
+
+def _stop_current_process():
+    global current_player
+    try:
+        if current_player and current_player.poll() is None:
+            current_player.terminate()
+            current_player.wait(timeout=2)
+    except Exception:
+        pass
+
+
+def start_music_housekeeping():
+    global _housekeeping_started
+    with _housekeeping_lock:
+        if _housekeeping_started:
+            return
+        _housekeeping_started = True
+        threading.Thread(target=_music_housekeeping_loop, daemon=True, name="music-housekeeping").start()
+
+
+def _music_housekeeping_loop():
+    while True:
+        try:
+            _cleanup_local_music_if_low_storage()
+        except Exception as e:
+            print(f"[music] Housekeeping error: {e}", flush=True)
+        time.sleep(60)
+
+
+def _cleanup_local_music_if_low_storage():
+    cache_dir = _songs_dir()
+    files = []
+    for ext in _SUPPORTED_EXTS:
+        files.extend(list(cache_dir.glob(f"*.{ext}")))
+    if not files:
+        return
+
+    low_storage_mb = int(os.getenv("RK_MUSIC_LOW_STORAGE_MB", "512"))
+    cache_limit_mb = int(os.getenv("RK_MUSIC_CACHE_LIMIT_MB", "2048"))
+    disk_free_mb = shutil.disk_usage(str(cache_dir)).free / (1024 * 1024)
+    total_cache_mb = sum(f.stat().st_size for f in files if f.exists()) / (1024 * 1024)
+    if disk_free_mb >= low_storage_mb and total_cache_mb <= cache_limit_mb:
+        return
+
+    stats = _load_json_file(_stats_path(), {})
+    index = _load_index()
+    current_file = (current_track_info or {}).get("file_path")
+    prefetched_file = (prefetched_track_info or {}).get("file_path")
+
+    def _candidate_sort(path_obj):
+        vid_id = _extract_vid_id(path_obj.name) or path_obj.stem
+        entry = stats.get(vid_id, {})
+        return (
+            0 if int(entry.get("play_count", 0)) <= 1 else 1,
+            int(entry.get("play_count", 0)),
+            int(entry.get("last_played_at", 0)),
+        )
+
+    for path_obj in sorted(files, key=_candidate_sort):
+        if str(path_obj) in {current_file, prefetched_file}:
+            continue
+        if disk_free_mb >= low_storage_mb and total_cache_mb <= cache_limit_mb:
+            break
+        try:
+            size_mb = path_obj.stat().st_size / (1024 * 1024)
+            vid_id = _extract_vid_id(path_obj.name) or path_obj.stem
+            path_obj.unlink(missing_ok=True)
+            stats.pop(vid_id, None)
+            index.pop(vid_id, None)
+            total_cache_mb = max(0.0, total_cache_mb - size_mb)
+            disk_free_mb = shutil.disk_usage(str(cache_dir)).free / (1024 * 1024)
+            print(f"[music] 🧹 Removed cached track: {path_obj.name}", flush=True)
+        except Exception as e:
+            print(f"[music] Cache cleanup failed for {path_obj.name}: {e}", flush=True)
+
+    _save_json_file(_stats_path(), stats)
+    _save_index(index)
 
 def search_local_and_play(norm_query):
     """
@@ -366,7 +840,7 @@ def play_music(query: str):
     """
     Stream music directly to mpg123 (works with Bluetooth, instant playback).
     """
-    global current_player
+    global current_player, last_played_query, prefetched_track_info, _playlist_generation
     
     # Check dependencies
     if not shutil.which("yt-dlp"):
@@ -382,35 +856,35 @@ def play_music(query: str):
         stop_music()
         return None
     
-    stop_music()
-    
-    global last_played_query
-    last_played_query = query # Store the original query for 'play again'
-    
-    # 2. Try Local
-    proc = search_local_and_play(norm_query)
+    _playlist_generation += 1
+    generation = _playlist_generation
+    prefetched_track_info = None
+    _stop_current_process()
+
+    last_played_query = query
+    track = _prepare_track(norm_query, announce=True, prefetch=False)
+    if not track:
+        _set_music_state("idle", None)
+        speak("I couldn't find that song.")
+        return None
+
+    proc = _play_track(track, announce=True, generation=generation, allow_prefetch=True)
     if proc:
         current_player = proc
         return proc
-        
-    # 3. Try Online
-    proc = search_youtube_and_play(norm_query)
-    if proc:
-        current_player = proc
-        return proc
-        
+
+    _set_music_state("idle", None)
+    speak("I couldn't play that song.")
     return None
 
 def stop_music():
     """Stop music."""
-    global current_player
-    
-    try:
-        if current_player and current_player.poll() is None:
-            current_player.terminate()
-            current_player.wait(timeout=2)
-    except:
-        pass
+    global current_player, current_track_info, prefetched_track_info, _playlist_generation
+
+    _playlist_generation += 1
+    prefetched_track_info = None
+    current_track_info = None
+    _stop_current_process()
     
     # Force kill
     subprocess.run(["pkill", "-9", "vlc"], stderr=subprocess.DEVNULL)
@@ -418,7 +892,10 @@ def stop_music():
     subprocess.run(["pkill", "-9", "ffplay"], stderr=subprocess.DEVNULL)
     subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
     subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
-    
+
+    current_player = None
+    _set_music_state("idle", None)
+    _clear_download_progress()
     print("[music] ⏹️  Stopped", flush=True)
 
 

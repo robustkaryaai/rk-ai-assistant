@@ -346,7 +346,6 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
         if intent == "music":
             query = params.get("prompt") or text
             trigger_music_playback(query, music_proc_holder)
-            speak(intent_reply or f"Playing {query}")
         elif intent in ("weather", "news"):
             speak(intent_reply or reply_text)
         elif intent in ("cozy_setup", "focus_mode", "open_app"):
@@ -393,6 +392,14 @@ def main():
     if not slug_val:
         print("[main] No slug found! Using default 000000000", flush=True)
         slug_val = "000000000"
+    try:
+        settings_sync.refresh_device_settings_now(slug_val)
+    except Exception as e:
+        print(f"[settings] Initial settings refresh failed: {e}", flush=True)
+    try:
+        settings_sync.start_settings_sync(slug_val)
+    except Exception as e:
+        print(f"[settings] Background settings sync failed to start: {e}", flush=True)
 
     is_first_boot = "--first-boot" in sys.argv
 
@@ -416,6 +423,7 @@ def main():
     start_reset_monitor()
     command_poller.register_voice_callback(handle_backend_reply_sync)
     threading.Thread(target=music_manager.sync_music_index, daemon=True, name="music-index-sync").start()
+    music_manager.start_music_housekeeping()
 
     # Startup TTS off for --quiet or night handoff flag
     suppress_startup_tts = "--quiet" in sys.argv
@@ -569,14 +577,19 @@ def main():
             if stt_engine and stt_engine.online != online:
                 stt_engine.set_online(online)
 
-            report_state(slug_val, "idle")
+            music_state = music_manager.get_runtime_state()
+            if music_state:
+                report_state(slug_val, music_state)
+            else:
+                report_state(slug_val, "idle")
 
             # ── Night TTS suppression flag ──────────────────────────────────
             night_tts_suppressed = (night_monitor.night_tts_suppressed
                                     if night_monitor else False)
 
             # ── Wait for a command from the engine ─────────────────────────
-            report_state(slug_val, "listening")
+            if not music_state:
+                report_state(slug_val, "listening")
             log_stt_status("Listening...", throttle_sec=12.0)
             if stt_engine:
                 try:

@@ -25,10 +25,10 @@ device_settings = {
     'night_protocol_enabled': True,
     'smart_devices': [],
     'tts_config': {
-        'engine': 'flite',
-        'voice': 'slt',
+        'engine': 'gtts',
+        'voice': 'co.in',
         'gender': 'female',
-        'language': 'en',
+        'language': 'hi',
     },
 }
 
