@@ -91,9 +91,22 @@ def refresh_device_settings_now(slug=None):
 
     if device.get('wakeWords'):
         try:
-            words = json.loads(device['wakeWords'])
-            if isinstance(words, list):
-                device_settings['wake_words'] = [w.lower() for w in words]
+            wake_words_raw = device['wakeWords']
+            wake_words_data = json.loads(wake_words_raw) if isinstance(wake_words_raw, str) else wake_words_raw
+            if isinstance(wake_words_data, list):
+                device_settings['wake_words'] = [str(w).lower() for w in wake_words_data if str(w).strip()]
+            elif isinstance(wake_words_data, dict):
+                words = wake_words_data.get('words') or wake_words_data.get('wakeWords') or wake_words_data.get('list') or []
+                if isinstance(words, list):
+                    device_settings['wake_words'] = [str(w).lower() for w in words if str(w).strip()]
+
+                meta = wake_words_data.get('meta') if isinstance(wake_words_data.get('meta'), dict) else {}
+                if 'nightProtocolEnabled' in meta:
+                    device_settings['night_protocol_enabled'] = bool(meta['nightProtocolEnabled'])
+                if isinstance(meta.get('ttsConfig'), dict):
+                    tts_config = dict(device_settings['tts_config'])
+                    tts_config.update(meta['ttsConfig'])
+                    device_settings['tts_config'] = tts_config
         except Exception:
             pass
 
@@ -106,26 +119,6 @@ def refresh_device_settings_now(slug=None):
                 device_settings['smart_devices'] = devs
         except Exception as de:
             print(f"[Settings Sync] smart_devices parse error: {de}")
-
-    if device.get('systemStatus'):
-        try:
-            sys_status = json.loads(device['systemStatus'])
-            if 'nightProtocolEnabled' in sys_status:
-                device_settings['night_protocol_enabled'] = bool(sys_status['nightProtocolEnabled'])
-            if isinstance(sys_status.get('ttsConfig'), dict):
-                tts_config = dict(device_settings['tts_config'])
-                tts_config.update(sys_status['ttsConfig'])
-                device_settings['tts_config'] = tts_config
-            if 'smart_devices' in sys_status and not device_settings['smart_devices']:
-                try:
-                    devs = sys_status['smart_devices']
-                    if isinstance(devs, str):
-                        devs = json.loads(devs)
-                    device_settings['smart_devices'] = devs
-                except Exception as de:
-                    print(f"[Settings Sync] Found smart_devices format error: {de}")
-        except Exception:
-            pass
     return True
 
 def is_device_muted():
