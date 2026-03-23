@@ -107,6 +107,13 @@ def refresh_device_settings_now(slug=None):
                     tts_config = dict(device_settings['tts_config'])
                     tts_config.update(meta['ttsConfig'])
                     device_settings['tts_config'] = tts_config
+                    print(
+                        "[Settings Sync] TTS config synced: "
+                        f"engine={tts_config.get('engine')} "
+                        f"voice={tts_config.get('voice')} "
+                        f"language={tts_config.get('language')} "
+                        f"gender={tts_config.get('gender')}"
+                    )
         except Exception:
             pass
 
