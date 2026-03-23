@@ -130,6 +130,11 @@ def _short_title(title: str) -> str:
     return " ".join(words[:5]) if len(words) > 5 else speak_title
 
 
+def _announce_title(title: str) -> str:
+    short = _short_title(title)
+    return short or "music"
+
+
 def _get_slug() -> Optional[str]:
     try:
         from .networking import read_slug
@@ -320,7 +325,7 @@ def _download_track(track: Dict[str, Any], first_song: bool = False) -> Optional
     safe_url = f"https://www.youtube.com/watch?v={vid_id}"
 
     if first_song:
-        speak(f"Downloading {_short_title(title)}")
+        speak(f"Downloading {_announce_title(title)}")
         _set_music_state("downloading", f"Downloading: {title}")
     else:
         _push_backend_status(download_progress=f"Downloading next: {title}")
@@ -359,7 +364,7 @@ def _prepare_track(norm_query: str, announce: bool = True, prefetch: bool = Fals
 
     try:
         if announce:
-            speak(f"Searching online for {norm_query}")
+            speak(f"Searching for {norm_query}")
             _set_music_state("searching", None)
         else:
             _push_backend_status(download_progress=f"Searching next: {norm_query}")
@@ -439,7 +444,7 @@ def _on_track_finished(proc, generation: int):
 
     if next_track:
         print(f"[music] ▶️  Autoplaying prefetched track: {next_track.get('title')}", flush=True)
-        _play_track(next_track, announce=False, generation=generation, allow_prefetch=True)
+        _play_track(next_track, announce_mode="now_playing", generation=generation, allow_prefetch=True)
         return
 
     current_player = None
@@ -447,8 +452,11 @@ def _on_track_finished(proc, generation: int):
     _set_music_state("idle", None)
 
 
-def _play_track(track: Dict[str, Any], announce: bool, generation: int, allow_prefetch: bool = True):
+def _play_track(track: Dict[str, Any], announce_mode: str = "now_playing", generation: int = 0, allow_prefetch: bool = True):
     global current_player, current_track_info
+    if announce_mode == "now_playing":
+        speak(f"Now playing {_announce_title(track.get('title', 'music'))}")
+
     proc = _spawn_player(track.get("file_path"))
     if not proc:
         return None
@@ -457,8 +465,6 @@ def _play_track(track: Dict[str, Any], announce: bool, generation: int, allow_pr
     current_track_info = dict(track)
     _record_play(track)
     _set_music_state("playing", None)
-    if announce:
-        speak(f"Playing {_short_title(track.get('title', 'music'))}")
     if allow_prefetch:
         _start_prefetch_thread(track, generation)
     threading.Thread(
@@ -868,7 +874,7 @@ def play_music(query: str):
         speak("I couldn't find that song.")
         return None
 
-    proc = _play_track(track, announce=True, generation=generation, allow_prefetch=True)
+    proc = _play_track(track, announce_mode="now_playing", generation=generation, allow_prefetch=True)
     if proc:
         current_player = proc
         return proc
