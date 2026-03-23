@@ -16,10 +16,21 @@ import requests
 _stt_log_guard = threading.Lock()
 _last_stt_log_times = {}
 
+def _resolve_stt_slug() -> str:
+    slug = os.getenv("DEVICE_SLUG")
+    if slug:
+        return str(slug).strip()
+    try:
+        from .networking import read_slug
+        resolved, _ = read_slug()
+        return str(resolved or "").strip()
+    except Exception:
+        return ""
+
 def _push_stt_log(text: str, throttle_sec: float = 0.0):
     """Pushes transcribed text to the backend stream for the RK AI Home mobile app."""
     if not text or not text.strip(): return
-    slug = os.getenv("DEVICE_SLUG")
+    slug = _resolve_stt_slug()
     if not slug: return
     clean_text = str(text).strip()
     if throttle_sec > 0:
