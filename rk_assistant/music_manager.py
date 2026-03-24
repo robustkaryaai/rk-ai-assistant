@@ -203,6 +203,12 @@ def _low_priority_prefix() -> List[str]:
 def _ytdlp_auth_options() -> List[List[str]]:
     attempts: List[List[str]] = []
 
+    # Prefer mobile client emulation first. This is the quickest path for
+    # accounts that hit the YouTube bot-check on desktop/web clients.
+    attempts.append(["--extractor-args", "youtube:player_client=android,mweb"])
+    attempts.append(["--extractor-args", "youtube:player_client=android"])
+    attempts.append(["--extractor-args", "youtube:player_client=mweb"])
+
     cookie_file = os.getenv("YT_DLP_COOKIES_FILE", "").strip()
     if cookie_file and os.path.exists(cookie_file):
         attempts.append(["--cookies", cookie_file])
@@ -214,10 +220,6 @@ def _ytdlp_auth_options() -> List[List[str]]:
         for candidate in ("chromium", "chrome", "firefox", "edge"):
             attempts.append(["--cookies-from-browser", candidate])
 
-    # Try mobile clients that are often less restrictive than the default webpage client.
-    attempts.append(["--extractor-args", "youtube:player_client=android"])
-    attempts.append(["--extractor-args", "youtube:player_client=mweb"])
-    attempts.append(["--extractor-args", "youtube:player_client=android,mweb"])
     return attempts
 
 
