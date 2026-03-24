@@ -1,108 +1,56 @@
-"""Music streaming - instant playback with mpg123."""
+"""Simplified music manager for RK AI.
 
-import subprocess
-import shutil
-import os
+Goals:
+- Prefer local cached songs first.
+- Use yt-dlp with cookie support when a song is not cached.
+- Keep the public API used by the assistant intact.
+- Avoid heavy background work while music is playing.
+"""
+
+from __future__ import annotations
+
 import json
+import os
 import re
-import time
-from .audio_utils import speak
+import shutil
 import signal
+import subprocess
 import threading
-from typing import Optional, List, Dict, Any
+import time
 from difflib import SequenceMatcher
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from threading import Lock
+from .audio_utils import ensure_bluetooth_audio_route, speak
 
 current_player = None
 current_track_info = None
-prefetched_track_info = None
 last_played_query = None
-_search_lock = Lock() # 🚀 Prevent duplicate overlapping searches
-_state_lock = Lock()
-_prefetch_lock = Lock()
-_housekeeping_lock = Lock()
-_music_state = "idle"
-_playlist_generation = 0
-_housekeeping_started = False
 
-_STATUS_UNSET = object()
+_music_state = "idle"
+_state_lock = threading.Lock()
+_player_lock = threading.Lock()
+_housekeeping_started = False
+_housekeeping_lock = threading.Lock()
+
 _SUPPORTED_EXTS = ("mp3", "m4a", "webm", "mp4", "opus", "ogg", "mkv")
 
-def get_related_song_recommendation(title: str) -> Optional[str]:
-    """Use Gemini to get a related song title based on the current one."""
-    from .gemini_client import classify_intent, GEMINI_AVAILABLE
-    from .config import GEMINI_API_KEY, GEMINI_MODEL_PRIMARY
-    
-    if not GEMINI_AVAILABLE:
-        return None
-        
-    prompt = f"The user is listening to '{title}'. Suggest one similar or related song title only. Output strictly the song name and artist, nothing else. No punctuation, no prose."
-    
-    # We can reuse classify_intent but it returns JSON. 
-    # Let's add a simple text call or use conversational response.
-    from .gemini_client import get_conversational_response
-    suggestion = get_conversational_response(prompt, api_key=GEMINI_API_KEY, model_name=GEMINI_MODEL_PRIMARY)
-    
-    if suggestion and "Sorry" not in suggestion and "I'm having trouble" not in suggestion:
-        return suggestion.strip()
-    return None
 
-
-def clean_music_query(query):
-    """Remove common filler words and STT artifacts."""
-    if not query: return ""
-    norm_query = query.lower().strip()
-    
-    # Common words to remove
-    ignore_words = [
-        "play", "song", "from", "youtube", "please", "can you", "i want to hear",
-        "plate", "place", "pleas", "plait", # STT errors for 'play'
-        "search", "find"
-    ]
-    
-    clean_q = norm_query
-    for word in ignore_words:
-        # Remove whole words only
-        clean_q = clean_q.replace(f" {word} ", " ")
-        if clean_q.startswith(f"{word} "):
-            clean_q = clean_q[len(word)+1:]
-        if clean_q.endswith(f" {word}"):
-            clean_q = clean_q[:-len(word)-1]
-            
-    return clean_q.strip()
-
-def _has_stop_command(norm_query: str) -> bool:
-    """Detect an explicit stop/cancel command, not ordinary words like 'official'."""
-    if not norm_query:
-        return False
-
-    patterns = [
-        r"\bstop\b",
-        r"\boff\b",
-        r"\bcancel\b",
-        r"\bshut\s+up\b",
-        r"\bquiet\b",
-    ]
-    return any(re.search(pattern, norm_query) for pattern in patterns)
-
-
-def _songs_dir():
-    from pathlib import Path
+def _songs_dir() -> Path:
     cache_dir = Path(os.getcwd()) / "songs"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 
 
-def _index_path():
+def _index_path() -> Path:
     return _songs_dir() / "index.json"
 
 
-def _stats_path():
+def _stats_path() -> Path:
     return _songs_dir() / "track_stats.json"
 
 
-def _load_json_file(path, default):
+def _load_json_file(path: Path, default: Any):
     try:
         if path.exists():
             with open(path, "r") as f:
@@ -112,7 +60,7 @@ def _load_json_file(path, default):
     return default
 
 
-def _save_json_file(path, data):
+def _save_json_file(path: Path, data: Any) -> None:
     try:
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
@@ -125,14 +73,31 @@ def _safe_title(title: str) -> str:
 
 
 def _short_title(title: str) -> str:
-    speak_title = str(title or "").partition("|")[0].strip()
-    words = speak_title.split()
-    return " ".join(words[:5]) if len(words) > 5 else speak_title
+    short = str(title or "").partition("|")[0].strip()
+    words = short.split()
+    return " ".join(words[:5]) if len(words) > 5 else short
 
 
 def _announce_title(title: str) -> str:
-    short = _short_title(title)
-    return short or "music"
+    return _short_title(title) or "music"
+
+
+def _clean_query(query: str) -> str:
+    if not query:
+        return ""
+    text = query.lower().strip()
+    noise = [
+        "play", "song", "songs", "from", "youtube", "on youtube", "please",
+        "search", "find", "music", "video", "track",
+    ]
+    for word in noise:
+        text = re.sub(rf"\b{re.escape(word)}\b", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _has_stop_command(norm_query: str) -> bool:
+    return bool(re.search(r"\b(stop|cancel|pause|shut up|quiet|silence|off)\b", norm_query or ""))
 
 
 def _get_slug() -> Optional[str]:
@@ -144,140 +109,15 @@ def _get_slug() -> Optional[str]:
         return None
 
 
-def _resolve_next_track_from_backend(finished_track: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    try:
-        from .networking import backend_session
-        from .config import BACKEND_BASE_URL
-    except Exception as e:
-        print(f"[music] Backend resolver unavailable: {e}", flush=True)
-        return None
-
-    slug = _get_slug()
-    if not slug:
-        return None
-
-    payload = {
-        "current_title": finished_track.get("title") or "",
-        "current_query": finished_track.get("query") or "",
-    }
-    if not payload["current_title"] and not payload["current_query"]:
-        return None
-
-    try:
-        resp = backend_session.post(
-            f"{BACKEND_BASE_URL}/device/{slug}/music/recommend",
-            json=payload,
-            timeout=25,
-        )
-        if not resp.ok:
-            print(f"[music] Backend resolver failed: HTTP {resp.status_code}", flush=True)
-            return None
-        data = resp.json() if resp.content else {}
-        link = str(data.get("link") or "").strip()
-        vid_id = str(data.get("vid_id") or "").strip()
-        title = str(data.get("title") or "").strip()
-        if not (link and vid_id and title):
-            return None
-        return {
-            "vid_id": vid_id,
-            "title": title,
-            "file_path": None,
-            "query": str(data.get("query") or title).strip(),
-            "source": "backend",
-            "link": link,
-        }
-    except Exception as e:
-        print(f"[music] Backend resolver error: {e}", flush=True)
-        return None
-
-
-def _low_priority_prefix() -> List[str]:
-    prefix = []
-    if shutil.which("ionice"):
-        prefix.extend(["ionice", "-c2", "-n7"])
-    if shutil.which("nice"):
-        prefix.extend(["nice", "-n", "10"])
-    return prefix
-
-
-def _ytdlp_auth_options() -> List[List[str]]:
-    attempts: List[List[str]] = []
-
-    # Prefer mobile client emulation first. This is the quickest path for
-    # accounts that hit the YouTube bot-check on desktop/web clients.
-    attempts.append(["--extractor-args", "youtube:player_client=android,mweb"])
-    attempts.append(["--extractor-args", "youtube:player_client=android"])
-    attempts.append(["--extractor-args", "youtube:player_client=mweb"])
-    attempts.append(["--extractor-args", "youtube:player_client=android_music"])
-    attempts.append(["--extractor-args", "youtube:player_client=ios"])
-    attempts.append(["--extractor-args", "youtube:player_client=tv_embedded"])
-    attempts.append(["--extractor-args", "youtube:player_client=tv"])
-    attempts.append(["--extractor-args", "youtube:player_client=web_music"])
-
-    cookie_file = os.getenv("YT_DLP_COOKIES_FILE", "").strip()
-    if cookie_file and os.path.exists(cookie_file):
-        attempts.append(["--cookies", cookie_file])
-
-    browser = os.getenv("YT_DLP_COOKIES_BROWSER", "").strip()
-    if browser:
-        attempts.append(["--cookies-from-browser", browser])
-    else:
-        for candidate in ("chromium", "chrome", "firefox", "edge"):
-            attempts.append(["--cookies-from-browser", candidate])
-
-    return attempts
-
-
-def _run_ytdlp_download_attempts(file_path_template: str, safe_url: str, mp3_preferred: bool = True):
-    base = _low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"]
-    format_args = []
-    if mp3_preferred and shutil.which("ffmpeg"):
-        format_args = ["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"]
-    else:
-        format_args = ["-f", "ba[ext=m4a]/ba"]
-
-    attempts = []
-    for auth_args in _ytdlp_auth_options():
-        attempts.append(base + auth_args + format_args + ["-o", file_path_template, safe_url])
-    # Final fallback: plain download without auth modifiers.
-    attempts.append(base + format_args + ["-o", file_path_template, safe_url])
-    return attempts
-
-
-def _push_backend_status(busy_state=None, download_progress=_STATUS_UNSET):
-    try:
-        from .config import BACKEND_BASE_URL
-        import requests
-        slug = _get_slug()
-        if not slug:
-            return
-
-        payload = {}
-        if busy_state is not None:
-            payload["busyState"] = busy_state
-        if download_progress is not _STATUS_UNSET:
-            payload["downloadProgress"] = download_progress
-        if not payload:
-            return
-        requests.post(f"{BACKEND_BASE_URL}/device/{slug}/update-status", json=payload, timeout=3)
-    except Exception as e:
-        print(f"[music] Backend status push failed: {e}", flush=True)
-
-
-def _set_music_state(state: str, download_progress=_STATUS_UNSET):
+def _set_music_state(state: str) -> None:
     global _music_state
     with _state_lock:
         _music_state = state
-    _push_backend_status(busy_state=state, download_progress=download_progress)
 
 
 def get_runtime_state() -> Optional[str]:
     with _state_lock:
         return _music_state if _music_state in {"searching", "downloading", "playing"} else None
-
-
-def _clear_download_progress():
-    _push_backend_status(download_progress=None)
 
 
 def _extract_vid_id(filename: str) -> Optional[str]:
@@ -290,14 +130,13 @@ def _extract_vid_id(filename: str) -> Optional[str]:
     return None
 
 
-def _find_cached_file(vid_id: str):
+def _find_cached_file(vid_id: str) -> Optional[str]:
     cache_dir = _songs_dir()
     import glob
-    matches = []
     for ext in _SUPPORTED_EXTS:
-        matches.extend(list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}")))
-    if matches:
-        return str(matches[0])
+        matches = list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}"))
+        if matches:
+            return str(matches[0])
     for ext in _SUPPORTED_EXTS:
         exact = cache_dir / f"{vid_id}.{ext}"
         if exact.exists():
@@ -309,21 +148,21 @@ def _load_index() -> Dict[str, Dict[str, Any]]:
     return _load_json_file(_index_path(), {})
 
 
-def _save_index(index: Dict[str, Dict[str, Any]]):
+def _save_index(index: Dict[str, Dict[str, Any]]) -> None:
     _save_json_file(_index_path(), index)
 
 
-def _append_query_to_index(vid_id: str, title: str, norm_query: str):
+def _append_query_to_index(vid_id: str, title: str, norm_query: str) -> None:
     index = _load_index()
-    current_data = index.get(vid_id, {})
-    queries = current_data.get("queries", [])
+    current = index.get(vid_id, {})
+    queries = current.get("queries", [])
     if norm_query and norm_query not in queries:
         queries.append(norm_query)
     index[vid_id] = {"title": title, "queries": queries}
     _save_index(index)
 
 
-def _record_play(track: Dict[str, Any]):
+def _record_play(track: Dict[str, Any]) -> None:
     vid_id = track.get("vid_id")
     if not vid_id:
         return
@@ -337,13 +176,70 @@ def _record_play(track: Dict[str, Any]):
     _save_json_file(_stats_path(), stats)
 
 
+def _low_priority_prefix() -> List[str]:
+    prefix: List[str] = []
+    if shutil.which("ionice"):
+        prefix.extend(["ionice", "-c2", "-n7"])
+    if shutil.which("nice"):
+        prefix.extend(["nice", "-n", "10"])
+    return prefix
+
+
+def _candidate_cookie_files() -> List[str]:
+    candidates: List[str] = []
+    env_file = os.getenv("YT_DLP_COOKIES_FILE", "").strip()
+    if env_file:
+        candidates.append(env_file)
+    for fallback in (
+        str(Path.home() / "Documents" / "rk-ai-assistant-main" / "youtube-cookies.txt"),
+        str(Path.home() / "rk-ai-assistant-main" / "youtube-cookies.txt"),
+        str(Path.cwd() / "youtube-cookies.txt"),
+    ):
+        if fallback not in candidates:
+            candidates.append(fallback)
+    return candidates
+
+
+def _ytdlp_auth_options() -> List[List[str]]:
+    attempts: List[List[str]] = []
+
+    # Use a real cookie file first when available.
+    for cookie_file in _candidate_cookie_files():
+        if cookie_file and os.path.exists(cookie_file):
+            attempts.append(["--cookies", cookie_file])
+            break
+
+    # Then try client emulation modes.
+    attempts.append(["--extractor-args", "youtube:player_client=android,mweb"])
+    attempts.append(["--extractor-args", "youtube:player_client=android"])
+    attempts.append(["--extractor-args", "youtube:player_client=mweb"])
+    attempts.append(["--extractor-args", "youtube:player_client=android_music"])
+    attempts.append(["--extractor-args", "youtube:player_client=ios"])
+    attempts.append(["--extractor-args", "youtube:player_client=tv_embedded"])
+    attempts.append(["--extractor-args", "youtube:player_client=tv"])
+    attempts.append(["--extractor-args", "youtube:player_client=web_music"])
+    return attempts
+
+
+def _run_ytdlp_attempts(base_args: List[str], out_path: Optional[str] = None) -> List[List[str]]:
+    attempts: List[List[str]] = []
+    for auth_args in _ytdlp_auth_options():
+        cmd = _low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + auth_args + base_args
+        if out_path:
+            cmd += ["-o", out_path]
+        attempts.append(cmd)
+    # Final fallback without auth modifiers.
+    attempts.append(_low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + base_args + (["-o", out_path] if out_path else []))
+    return attempts
+
+
 def _spawn_player(file_path: str):
     if not file_path or not os.path.exists(file_path):
         return None
 
+    sink_name = ""
     try:
-        from .audio_utils import ensure_bluetooth_audio_route
-        sink_name = ensure_bluetooth_audio_route()
+        sink_name = ensure_bluetooth_audio_route() or ""
     except Exception:
         sink_name = ""
 
@@ -351,19 +247,19 @@ def _spawn_player(file_path: str):
     if sink_name:
         env["PULSE_SINK"] = sink_name
 
-    player_cmds = []
+    candidates: List[List[str]] = []
     if file_path.lower().endswith(".mp3") and shutil.which("mpg123"):
-        player_cmds.append(["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", file_path])
-    if shutil.which("cvlc"):
-        player_cmds.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", file_path])
-    if shutil.which("vlc"):
-        player_cmds.append(["vlc", "--play-and-exit", "--no-video", "--quiet", file_path])
+        candidates.append(["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", file_path])
     if shutil.which("ffplay"):
-        player_cmds.append(["ffplay", "-autoexit", "-nodisp", "-loglevel", "quiet", file_path])
+        candidates.append(["ffplay", "-autoexit", "-nodisp", "-loglevel", "quiet", file_path])
+    if shutil.which("vlc"):
+        candidates.append(["vlc", "--play-and-exit", "--no-video", "--quiet", file_path])
+    if shutil.which("cvlc"):
+        candidates.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", file_path])
     if shutil.which("mpg123"):
-        player_cmds.append(["mpg123", "-o", "pulse", "-b", "16384", "--no-resync", "-q", file_path])
+        candidates.append(["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", file_path])
 
-    for cmd in player_cmds:
+    for cmd in candidates:
         try:
             return subprocess.Popen(
                 cmd,
@@ -380,74 +276,19 @@ def _spawn_player(file_path: str):
     return None
 
 
-def _resolve_local_track(norm_query: str) -> Optional[Dict[str, Any]]:
-    index = _load_index()
-    if not index:
-        return None
-
-    best_match = None
-    best_score = 0.0
-    for vid_id, data in index.items():
-        title = data.get("title", "").lower()
-        if not title:
-            continue
-
-        for pq in data.get("queries", []):
-            pq_clean = clean_music_query(pq)
-            score_q = SequenceMatcher(None, norm_query, pq_clean).ratio()
-            if score_q > best_score:
-                best_score = score_q
-                best_match = vid_id
-            score_raw = SequenceMatcher(None, norm_query, pq).ratio()
-            if score_raw > best_score:
-                best_score = score_raw
-                best_match = vid_id
-
-        score1 = SequenceMatcher(None, norm_query, title).ratio()
-        q_words = set(norm_query.split())
-        t_words = set(title.split())
-        score2 = (len(q_words.intersection(t_words)) / len(q_words)) if q_words else 0.0
-        current_score = max(score1, score2)
-        if current_score > best_score:
-            best_score = current_score
-            best_match = vid_id
-        if norm_query in title or title in norm_query:
-            best_score = max(best_score, 0.8)
-
-    if best_score <= 0.6 or not best_match:
-        return None
-
-    found_file = _find_cached_file(best_match)
-    if not found_file:
-        return None
-
-    title = index.get(best_match, {}).get("title", best_match)
-    print(f"[music] ✅ Found local match! Score: {best_score:.2f} (ID: {best_match})", flush=True)
-    _append_query_to_index(best_match, title, norm_query)
-    return {
-        "vid_id": best_match,
-        "title": title,
-        "file_path": found_file,
-        "query": norm_query,
-        "source": "local",
-    }
-
-
 def _search_youtube_match(norm_query: str) -> Optional[Dict[str, str]]:
-    search_cmd = [
-        "yt-dlp",
-        "--force-ipv4",
-        "--get-title",
-        "--get-id",
-        f"ytsearch1:{norm_query}",
-    ]
-    search_res = subprocess.run(search_cmd, capture_output=True, text=True)
-    if search_res.returncode != 0:
-        return None
-    lines = search_res.stdout.strip().split("\n")
-    if len(lines) < 2:
-        return None
-    return {"title": lines[0].strip(), "vid_id": lines[1].strip()}
+    search_args = ["--get-title", "--get-id", f"ytsearch1:{norm_query}"]
+    last_error = ""
+    for cmd in _run_ytdlp_attempts(search_args):
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode == 0 and res.stdout.strip():
+            lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+            if len(lines) >= 2:
+                return {"title": lines[0], "vid_id": lines[1]}
+        last_error = (res.stderr or res.stdout or "").strip()
+        if last_error:
+            print(f"[music] yt-dlp search attempt failed: {last_error[-400:]}", flush=True)
+    return None
 
 
 def _download_track(track: Dict[str, Any], first_song: bool = False, announce_status: bool = True) -> Optional[Dict[str, Any]]:
@@ -460,75 +301,73 @@ def _download_track(track: Dict[str, Any], first_song: bool = False, announce_st
 
     if first_song and announce_status:
         speak(f"Downloading {_announce_title(title)}")
-        _set_music_state("downloading", f"Downloading: {title}")
     elif announce_status:
-        _push_backend_status(download_progress=f"Downloading next: {title}")
+        speak(f"Downloading next {_announce_title(title)}")
 
     print(f"[music] ⬇️  Downloading... ({title})", flush=True)
-    use_mp3 = shutil.which("ffmpeg") is not None
-    download_opts = _low_priority_prefix() + [
-        "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
-    ]
-    if use_mp3:
-        download_opts.extend(["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"])
-    else:
-        download_opts.extend(["-f", "ba[ext=m4a]/ba"])
-    dl_cmd = download_opts + ["--print", "after_move:filepath", "-o", file_path_template, safe_url]
-    dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
-    if dl_res.returncode != 0:
-        err_text = (dl_res.stderr or dl_res.stdout or "").strip()
-        if err_text:
-            print(f"[music] yt-dlp download failed: {err_text[-500:]}", flush=True)
 
-    final_file = None
-    candidate_lines = []
-    if dl_res.stdout:
-        candidate_lines.extend([ln.strip() for ln in dl_res.stdout.splitlines() if ln.strip()])
-    if dl_res.stderr:
-        candidate_lines.extend([ln.strip() for ln in dl_res.stderr.splitlines() if ln.strip()])
+    use_mp3 = bool(shutil.which("ffmpeg"))
+    base_args = ["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"] if use_mp3 else ["-f", "ba[ext=m4a]/ba"]
+    attempts: List[List[str]] = []
+    for auth_args in _ytdlp_auth_options():
+        attempts.append(_low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + auth_args + base_args + ["-o", file_path_template, safe_url])
+    attempts.append(_low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + base_args + ["-o", file_path_template, safe_url])
 
-    for line in reversed(candidate_lines):
-        if os.path.exists(line):
-            final_file = line
+    last_error = ""
+    dl_res = None
+    for cmd in attempts:
+        dl_res = subprocess.run(cmd, capture_output=True, text=True)
+        if dl_res.returncode == 0:
             break
+        last_error = (dl_res.stderr or dl_res.stdout or "").strip()
+        if last_error:
+            print(f"[music] yt-dlp attempt failed: {last_error[-500:]}", flush=True)
 
+    if not dl_res or dl_res.returncode != 0:
+        if last_error:
+            print(f"[music] yt-dlp download failed: {last_error[-500:]}", flush=True)
+        return None
+
+    exact_candidates = [
+        cache_dir / f"{safe_title} [{vid_id}].mp3",
+        cache_dir / f"{safe_title} [{vid_id}].m4a",
+        cache_dir / f"{safe_title} [{vid_id}].webm",
+        cache_dir / f"{safe_title} [{vid_id}].mp4",
+        cache_dir / f"{safe_title} [{vid_id}].opus",
+        cache_dir / f"{safe_title} [{vid_id}].ogg",
+        cache_dir / f"{safe_title} [{vid_id}].mkv",
+        cache_dir / f"{vid_id}.mp3",
+        cache_dir / f"{vid_id}.m4a",
+        cache_dir / f"{vid_id}.webm",
+        cache_dir / f"{vid_id}.mp4",
+        cache_dir / f"{vid_id}.opus",
+        cache_dir / f"{vid_id}.ogg",
+        cache_dir / f"{vid_id}.mkv",
+    ]
+    final_file = None
+    for candidate in exact_candidates:
+        if candidate.exists():
+            final_file = str(candidate)
+            break
     if not final_file:
-        exact_candidates = [
-            cache_dir / f"{safe_title} [{vid_id}].mp3",
-            cache_dir / f"{safe_title} [{vid_id}].m4a",
-            cache_dir / f"{safe_title} [{vid_id}].webm",
-            cache_dir / f"{safe_title} [{vid_id}].mp4",
-            cache_dir / f"{safe_title} [{vid_id}].opus",
-            cache_dir / f"{safe_title} [{vid_id}].ogg",
-            cache_dir / f"{safe_title} [{vid_id}].mkv",
-            cache_dir / f"{vid_id}.mp3",
-            cache_dir / f"{vid_id}.m4a",
-            cache_dir / f"{vid_id}.webm",
-            cache_dir / f"{vid_id}.mp4",
-            cache_dir / f"{vid_id}.opus",
-            cache_dir / f"{vid_id}.ogg",
-            cache_dir / f"{vid_id}.mkv",
-        ]
-        for candidate in exact_candidates:
-            if candidate.exists():
-                final_file = str(candidate)
+        import glob
+        for ext in _SUPPORTED_EXTS:
+            matches = list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}"))
+            if matches:
+                final_file = str(matches[0])
                 break
 
     if not final_file:
-        final_file = _find_cached_file(vid_id)
-    if not final_file:
-        if first_song:
-            _clear_download_progress()
+        print("[music] ❌ Download finished but file was not found.", flush=True)
         return None
 
     track = dict(track)
     track["file_path"] = final_file
     _append_query_to_index(vid_id, title, track.get("query", ""))
-    _clear_download_progress()
     return track
 
 
-def _prepare_track(norm_query: str, announce: bool = True, prefetch: bool = False) -> Optional[Dict[str, Any]]:
+def _resolve_track(norm_query: str, announce: bool = True) -> Optional[Dict[str, Any]]:
     if not norm_query:
         return None
 
@@ -536,149 +375,181 @@ def _prepare_track(norm_query: str, announce: bool = True, prefetch: bool = Fals
     if local_track:
         return local_track
 
-    if not _search_lock.acquire(blocking=False):
-        print(f"[music] ✋ Search already in progress. Skipping duplicate search for: {norm_query}")
+    if announce:
+        speak(f"Searching for {norm_query}")
+    _set_music_state("searching")
+
+    match = _search_youtube_match(norm_query)
+    if not match:
+        _set_music_state("idle")
         return None
 
-    try:
-        if announce:
-            speak(f"Searching for {norm_query}")
-            _set_music_state("searching", None)
-        else:
-            _push_backend_status(download_progress=f"Searching next: {norm_query}")
+    title = match["title"]
+    vid_id = match["vid_id"]
+    print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
+    cached_file = _find_cached_file(vid_id)
+    track = {
+        "vid_id": vid_id,
+        "title": title,
+        "file_path": cached_file,
+        "query": norm_query,
+        "source": "youtube",
+    }
+    _append_query_to_index(vid_id, title, norm_query)
 
-        match = _search_youtube_match(norm_query)
-        if not match:
-            _clear_download_progress()
-            return None
+    if cached_file and os.path.exists(cached_file):
+        return track
 
-        title = match["title"]
-        vid_id = match["vid_id"]
-        print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
-        cached_file = _find_cached_file(vid_id)
-        track = {
-            "vid_id": vid_id,
-            "title": title,
-            "file_path": cached_file,
-            "query": norm_query,
-            "source": "youtube",
-        }
-        _append_query_to_index(vid_id, title, norm_query)
-
-        if cached_file and os.path.exists(cached_file):
-            _clear_download_progress()
-            return track
-
-        return _download_track(track, first_song=announce and not prefetch, announce_status=announce)
-    finally:
-        _search_lock.release()
+    downloaded = _download_track(track, first_song=announce, announce_status=announce)
+    if not downloaded:
+        _set_music_state("idle")
+    return downloaded
 
 
-def _prefetch_next_track(finished_track: Dict[str, Any], generation: int):
-    global prefetched_track_info
-    next_track = _resolve_next_track_from_backend(finished_track)
-    if not next_track:
-        return
-    print(f"[music] 🔮 Backend suggested next track: {next_track.get('title')}", flush=True)
-    next_track = _download_track(next_track, first_song=False)
-    if not next_track:
-        return
-
-    with _prefetch_lock:
-        if generation != _playlist_generation:
-            return
-        if current_track_info and next_track.get("vid_id") == current_track_info.get("vid_id"):
-            return
-        prefetched_track_info = next_track
-        print(f"[music] ✅ Next track ready: {next_track.get('title')}", flush=True)
-
-
-def _start_prefetch_thread(track: Dict[str, Any], generation: int):
-    threading.Thread(
-        target=_prefetch_next_track,
-        args=(dict(track), generation),
-        daemon=True,
-        name=f"music-prefetch-{generation}",
-    ).start()
-
-
-def _on_track_finished(proc, generation: int):
-    global current_player, current_track_info, prefetched_track_info
+def _music_done_watcher(proc, generation: int):
+    global current_player, current_track_info, _music_state
     try:
         proc.wait()
     except Exception:
         return
-
-    if generation != _playlist_generation:
-        return
-    if current_player is not proc:
-        return
-
-    with _prefetch_lock:
-        next_track = prefetched_track_info
-        prefetched_track_info = None
-
-    if next_track:
-        if not (next_track.get("file_path") and os.path.exists(str(next_track.get("file_path")))):
-            print(f"[music] ⬇️  Downloading next track after finish: {next_track.get('title')}", flush=True)
-            next_track = _download_track(next_track, first_song=False)
-        if next_track:
-            print(f"[music] ▶️  Autoplaying prefetched track: {next_track.get('title')}", flush=True)
-            _play_track(next_track, announce_mode="silent", generation=generation, allow_prefetch=True)
-            return
-
-    suggestion = None
-    try:
-        suggestion = get_related_song_recommendation((current_track_info or {}).get("title", ""))
-    except Exception as e:
-        print(f"[music] Prefetch suggestion failed: {e}", flush=True)
-
-    if suggestion:
-        suggestion_query = clean_music_query(suggestion)
-        if suggestion_query:
-            print(f"[music] 🔮 Loading next song after finish: {suggestion_query}", flush=True)
-            next_track = _prepare_track(suggestion_query, announce=False, prefetch=True)
-            if next_track and generation == _playlist_generation:
-                _play_track(next_track, announce_mode="silent", generation=generation, allow_prefetch=True)
-                return
-
-    current_player = None
-    current_track_info = None
-    _set_music_state("idle", None)
+    with _player_lock:
+        if current_player is proc:
+            current_player = None
+            current_track_info = None
+            _set_music_state("idle")
 
 
-def _play_track(track: Dict[str, Any], announce_mode: str = "now_playing", generation: int = 0, allow_prefetch: bool = True):
-    global current_player, current_track_info
-    if announce_mode == "now_playing":
-        speak(f"Now playing {_announce_title(track.get('title', 'music'))}")
+def play_music(query: str, announce_status: bool = True):
+    global current_player, current_track_info, last_played_query
+
+    if not shutil.which("yt-dlp"):
+        print("[music] Install yt-dlp first.", flush=True)
+        return None
+
+    norm_query = _clean_query(query)
+    print(f"[music] 🧹 Cleaned Query: '{norm_query}' (Original: '{query}')", flush=True)
+
+    if _has_stop_command(norm_query):
+        stop_music()
+        return None
+
+    if current_player and current_player.poll() is None:
+        stop_music()
+
+    last_played_query = query
+    track = _resolve_track(norm_query, announce=announce_status)
+    if not track:
+        if announce_status:
+            speak("I couldn't find that song.")
+        return None
+
+    speak_title = _announce_title(track.get("title", "music"))
+    if announce_status and current_track_info is None:
+        speak(f"Now playing {speak_title}")
+    print(f"[music] ▶️  Now playing {track.get('title')}", flush=True)
 
     proc = _spawn_player(track.get("file_path"))
     if not proc:
+        if announce_status:
+            speak("I couldn't play that song.")
         return None
 
     current_player = proc
     current_track_info = dict(track)
     _record_play(track)
-    _set_music_state("playing", None)
-    if allow_prefetch:
-        _start_prefetch_thread(track, generation)
-    threading.Thread(
-        target=_on_track_finished,
-        args=(proc, generation),
-        daemon=True,
-        name=f"music-monitor-{generation}",
-    ).start()
+    _set_music_state("playing")
+    threading.Thread(target=_music_done_watcher, args=(proc, 0), daemon=True).start()
     return proc
 
 
-def _stop_current_process():
-    global current_player
+def stop_music():
+    global current_player, current_track_info
     try:
         if current_player and current_player.poll() is None:
             current_player.terminate()
-            current_player.wait(timeout=2)
+            try:
+                current_player.wait(timeout=2)
+            except Exception:
+                pass
     except Exception:
         pass
+
+    for proc_name in ("vlc", "cvlc", "ffplay", "mpv", "mpg123"):
+        try:
+            subprocess.run(["pkill", "-9", proc_name], stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    current_player = None
+    current_track_info = None
+    _set_music_state("idle")
+    print("[music] ⏹️  Stopped", flush=True)
+
+
+def pause_music():
+    if current_player and current_player.poll() is None:
+        try:
+            current_player.send_signal(signal.SIGSTOP)
+            print("[music] ⏸️  Paused", flush=True)
+        except Exception as e:
+            print(f"[music] Pause error: {e}", flush=True)
+
+
+def unpause_music():
+    if current_player and current_player.poll() is None:
+        try:
+            current_player.send_signal(signal.SIGCONT)
+            print("[music] ▶️  Resumed", flush=True)
+        except Exception as e:
+            print(f"[music] Resume error: {e}", flush=True)
+
+
+def search_local_and_play(norm_query: str):
+    track = _resolve_local_track(_clean_query(norm_query))
+    if not track:
+        return None
+    return _spawn_player(track["file_path"])
+
+
+def search_youtube_and_play(norm_query: str):
+    return play_music(norm_query)
+
+
+def sync_music_index():
+    try:
+        cache_dir = _songs_dir()
+        index = _load_index()
+        files: List[Path] = []
+        for ext in _SUPPORTED_EXTS:
+            files.extend(list(cache_dir.glob(f"*.{ext}")))
+        if not files:
+            return
+
+        updated = False
+        print(f"[music] 🔄 Syncing music index ({len(files)} files)...", flush=True)
+        for f in files:
+            vid_id = _extract_vid_id(f.name)
+            if not vid_id:
+                continue
+            if vid_id in index:
+                continue
+
+            try:
+                cmd = ["yt-dlp", "--force-ipv4", "--get-title", f"https://www.youtube.com/watch?v={vid_id}"]
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode == 0 and res.stdout.strip():
+                    title = res.stdout.strip().splitlines()[0].strip()
+                    index[vid_id] = {"title": title, "queries": []}
+                    updated = True
+                    print(f"[music] ✓ Added to index: {title}", flush=True)
+            except Exception as e:
+                print(f"[music] Error fetching title for {vid_id}: {e}", flush=True)
+
+        if updated:
+            _save_index(index)
+            print("[music] ✅ Index sync complete.", flush=True)
+    except Exception as e:
+        print(f"[music] Index sync error: {e}", flush=True)
 
 
 def start_music_housekeeping():
@@ -717,9 +588,8 @@ def _cleanup_local_music_if_low_storage():
     stats = _load_json_file(_stats_path(), {})
     index = _load_index()
     current_file = (current_track_info or {}).get("file_path")
-    prefetched_file = (prefetched_track_info or {}).get("file_path")
 
-    def _candidate_sort(path_obj):
+    def _candidate_sort(path_obj: Path):
         vid_id = _extract_vid_id(path_obj.name) or path_obj.stem
         entry = stats.get(vid_id, {})
         return (
@@ -729,7 +599,7 @@ def _cleanup_local_music_if_low_storage():
         )
 
     for path_obj in sorted(files, key=_candidate_sort):
-        if str(path_obj) in {current_file, prefetched_file}:
+        if str(path_obj) == current_file:
             continue
         if disk_free_mb >= low_storage_mb and total_cache_mb <= cache_limit_mb:
             break
@@ -748,500 +618,3 @@ def _cleanup_local_music_if_low_storage():
     _save_json_file(_stats_path(), stats)
     _save_index(index)
 
-def search_local_and_play(norm_query):
-    """
-    Search local JSON index for fuzzy match using cleaned query.
-    Returns: process (subprocess.Popen) if found and played, else None.
-    """
-    try:
-        from pathlib import Path
-        cache_dir = Path(os.getcwd()) / "songs"
-        index_path = cache_dir / "index.json"
-        
-        if not index_path.exists():
-            return None
-            
-        import json
-        try:
-            with open(index_path, "r") as f:
-                index = json.load(f)
-        except:
-            return None
-
-        # Fuzzy match query against titles or stored queries
-        best_match = None
-        best_score = 0.0
-        
-        for vid_id, data in index.items():
-            # Check against title
-            title = data.get("title", "").lower()
-            if not title: continue
-            
-            # Check against stored queries (Iterate all queries for this ID)
-            previous_queries = data.get("queries", [])
-            for pq in previous_queries:
-                # IMPORTANT: Clean stored query too for comparisons?
-                # Or compare raw stored query vs clean input?
-                # User had success with fuzzy matching raw stored query vs clean input.
-                # So let's fuzzy match against raw stored query.
-                pq_clean = clean_music_query(pq) # Actually, clean stored query helps match clean input
-                
-                # Match against cleanly stored query
-                score_q = SequenceMatcher(None, norm_query, pq_clean).ratio()
-                if score_q > best_score:
-                    best_score = score_q
-                    best_match = vid_id
-                
-                # Also match against RAW stored query (for legacy index entries)
-                score_raw = SequenceMatcher(None, norm_query, pq).ratio()
-                if score_raw > best_score:
-                    best_score = score_raw
-                    best_match = vid_id
-                
-            # Fuzzy title match
-            score1 = SequenceMatcher(None, norm_query, title).ratio()
-            
-            # Keyword match
-            q_words = set(norm_query.split())
-            t_words = set(title.split())
-            intersection = q_words.intersection(t_words)
-            
-            score2 = 0.0
-            if q_words:
-                 score2 = len(intersection) / len(q_words)
-                 
-            current_score = max(score1, score2)
-            if current_score > best_score:
-                best_score = current_score
-                best_match = vid_id
-
-            # Boost if query is substring
-            if norm_query in title or title in norm_query:
-                 if 0.8 > best_score: best_score = 0.8
-                 
-        if best_score > 0.6 and best_match:
-             print(f"[music] ✅ Found local match! Score: {best_score:.2f} (ID: {best_match})", flush=True)
-             data = index[best_match]
-             
-             # Search for file (Escape brackets in ID for glob)
-             import glob
-             escaped_id = glob.escape(best_match)
-             matches = []
-             for ext in ["mp3", "m4a", "webm"]:
-                 matches.extend(list(cache_dir.glob(f"*{escaped_id}*.{ext}")))
-                 
-             found_file = str(matches[0]) if matches else None
-             
-             if not found_file:
-                 # Try exact fallback
-                 for ext in ["mp3", "m4a", "webm"]:
-                     possible = cache_dir / f"{best_match}.{ext}"
-                     if possible.exists(): 
-                         found_file = str(possible)
-                         break
-                 
-             if found_file:
-                 # Shorten title for speaking
-                 speak_title = data['title']
-                 if "|" in speak_title: speak_title = speak_title.split("|")[0]
-                 words = speak_title.split()
-                 if len(words) > 5: speak_title = " ".join(words[:5])
-                    
-                 speak(f"Playing {speak_title}")
-                 
-                 # Store CLEAN query in index
-                 if norm_query not in data.get("queries", []):
-                     data.setdefault("queries", []).append(norm_query)
-                     with open(index_path, "w") as f:
-                         json.dump(index, f, indent=2)
-
-                 # Play using appropriate player
-                 return _spawn_player(found_file)
-        
-        return None
-        
-    except Exception as e:
-        print(f"[music] Local search error: {e}")
-        return None
-
-def search_youtube_and_play(norm_query):
-    """Search YouTube, download, cache, and play."""
-    if not _search_lock.acquire(blocking=False):
-        print(f"[music] ✋ Search already in progress. Skipping duplicate search for: {norm_query}")
-        return None
-        
-    try:
-        from pathlib import Path
-        cache_dir = Path(os.getcwd()) / "songs"
-        index_path = cache_dir / "index.json"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        
-        print(f"[music] 🌍 Searching YouTube for: {norm_query}", flush=True)
-        speak(f"Searching online for {norm_query}")
-        
-        search_cmd = _low_priority_prefix() + [
-            "yt-dlp", 
-            "--force-ipv4", 
-            "--get-title", "--get-id", 
-            f"ytsearch1:{norm_query}"
-        ]
-        search_res = subprocess.run(search_cmd, capture_output=True, text=True)
-        
-        if search_res.returncode != 0:
-             print("[music] Error finding song", flush=True)
-             speak("I couldn't find that song.")
-             return None
-             
-        lines = search_res.stdout.strip().split('\n')
-        if len(lines) < 2:
-            print("[music] ❌ No results or malformed output", flush=True)
-            speak("I couldn't find that song.")
-            return None
-            
-        title = lines[0]
-        vid_id = lines[1]
-        
-        # Remove illegal filename chars (especially slashes)
-        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-        filename_template = f"{safe_title} [{vid_id}].%(ext)s"[:255]
-        file_path_template = str(cache_dir / filename_template)
-        
-        print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
-
-        # Look for existing downloaded files (m4a, mp3, webm)
-        import glob
-        existing_matches = []
-        for ext in ["mp3", "m4a", "webm"]:
-            existing_matches.extend(list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}")))
-            
-        file_path = str(existing_matches[0]) if existing_matches else None
-
-        # Check for old cache format
-        if not file_path:
-            for ext in ["mp3", "m4a", "webm"]:
-                old_path = str(cache_dir / f"{vid_id}.{ext}")
-                if os.path.exists(old_path):
-                    try: 
-                        new_name = f"{safe_title} [{vid_id}].{ext}"[:255]
-                        os.rename(old_path, str(cache_dir / new_name))
-                        file_path = str(cache_dir / new_name)
-                    except: pass
-                    break
-
-        # Load index
-        index = {}
-        if index_path.exists():
-            try:
-                with open(index_path, "r") as f: index = json.load(f)
-            except: pass
-
-        if file_path and os.path.exists(file_path):
-            print(f"[music] 📂 Playing from file cache: {file_path}", flush=True)
-            # Add to index (Clean query)
-            current_data = index.get(vid_id, {})
-            existing_queries = current_data.get("queries", [])
-            if norm_query not in existing_queries:
-                 existing_queries.append(norm_query)
-                 
-            index[vid_id] = {"title": title, "queries": existing_queries}
-            with open(index_path, "w") as f:
-                json.dump(index, f, indent=2)
-                
-            global last_played_query
-            last_played_query = norm_query # Store for autoplay/replay
-            
-            # Shorten title for speaking
-            speak_title = title.partition('|')[0]
-            words = speak_title.split()
-            if len(words) > 5: speak_title = " ".join(words[:5])
-            speak(f"Playing {speak_title}")
-            
-            if file_path.endswith(".mp3"):
-                return _spawn_player(file_path)
-            else:
-                return _spawn_player(file_path)
-        
-        # Download completely (native format, no transcoding, totally silent)
-        speak_title = title.partition('|')[0]
-        words = speak_title.split()
-        if len(words) > 5: speak_title = " ".join(words[:5])
-        speak(f"Downloading {speak_title}")
-        print(f"[music] ⬇️  Downloading fast... ({title})", flush=True)
-        
-        # 🚀 REPORT DOWNLOAD STATUS TO BACKEND
-        try:
-            from .networking import read_slug, BACKEND_BASE_URL
-            import requests
-            slug, _ = read_slug()
-            if slug:
-                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/update-status", json={"downloadProgress": f"Downloading: {title}"}, timeout=2)
-        except:
-            pass
-        
-        safe_url = str(track.get("link") or "").strip() or f"https://www.youtube.com/watch?v={vid_id}"
-
-        dl_res = None
-        last_error = ""
-        for dl_cmd in _run_ytdlp_download_attempts(file_path_template, safe_url, mp3_preferred=bool(shutil.which("ffmpeg"))):
-            dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
-            if dl_res.returncode == 0:
-                break
-            last_error = (dl_res.stderr or dl_res.stdout or "").strip()
-            if last_error:
-                print(f"[music] yt-dlp attempt failed: {last_error[-500:]}", flush=True)
-
-        if not dl_res or dl_res.returncode != 0:
-            if last_error:
-                print(f"[music] yt-dlp download failed: {last_error[-500:]}", flush=True)
-        
-        # 🚀 CLEAR DOWNLOAD STATUS
-        try:
-            if slug:
-                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/update-status", json={"downloadProgress": None}, timeout=2)
-        except:
-            pass
-        
-        # Now find the downloaded file
-        candidate_lines = []
-        if dl_res.stdout:
-            candidate_lines.extend([ln.strip() for ln in dl_res.stdout.splitlines() if ln.strip()])
-        if dl_res.stderr:
-            candidate_lines.extend([ln.strip() for ln in dl_res.stderr.splitlines() if ln.strip()])
-
-        final_file = None
-        for line in reversed(candidate_lines):
-            if os.path.exists(line):
-                final_file = line
-                break
-
-        if not final_file:
-            exact_candidates = [
-                cache_dir / f"{safe_title} [{vid_id}].mp3",
-                cache_dir / f"{safe_title} [{vid_id}].m4a",
-                cache_dir / f"{safe_title} [{vid_id}].webm",
-                cache_dir / f"{safe_title} [{vid_id}].mp4",
-                cache_dir / f"{safe_title} [{vid_id}].opus",
-                cache_dir / f"{safe_title} [{vid_id}].ogg",
-                cache_dir / f"{safe_title} [{vid_id}].mkv",
-                cache_dir / f"{vid_id}.mp3",
-                cache_dir / f"{vid_id}.m4a",
-                cache_dir / f"{vid_id}.webm",
-                cache_dir / f"{vid_id}.mp4",
-                cache_dir / f"{vid_id}.opus",
-                cache_dir / f"{vid_id}.ogg",
-                cache_dir / f"{vid_id}.mkv",
-            ]
-            for candidate in exact_candidates:
-                if candidate.exists():
-                    final_file = str(candidate)
-                    break
-
-        if not final_file:
-            new_matches = []
-            for ext in ["mp3", "m4a", "webm", "mp4", "opus", "ogg", "mkv"]:
-                new_matches.extend(list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}")))
-            final_file = str(new_matches[0]) if new_matches else None
-        
-        if not final_file:
-            print("[music] ❌ Download failed.", flush=True)
-            speak("I couldn't complete the download.")
-            return None
-        
-        # Add to index (Clean query)
-        current_data = index.get(vid_id, {})
-        existing_queries = current_data.get("queries", [])
-        if norm_query not in existing_queries:
-             existing_queries.append(norm_query)
-             
-        index[vid_id] = {"title": title, "queries": existing_queries}
-        with open(index_path, "w") as f:
-            json.dump(index, f, indent=2)
-            
-        # Play the newly downloaded file
-        print(f"[music] ▶️  Playing...", flush=True)
-        if final_file.endswith(".mp3"):
-            return _spawn_player(final_file)
-        else:
-            return _spawn_player(final_file)
-
-    except Exception as e:
-        print(f"[music] ❌ Error: {e}", flush=True)
-        return None
-    finally:
-        _search_lock.release()
-
-def play_music(query: str, announce_status: bool = True):
-    """Play a track in the background and prefetch the next one silently."""
-    global current_player, last_played_query, prefetched_track_info, _playlist_generation
-    
-    # Check dependencies
-    if not shutil.which("yt-dlp"):
-        print("[music] Install yt-dlp: sudo wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && sudo chmod a+rx /usr/local/bin/yt-dlp", flush=True)
-        return None
-    
-    norm_query = clean_music_query(query)
-    print(f"[music] 🧹 Cleaned Query: '{norm_query}' (Original: '{query}')", flush=True)
-
-    # 🚀 HANDLE STOP COMMANDS EXPLICITLY
-    if _has_stop_command(norm_query):
-        print("[music] 🛑 Stop command detected. Terminating playback.")
-        stop_music()
-        return None
-    
-    _playlist_generation += 1
-    generation = _playlist_generation
-    prefetched_track_info = None
-    _stop_current_process()
-
-    last_played_query = query
-    track = _prepare_track(norm_query, announce=announce_status, prefetch=False)
-    if not track:
-        _set_music_state("idle", None)
-        speak("I couldn't find that song.")
-        return None
-
-    proc = _play_track(
-        track,
-        announce_mode="now_playing" if announce_status else "silent",
-        generation=generation,
-        allow_prefetch=True,
-    )
-    if proc:
-        current_player = proc
-        return proc
-
-    _set_music_state("idle", None)
-    speak("I couldn't play that song.")
-    return None
-
-def stop_music():
-    """Stop music."""
-    global current_player, current_track_info, prefetched_track_info, _playlist_generation
-
-    _playlist_generation += 1
-    prefetched_track_info = None
-    current_track_info = None
-    _stop_current_process()
-    
-    # Force kill
-    subprocess.run(["pkill", "-9", "vlc"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "cvlc"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "ffplay"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "mpg123"], stderr=subprocess.DEVNULL)
-
-    current_player = None
-    _set_music_state("idle", None)
-    _clear_download_progress()
-    print("[music] ⏹️  Stopped", flush=True)
-
-
-def pause_music():
-    """Pause music using SIGSTOP (better than ducking)."""
-    global current_player
-    if current_player and current_player.poll() is None:
-        try:
-            current_player.send_signal(signal.SIGSTOP)
-            print("[music] ⏸️  Paused", flush=True)
-        except Exception as e:
-            print(f"[music] Pause error: {e}", flush=True)
-
-def unpause_music():
-    """Resume music using SIGCONT."""
-    global current_player
-    if current_player and current_player.poll() is None:
-        try:
-            current_player.send_signal(signal.SIGCONT)
-            print("[music] ▶️  Resumed", flush=True)
-        except Exception as e:
-            print(f"[music] Resume error: {e}", flush=True)
-
-def sync_music_index():
-    """Sync index.json with actual files in songs/ directory."""
-    try:
-        from pathlib import Path
-        import re
-        cache_dir = Path(os.getcwd()) / "songs"
-        index_path = cache_dir / "index.json"
-        
-        if not cache_dir.exists(): return
-        
-        import json
-        index = {}
-        if index_path.exists():
-            try:
-                with open(index_path, "r") as f:
-                    index = json.load(f)
-            except: pass
-            
-        files = []
-        for ext in ["mp3", "m4a", "webm"]:
-            files.extend(list(cache_dir.glob(f"*.{ext}")))
-        updated = False
-        
-        print(f"[music] 🔄 Syncing music index ({len(files)} files)...", flush=True)
-        
-        for f in files:
-            filename = f.name
-            vid_id = None
-            file_ext = f.suffix.lower().lstrip(".")
-            
-            # Regex 1: ... [ID].mp3 / .m4a / .webm
-            # YouTube IDs are typically 11 chars, but can vary.
-            # Look for [ID] pattern at end for any supported media extension.
-            m = re.search(r"\[([a-zA-Z0-9_-]+)\]\.(mp3|m4a|webm)$", filename)
-            if m:
-                vid_id = m.group(1)
-            else:
-                # Regex 2: ID.mp3 (Raw ID)
-                # Assume filename IS the ID if no brackets
-                # Limit to typical ID chars
-                m = re.search(r"^([a-zA-Z0-9_-]+)\.(mp3|m4a|webm)$", filename)
-                if m:
-                     vid_id = m.group(1)
-                     
-            if vid_id:
-                # If valid ID and NOT in index
-                if vid_id not in index:
-                    print(f"[music] ❓ Indexing missing song: {filename} (ID: {vid_id})", flush=True)
-                    # Fetch title
-                    try:
-                        cmd = [
-                            "yt-dlp", 
-                            "--force-ipv4", 
-                            "--get-title", 
-                            f"https://www.youtube.com/watch?v={vid_id}"
-                        ]
-                        res = subprocess.run(cmd, capture_output=True, text=True)
-                        
-                        if res.returncode == 0:
-                            title = res.stdout.strip()
-                            if title:
-                                # Add to index with NO queries (since we don't know what user would ask)
-                                # But title match will work!
-                                index[vid_id] = {"title": title, "queries": []}
-                                updated = True
-                                print(f"[music] ✓ Added to index: {title}", flush=True)
-                                
-                                # Rename if raw ID (ID.mp3 -> Title [ID].mp3)
-                                if filename == f"{vid_id}.{file_ext}":
-                                     safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-                                     new_name = f"{safe_title} [{vid_id}].{file_ext}"[:255]
-                                     try:
-                                         f.rename(cache_dir / new_name)
-                                         print(f"[music] 📂 Renamed to: {new_name}", flush=True)
-                                     except: pass
-                        else:
-                             print(f"[music] ❌ Failed to get title for {vid_id}", flush=True)
-                    except Exception as e:
-                        print(f"[music] Error fetching title for {vid_id}: {e}", flush=True)
-                        
-        if updated:
-             with open(index_path, "w") as f:
-                 json.dump(index, f, indent=2)
-             print("[music] ✅ Index sync complete.", flush=True)
-        else:
-             print("[music] Index is up to date.", flush=True)
-             
-    except Exception as e:
-        print(f"[music] Index sync error: {e}", flush=True)
