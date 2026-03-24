@@ -44,7 +44,12 @@ def _push_stt_log(text: str, throttle_sec: float = 0.0):
     try:
         url = f"https://rk-ai-backend.onrender.com/device/{slug}/stt-log"
         # Run asynchronously so we don't block the audio loop
-        threading.Thread(target=lambda: requests.post(url, json={"text": clean_text}, timeout=2), daemon=True).start()
+        def _worker():
+            try:
+                requests.post(url, json={"text": clean_text}, timeout=2)
+            except Exception:
+                pass
+        threading.Thread(target=_worker, daemon=True).start()
     except:
         pass
 

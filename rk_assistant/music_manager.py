@@ -498,17 +498,6 @@ def _prefetch_next_track(finished_track: Dict[str, Any], generation: int):
         return
     print(f"[music] 🔮 Prefetching next suggestion from backend: {next_track.get('title')}", flush=True)
 
-    # If the backend already resolved the exact video, just download it silently here.
-    if not (next_track.get("file_path") and os.path.exists(str(next_track.get("file_path")))):
-        try:
-            next_track = _download_track(next_track, first_song=False)
-        except Exception as e:
-            print(f"[music] Prefetch download failed: {e}", flush=True)
-            next_track = None
-
-    if not next_track:
-        return
-
     with _prefetch_lock:
         if generation != _playlist_generation:
             return
@@ -544,9 +533,13 @@ def _on_track_finished(proc, generation: int):
         prefetched_track_info = None
 
     if next_track:
-        print(f"[music] ▶️  Autoplaying prefetched track: {next_track.get('title')}", flush=True)
-        _play_track(next_track, announce_mode="silent", generation=generation, allow_prefetch=True)
-        return
+        if not (next_track.get("file_path") and os.path.exists(str(next_track.get("file_path")))):
+            print(f"[music] ⬇️  Downloading next track after finish: {next_track.get('title')}", flush=True)
+            next_track = _download_track(next_track, first_song=False)
+        if next_track:
+            print(f"[music] ▶️  Autoplaying prefetched track: {next_track.get('title')}", flush=True)
+            _play_track(next_track, announce_mode="silent", generation=generation, allow_prefetch=True)
+            return
 
     suggestion = None
     try:

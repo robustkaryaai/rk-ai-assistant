@@ -31,6 +31,16 @@ def speak(
     if not spoken_text:
         return
 
+    # Keep music clean on low-power hardware: if music is already playing,
+    # suppress any unrelated speech so the audio path stays stable.
+    try:
+        from .music_manager import get_runtime_state
+        if get_runtime_state() == "playing":
+            print(f"🔇 Suppressed speech while music is playing: {spoken_text}", flush=True)
+            return
+    except Exception:
+        pass
+
     profile = get_tts_config()
     requested_engine = str(engine or profile.get("engine") or "gtts").strip().lower()
     requested_gender = str(gender or profile.get("gender") or "female").strip().lower()
