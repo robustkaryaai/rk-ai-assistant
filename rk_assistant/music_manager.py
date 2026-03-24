@@ -153,53 +153,6 @@ def _low_priority_prefix() -> List[str]:
     return prefix
 
 
-def _resolve_next_track_from_backend(finished_track: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    try:
-        from .networking import backend_session
-        from .config import BACKEND_BASE_URL
-    except Exception as e:
-        print(f"[music] Backend resolver unavailable: {e}", flush=True)
-        return None
-
-    slug = _get_slug()
-    if not slug:
-        return None
-
-    payload = {
-        "current_title": finished_track.get("title") or "",
-        "current_query": finished_track.get("query") or "",
-    }
-    if not payload["current_title"] and not payload["current_query"]:
-        return None
-
-    try:
-        resp = backend_session.post(
-            f"{BACKEND_BASE_URL}/device/{slug}/music/recommend",
-            json=payload,
-            timeout=20,
-        )
-        if not resp.ok:
-            print(f"[music] Backend resolver failed: HTTP {resp.status_code}", flush=True)
-            return None
-        data = resp.json() if resp.content else {}
-        link = str(data.get("link") or "").strip()
-        vid_id = str(data.get("vid_id") or "").strip()
-        title = str(data.get("title") or "").strip()
-        if not (link and vid_id and title):
-            return None
-        return {
-            "vid_id": vid_id,
-            "title": title,
-            "file_path": None,
-            "query": str(data.get("query") or title).strip(),
-            "source": "backend",
-            "link": link,
-        }
-    except Exception as e:
-        print(f"[music] Backend resolver error: {e}", flush=True)
-        return None
-
-
 def _push_backend_status(busy_state=None, download_progress=_STATUS_UNSET):
     try:
         from .config import BACKEND_BASE_URL
@@ -429,10 +382,41 @@ def _download_track(track: Dict[str, Any], first_song: bool = False) -> Optional
         download_opts.extend(["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"])
     else:
         download_opts.extend(["-f", "ba[ext=m4a]/ba"])
-    dl_cmd = download_opts + ["-o", file_path_template, safe_url]
-    subprocess.run(dl_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    dl_cmd = download_opts + ["--print", "after_move:filepath", "-o", file_path_template, safe_url]
+    dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
+    if dl_res.returncode != 0:
+        err_text = (dl_res.stderr or dl_res.stdout or "").strip()
+        if err_text:
+            print(f"[music] yt-dlp download failed: {err_text[-500:]}", flush=True)
 
-    final_file = _find_cached_file(vid_id)
+    final_file = None
+    candidate_lines = []
+    if dl_res.stdout:
+        candidate_lines.extend([ln.strip() for ln in dl_res.stdout.splitlines() if ln.strip()])
+    if dl_res.stderr:
+        candidate_lines.extend([ln.strip() for ln in dl_res.stderr.splitlines() if ln.strip()])
+
+    for line in reversed(candidate_lines):
+        if os.path.exists(line):
+            final_file = line
+            break
+
+    if not final_file:
+        exact_candidates = [
+            cache_dir / f"{safe_title} [{vid_id}].mp3",
+            cache_dir / f"{safe_title} [{vid_id}].m4a",
+            cache_dir / f"{safe_title} [{vid_id}].webm",
+            cache_dir / f"{vid_id}.mp3",
+            cache_dir / f"{vid_id}.m4a",
+            cache_dir / f"{vid_id}.webm",
+        ]
+        for candidate in exact_candidates:
+            if candidate.exists():
+                final_file = str(candidate)
+                break
+
+    if not final_file:
+        final_file = _find_cached_file(vid_id)
     if not final_file:
         if first_song:
             _clear_download_progress()
@@ -493,10 +477,16 @@ def _prepare_track(norm_query: str, announce: bool = True, prefetch: bool = Fals
 
 def _prefetch_next_track(finished_track: Dict[str, Any], generation: int):
     global prefetched_track_info
-    next_track = _resolve_next_track_from_backend(finished_track)
+    suggestion = get_related_song_recommendation(finished_track.get("title", ""))
+    if not suggestion:
+        return
+    suggestion_query = clean_music_query(suggestion)
+    if not suggestion_query:
+        return
+    print(f"[music] 🔮 Prefetching next suggestion locally: {suggestion_query}", flush=True)
+    next_track = _prepare_track(suggestion_query, announce=False, prefetch=True)
     if not next_track:
         return
-    print(f"[music] 🔮 Prefetching next suggestion from backend: {next_track.get('title')}", flush=True)
 
     with _prefetch_lock:
         if generation != _playlist_generation:
@@ -574,8 +564,6 @@ def _play_track(track: Dict[str, Any], announce_mode: str = "now_playing", gener
     current_track_info = dict(track)
     _record_play(track)
     _set_music_state("playing", None)
-    if allow_prefetch:
-        _start_prefetch_thread(track, generation)
     threading.Thread(
         target=_on_track_finished,
         args=(proc, generation),
@@ -906,7 +894,11 @@ def search_youtube_and_play(norm_query):
                 "-f", "ba[ext=m4a]/ba", "-o", file_path_template, safe_url
             ]
         
-        subprocess.run(dl_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
+        if dl_res.returncode != 0:
+            err_text = (dl_res.stderr or dl_res.stdout or "").strip()
+            if err_text:
+                print(f"[music] yt-dlp download failed: {err_text[-500:]}", flush=True)
         
         # 🚀 CLEAR DOWNLOAD STATUS
         try:
@@ -916,11 +908,37 @@ def search_youtube_and_play(norm_query):
             pass
         
         # Now find the downloaded file
-        new_matches = []
-        for ext in ["mp3", "m4a", "webm"]:
-            new_matches.extend(list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}")))
-            
-        final_file = str(new_matches[0]) if new_matches else None
+        candidate_lines = []
+        if dl_res.stdout:
+            candidate_lines.extend([ln.strip() for ln in dl_res.stdout.splitlines() if ln.strip()])
+        if dl_res.stderr:
+            candidate_lines.extend([ln.strip() for ln in dl_res.stderr.splitlines() if ln.strip()])
+
+        final_file = None
+        for line in reversed(candidate_lines):
+            if os.path.exists(line):
+                final_file = line
+                break
+
+        if not final_file:
+            exact_candidates = [
+                cache_dir / f"{safe_title} [{vid_id}].mp3",
+                cache_dir / f"{safe_title} [{vid_id}].m4a",
+                cache_dir / f"{safe_title} [{vid_id}].webm",
+                cache_dir / f"{vid_id}.mp3",
+                cache_dir / f"{vid_id}.m4a",
+                cache_dir / f"{vid_id}.webm",
+            ]
+            for candidate in exact_candidates:
+                if candidate.exists():
+                    final_file = str(candidate)
+                    break
+
+        if not final_file:
+            new_matches = []
+            for ext in ["mp3", "m4a", "webm"]:
+                new_matches.extend(list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}")))
+            final_file = str(new_matches[0]) if new_matches else None
         
         if not final_file:
             print("[music] ❌ Download failed.", flush=True)
