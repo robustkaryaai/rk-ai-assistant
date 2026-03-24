@@ -310,15 +310,13 @@ def _spawn_player(file_path: str):
     candidates: List[List[str]] = []
     if shutil.which("mpv"):
         candidates.append(["mpv", "--really-quiet", "--no-video", "--ao=pulse", file_path])
-    if not is_url and file_path.lower().endswith(".mp3") and shutil.which("mpg123"):
-        candidates.append(["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", file_path])
     if shutil.which("ffplay"):
         candidates.append(["ffplay", "-autoexit", "-nodisp", "-loglevel", "quiet", file_path])
     if shutil.which("vlc"):
         candidates.append(["vlc", "--play-and-exit", "--no-video", "--quiet", file_path])
     if shutil.which("cvlc"):
         candidates.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", file_path])
-    if not is_url and shutil.which("mpg123"):
+    if not is_url and file_path.lower().endswith(".mp3") and shutil.which("mpg123"):
         candidates.append(["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", file_path])
 
     for cmd in candidates:
@@ -399,8 +397,8 @@ def _download_track(track: Dict[str, Any], first_song: bool = False, announce_st
 
     print(f"[music] ⬇️  Downloading... ({title})", flush=True)
 
-    # Prefer an audio-only file so the Pi Zero doesn't waste cycles on conversion.
-    base_args = ["-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best"]
+    # Convert to mp3 when ffmpeg exists so mpg123 can play the cached file.
+    base_args = ["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"] if shutil.which("ffmpeg") else ["-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best"]
     attempts: List[List[str]] = []
     for auth_args in _ytdlp_auth_options():
         attempts.append(_low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + auth_args + base_args + ["-o", file_path_template, safe_url])
