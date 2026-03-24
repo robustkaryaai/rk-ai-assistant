@@ -210,56 +210,7 @@ def execute_command(cmd: dict, slug: str) -> None:
                 result = "Missing SSID in set_wifi payload"
                 success = False
 
-        elif cmd_type == 'scan_network':
-            cid, dev_slug = cmd_id, slug
 
-            def _scan_worker():
-                try:
-                    from .smart_home import discover_and_sync_devices
-                    scan_res = discover_and_sync_devices(dev_slug)
-                    count = scan_res.get("count", 0)
-                    if scan_res.get("success"):
-                        _mark_command_complete(
-                            cid, dev_slug,
-                            f"Network scan completed. Found {count} devices.",
-                            True,
-                            "scan_network",
-                        )
-                    else:
-                        _mark_command_complete(
-                            cid, dev_slug,
-                            f"Scan failed: {scan_res.get('error')}",
-                            False,
-                            "scan_network",
-                        )
-                except Exception as ex:
-                    _mark_command_complete(
-                        cid, dev_slug, f"Scan crashed: {ex}", False, "scan_network",
-                    )
-
-            Thread(target=_scan_worker, daemon=True).start()
-            return
-
-        elif cmd_type == 'control_device':
-            from .smart_home import control_device_by_id
-            device_id = payload.get('id') or payload.get('device_id')
-            action = (payload.get('action') or 'toggle').lower()
-            if not device_id:
-                result = "control_device: missing id in payload"
-                success = False
-            else:
-                result = control_device_by_id(str(device_id), action)
-                fail_markers = (
-                    "couldn't find",
-                    "no device with id",
-                    "didn't respond",
-                    "don't have",
-                    "unknown action",
-                    "add a",
-                    "toggle needs",
-                    "not installed",
-                )
-                success = not any(m in result.lower() for m in fail_markers)
 
         elif cmd_type == 'ecosystem_routine':
             routine = payload.get('routine', 'lumina_coding')
