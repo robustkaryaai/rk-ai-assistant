@@ -76,54 +76,64 @@ def refresh_device_settings_now(slug=None):
 
         device = data['documents'][0]
 
+        device_settings['is_muted'] = (
+            device.get('isMuted')
+            if device.get('isMuted') is not None
+            else device.get('is_muted', False)
+        )
+        device_settings['memory_enabled'] = (
+            device.get('memoryEnabled')
+            if device.get('memoryEnabled') is not None
+            else device.get('memory_enabled', True)
+        )
 
-    device_settings['is_muted'] = device.get('isMuted') if device.get('isMuted') is not None else device.get('is_muted', False)
-    device_settings['memory_enabled'] = device.get('memoryEnabled') if device.get('memoryEnabled') is not None else device.get('memory_enabled', True)
+        if device.get('assistantName'):
+            device_settings['assistant_name'] = device['assistantName']
 
-    if device.get('assistantName'):
-        device_settings['assistant_name'] = device['assistantName']
+        if device.get('greetingPhrase'):
+            device_settings['greeting_phrase'] = device['greetingPhrase']
 
-    if device.get('greetingPhrase'):
-        device_settings['greeting_phrase'] = device['greetingPhrase']
+        if device.get('wakeWords'):
+            try:
+                wake_words_raw = device['wakeWords']
+                wake_words_data = json.loads(wake_words_raw) if isinstance(wake_words_raw, str) else wake_words_raw
+                if isinstance(wake_words_data, list):
+                    device_settings['wake_words'] = [str(w).lower() for w in wake_words_data if str(w).strip()]
+                elif isinstance(wake_words_data, dict):
+                    words = wake_words_data.get('words') or wake_words_data.get('wakeWords') or wake_words_data.get('list') or []
+                    if isinstance(words, list):
+                        device_settings['wake_words'] = [str(w).lower() for w in words if str(w).strip()]
 
-    if device.get('wakeWords'):
-        try:
-            wake_words_raw = device['wakeWords']
-            wake_words_data = json.loads(wake_words_raw) if isinstance(wake_words_raw, str) else wake_words_raw
-            if isinstance(wake_words_data, list):
-                device_settings['wake_words'] = [str(w).lower() for w in wake_words_data if str(w).strip()]
-            elif isinstance(wake_words_data, dict):
-                words = wake_words_data.get('words') or wake_words_data.get('wakeWords') or wake_words_data.get('list') or []
-                if isinstance(words, list):
-                    device_settings['wake_words'] = [str(w).lower() for w in words if str(w).strip()]
+                    meta = wake_words_data.get('meta') if isinstance(wake_words_data.get('meta'), dict) else {}
+                    if 'nightProtocolEnabled' in meta:
+                        device_settings['night_protocol_enabled'] = bool(meta['nightProtocolEnabled'])
+                    if isinstance(meta.get('ttsConfig'), dict):
+                        tts_config = dict(device_settings['tts_config'])
+                        tts_config.update(meta['ttsConfig'])
+                        device_settings['tts_config'] = tts_config
+                        print(
+                            "[Settings Sync] TTS config synced: "
+                            f"engine={tts_config.get('engine')} "
+                            f"voice={tts_config.get('voice')} "
+                            f"language={tts_config.get('language')} "
+                            f"gender={tts_config.get('gender')}"
+                        )
+            except Exception:
+                pass
 
-                meta = wake_words_data.get('meta') if isinstance(wake_words_data.get('meta'), dict) else {}
-                if 'nightProtocolEnabled' in meta:
-                    device_settings['night_protocol_enabled'] = bool(meta['nightProtocolEnabled'])
-                if isinstance(meta.get('ttsConfig'), dict):
-                    tts_config = dict(device_settings['tts_config'])
-                    tts_config.update(meta['ttsConfig'])
-                    device_settings['tts_config'] = tts_config
-                    print(
-                        "[Settings Sync] TTS config synced: "
-                        f"engine={tts_config.get('engine')} "
-                        f"voice={tts_config.get('voice')} "
-                        f"language={tts_config.get('language')} "
-                        f"gender={tts_config.get('gender')}"
-                    )
-        except Exception:
-            pass
-
-    if device.get('smart_devices') is not None:
-        try:
-            devs = device['smart_devices']
-            if isinstance(devs, str):
-                devs = json.loads(devs)
-            if isinstance(devs, list):
-                device_settings['smart_devices'] = devs
-        except Exception as de:
-            print(f"[Settings Sync] smart_devices parse error: {de}")
-    return True
+        if device.get('smart_devices') is not None:
+            try:
+                devs = device['smart_devices']
+                if isinstance(devs, str):
+                    devs = json.loads(devs)
+                if isinstance(devs, list):
+                    device_settings['smart_devices'] = devs
+            except Exception as de:
+                print(f"[Settings Sync] smart_devices parse error: {de}")
+        return True
+    except requests.RequestException as exc:
+        print(f"[Settings Sync] Error fetching settings: {exc}")
+        return False
 
 def is_device_muted():
     """Check if device is currently muted"""
