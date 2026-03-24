@@ -14,6 +14,11 @@ try:
 except ImportError:
     BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'https://rk-ai-backend.onrender.com')
 
+try:
+    from .networking import _session as backend_session
+except Exception:
+    backend_session = requests.Session()
+
 DEVICE_SLUG = os.getenv('DEVICE_SLUG', '')
 
 # Global state
@@ -66,7 +71,7 @@ def refresh_device_settings_now(slug=None):
     url = f"{BACKEND_BASE_URL}/device/{slug}/settings"
 
     try:
-        response = requests.get(url, timeout=10)
+        response = backend_session.get(url, timeout=10)
         if response.status_code != 200:
             return False
 

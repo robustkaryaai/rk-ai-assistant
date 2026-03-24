@@ -443,7 +443,7 @@ def _on_track_finished(proc, generation: int):
 
     if next_track:
         print(f"[music] ▶️  Autoplaying prefetched track: {next_track.get('title')}", flush=True)
-        _play_track(next_track, announce_mode="now_playing", generation=generation, allow_prefetch=True)
+        _play_track(next_track, announce_mode="silent", generation=generation, allow_prefetch=True)
         return
 
     current_player = None
