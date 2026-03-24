@@ -242,6 +242,8 @@ def _spawn_player(file_path: str):
         return None
 
     player_cmds = []
+    if file_path.lower().endswith(".mp3") and shutil.which("mpg123"):
+        player_cmds.append(["mpg123", "-o", "pulse", "-b", "16384", "--no-resync", "-q", file_path])
     if shutil.which("cvlc"):
         player_cmds.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", file_path])
     if shutil.which("vlc"):
@@ -249,7 +251,7 @@ def _spawn_player(file_path: str):
     if shutil.which("ffplay"):
         player_cmds.append(["ffplay", "-autoexit", "-nodisp", "-loglevel", "quiet", file_path])
     if shutil.which("mpg123"):
-        player_cmds.append(["mpg123", "-q", file_path])
+        player_cmds.append(["mpg123", "-o", "pulse", "-b", "16384", "--no-resync", "-q", file_path])
 
     for cmd in player_cmds:
         try:
@@ -352,10 +354,15 @@ def _download_track(track: Dict[str, Any], first_song: bool = False) -> Optional
         _push_backend_status(download_progress=f"Downloading next: {title}")
 
     print(f"[music] ⬇️  Downloading... ({title})", flush=True)
-    dl_cmd = [
+    use_mp3 = shutil.which("ffmpeg") is not None
+    download_opts = [
         "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
-        "-f", "ba[ext=m4a]/ba", "-o", file_path_template, safe_url,
     ]
+    if use_mp3:
+        download_opts.extend(["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"])
+    else:
+        download_opts.extend(["-f", "ba[ext=m4a]/ba"])
+    dl_cmd = download_opts + ["-o", file_path_template, safe_url]
     subprocess.run(dl_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     final_file = _find_cached_file(vid_id)
@@ -806,10 +813,17 @@ def search_youtube_and_play(norm_query):
         
         safe_url = f"https://www.youtube.com/watch?v={vid_id}"
         
-        dl_cmd = [
-            "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4", 
-            "-f", "ba[ext=m4a]/ba", "-o", file_path_template, safe_url
-        ]
+        if shutil.which("ffmpeg"):
+            dl_cmd = [
+                "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
+                "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0",
+                "-o", file_path_template, safe_url
+            ]
+        else:
+            dl_cmd = [
+                "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
+                "-f", "ba[ext=m4a]/ba", "-o", file_path_template, safe_url
+            ]
         
         subprocess.run(dl_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
@@ -856,9 +870,7 @@ def search_youtube_and_play(norm_query):
         _search_lock.release()
 
 def play_music(query: str):
-    """
-    Stream music directly to mpg123 (works with Bluetooth, instant playback).
-    """
+    """Play a track in the background and prefetch the next one silently."""
     global current_player, last_played_query, prefetched_track_info, _playlist_generation
     
     # Check dependencies
