@@ -293,6 +293,8 @@ def _spawn_player(file_path: str):
         env["PULSE_SINK"] = sink_name
 
     candidates: List[List[str]] = []
+    if shutil.which("mpv"):
+        candidates.append(["mpv", "--really-quiet", "--no-video", "--ao=pulse", file_path])
     if file_path.lower().endswith(".mp3") and shutil.which("mpg123"):
         candidates.append(["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", file_path])
     if shutil.which("ffplay"):
