@@ -32,6 +32,8 @@ from .config import (
 
 # Global session for better performance and SSL stability
 _session = requests.Session()
+# Shared alias used by modules that import a named backend session.
+backend_session = _session
 _last_online_check = 0
 _online_cache = False
 _retry_strategy = Retry(
