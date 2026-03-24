@@ -295,7 +295,7 @@ def trigger_music_playback(query, music_proc_holder):
     """Start music playback in a way that doesn't block the main loop."""
     if music_proc_holder.get("proc"):
         stop_process(music_proc_holder["proc"])
-    proc = music_manager.play_music(query)
+    proc = music_manager.play_music(query, announce_status=False)
     if proc:
         music_proc_holder["proc"] = proc
 
@@ -348,6 +348,8 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
         intent_reply = intent_obj.get("reply") or reply_text or ""
 
         if intent == "music":
+            if intent_reply:
+                speak(intent_reply)
             query = params.get("prompt") or text
             trigger_music_playback(query, music_proc_holder)
         elif intent in ("weather", "news"):

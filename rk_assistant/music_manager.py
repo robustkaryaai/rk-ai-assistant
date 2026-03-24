@@ -208,6 +208,11 @@ def _ytdlp_auth_options() -> List[List[str]]:
     attempts.append(["--extractor-args", "youtube:player_client=android,mweb"])
     attempts.append(["--extractor-args", "youtube:player_client=android"])
     attempts.append(["--extractor-args", "youtube:player_client=mweb"])
+    attempts.append(["--extractor-args", "youtube:player_client=android_music"])
+    attempts.append(["--extractor-args", "youtube:player_client=ios"])
+    attempts.append(["--extractor-args", "youtube:player_client=tv_embedded"])
+    attempts.append(["--extractor-args", "youtube:player_client=tv"])
+    attempts.append(["--extractor-args", "youtube:player_client=web_music"])
 
     cookie_file = os.getenv("YT_DLP_COOKIES_FILE", "").strip()
     if cookie_file and os.path.exists(cookie_file):
@@ -445,7 +450,7 @@ def _search_youtube_match(norm_query: str) -> Optional[Dict[str, str]]:
     return {"title": lines[0].strip(), "vid_id": lines[1].strip()}
 
 
-def _download_track(track: Dict[str, Any], first_song: bool = False) -> Optional[Dict[str, Any]]:
+def _download_track(track: Dict[str, Any], first_song: bool = False, announce_status: bool = True) -> Optional[Dict[str, Any]]:
     cache_dir = _songs_dir()
     title = track["title"]
     vid_id = track["vid_id"]
@@ -453,10 +458,10 @@ def _download_track(track: Dict[str, Any], first_song: bool = False) -> Optional
     file_path_template = str(cache_dir / f"{safe_title} [{vid_id}].%(ext)s"[:255])
     safe_url = str(track.get("link") or "").strip() or f"https://www.youtube.com/watch?v={vid_id}"
 
-    if first_song:
+    if first_song and announce_status:
         speak(f"Downloading {_announce_title(title)}")
         _set_music_state("downloading", f"Downloading: {title}")
-    else:
+    elif announce_status:
         _push_backend_status(download_progress=f"Downloading next: {title}")
 
     print(f"[music] ⬇️  Downloading... ({title})", flush=True)
@@ -564,7 +569,7 @@ def _prepare_track(norm_query: str, announce: bool = True, prefetch: bool = Fals
             _clear_download_progress()
             return track
 
-        return _download_track(track, first_song=announce and not prefetch)
+        return _download_track(track, first_song=announce and not prefetch, announce_status=announce)
     finally:
         _search_lock.release()
 
@@ -1065,7 +1070,7 @@ def search_youtube_and_play(norm_query):
     finally:
         _search_lock.release()
 
-def play_music(query: str):
+def play_music(query: str, announce_status: bool = True):
     """Play a track in the background and prefetch the next one silently."""
     global current_player, last_played_query, prefetched_track_info, _playlist_generation
     
@@ -1089,13 +1094,18 @@ def play_music(query: str):
     _stop_current_process()
 
     last_played_query = query
-    track = _prepare_track(norm_query, announce=True, prefetch=False)
+    track = _prepare_track(norm_query, announce=announce_status, prefetch=False)
     if not track:
         _set_music_state("idle", None)
         speak("I couldn't find that song.")
         return None
 
-    proc = _play_track(track, announce_mode="now_playing", generation=generation, allow_prefetch=True)
+    proc = _play_track(
+        track,
+        announce_mode="now_playing" if announce_status else "silent",
+        generation=generation,
+        allow_prefetch=True,
+    )
     if proc:
         current_player = proc
         return proc
