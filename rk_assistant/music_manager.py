@@ -144,6 +144,62 @@ def _get_slug() -> Optional[str]:
         return None
 
 
+def _low_priority_prefix() -> List[str]:
+    prefix = []
+    if shutil.which("ionice"):
+        prefix.extend(["ionice", "-c2", "-n7"])
+    if shutil.which("nice"):
+        prefix.extend(["nice", "-n", "10"])
+    return prefix
+
+
+def _resolve_next_track_from_backend(finished_track: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    try:
+        from .networking import backend_session
+        from .config import BACKEND_BASE_URL
+    except Exception as e:
+        print(f"[music] Backend resolver unavailable: {e}", flush=True)
+        return None
+
+    slug = _get_slug()
+    if not slug:
+        return None
+
+    payload = {
+        "current_title": finished_track.get("title") or "",
+        "current_query": finished_track.get("query") or "",
+    }
+    if not payload["current_title"] and not payload["current_query"]:
+        return None
+
+    try:
+        resp = backend_session.post(
+            f"{BACKEND_BASE_URL}/device/{slug}/music/recommend",
+            json=payload,
+            timeout=20,
+        )
+        if not resp.ok:
+            print(f"[music] Backend resolver failed: HTTP {resp.status_code}", flush=True)
+            return None
+        data = resp.json() if resp.content else {}
+        link = str(data.get("link") or "").strip()
+        vid_id = str(data.get("vid_id") or "").strip()
+        title = str(data.get("title") or "").strip()
+        if not (link and vid_id and title):
+            return None
+        return {
+            "vid_id": vid_id,
+            "title": title,
+            "file_path": None,
+            "query": str(data.get("query") or title).strip(),
+            "source": "backend",
+            "link": link,
+        }
+    except Exception as e:
+        print(f"[music] Backend resolver error: {e}", flush=True)
+        return None
+
+
 def _push_backend_status(busy_state=None, download_progress=_STATUS_UNSET):
     try:
         from .config import BACKEND_BASE_URL
@@ -253,7 +309,7 @@ def _spawn_player(file_path: str):
 
     player_cmds = []
     if file_path.lower().endswith(".mp3") and shutil.which("mpg123"):
-        player_cmds.append(["mpg123", "-o", "pulse", "-b", "16384", "--no-resync", "-q", file_path])
+        player_cmds.append(["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", file_path])
     if shutil.which("cvlc"):
         player_cmds.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", file_path])
     if shutil.which("vlc"):
@@ -366,7 +422,7 @@ def _download_track(track: Dict[str, Any], first_song: bool = False) -> Optional
 
     print(f"[music] ⬇️  Downloading... ({title})", flush=True)
     use_mp3 = shutil.which("ffmpeg") is not None
-    download_opts = [
+    download_opts = _low_priority_prefix() + [
         "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
     ]
     if use_mp3:
@@ -437,16 +493,22 @@ def _prepare_track(norm_query: str, announce: bool = True, prefetch: bool = Fals
 
 def _prefetch_next_track(finished_track: Dict[str, Any], generation: int):
     global prefetched_track_info
-    suggestion = get_related_song_recommendation(finished_track.get("title", ""))
-    if not suggestion:
-        return
-    suggestion_query = clean_music_query(suggestion)
-    if not suggestion_query:
-        return
-    print(f"[music] 🔮 Prefetching next suggestion: {suggestion_query}", flush=True)
-    next_track = _prepare_track(suggestion_query, announce=False, prefetch=True)
+    next_track = _resolve_next_track_from_backend(finished_track)
     if not next_track:
         return
+    print(f"[music] 🔮 Prefetching next suggestion from backend: {next_track.get('title')}", flush=True)
+
+    # If the backend already resolved the exact video, just download it silently here.
+    if not (next_track.get("file_path") and os.path.exists(str(next_track.get("file_path")))):
+        try:
+            next_track = _download_track(next_track, first_song=False)
+        except Exception as e:
+            print(f"[music] Prefetch download failed: {e}", flush=True)
+            next_track = None
+
+    if not next_track:
+        return
+
     with _prefetch_lock:
         if generation != _playlist_generation:
             return
@@ -519,6 +581,8 @@ def _play_track(track: Dict[str, Any], announce_mode: str = "now_playing", gener
     current_track_info = dict(track)
     _record_play(track)
     _set_music_state("playing", None)
+    if allow_prefetch:
+        _start_prefetch_thread(track, generation)
     threading.Thread(
         target=_on_track_finished,
         args=(proc, generation),
@@ -736,7 +800,7 @@ def search_youtube_and_play(norm_query):
         print(f"[music] 🌍 Searching YouTube for: {norm_query}", flush=True)
         speak(f"Searching online for {norm_query}")
         
-        search_cmd = [
+        search_cmd = _low_priority_prefix() + [
             "yt-dlp", 
             "--force-ipv4", 
             "--get-title", "--get-id", 
@@ -829,7 +893,7 @@ def search_youtube_and_play(norm_query):
         try:
             from .networking import read_slug, BACKEND_BASE_URL
             import requests
-            slug = read_slug()
+            slug, _ = read_slug()
             if slug:
                 requests.post(f"{BACKEND_BASE_URL}/device/{slug}/update-status", json={"downloadProgress": f"Downloading: {title}"}, timeout=2)
         except:
@@ -838,13 +902,13 @@ def search_youtube_and_play(norm_query):
         safe_url = f"https://www.youtube.com/watch?v={vid_id}"
         
         if shutil.which("ffmpeg"):
-            dl_cmd = [
+            dl_cmd = _low_priority_prefix() + [
                 "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
                 "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0",
                 "-o", file_path_template, safe_url
             ]
         else:
-            dl_cmd = [
+            dl_cmd = _low_priority_prefix() + [
                 "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
                 "-f", "ba[ext=m4a]/ba", "-o", file_path_template, safe_url
             ]
