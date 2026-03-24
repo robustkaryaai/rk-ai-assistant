@@ -162,6 +162,51 @@ def _append_query_to_index(vid_id: str, title: str, norm_query: str) -> None:
     _save_index(index)
 
 
+def _score_text_match(query: str, title: str, queries: List[str]) -> float:
+    score = SequenceMatcher(None, query, title).ratio()
+    for known_query in queries:
+        score = max(score, SequenceMatcher(None, query, known_query).ratio())
+    query_words = set(query.split())
+    title_words = set(title.split())
+    if query_words and title_words:
+        overlap = len(query_words & title_words) / max(len(query_words | title_words), 1)
+        score = max(score, overlap)
+    return score
+
+
+def _resolve_local_track(norm_query: str) -> Optional[Dict[str, Any]]:
+    if not norm_query:
+        return None
+
+    index = _load_index()
+    best: Optional[Dict[str, Any]] = None
+    best_score = 0.0
+
+    for vid_id, meta in index.items():
+        title = str(meta.get("title", "")).strip()
+        queries = [str(q).strip() for q in meta.get("queries", []) if str(q).strip()]
+        score = _score_text_match(norm_query, title.lower(), [q.lower() for q in queries])
+
+        cached_file = _find_cached_file(vid_id)
+        if cached_file and os.path.exists(cached_file):
+            score += 0.2
+
+        if score > best_score:
+            best_score = score
+            best = {
+                "vid_id": vid_id,
+                "title": title or vid_id,
+                "file_path": cached_file,
+                "query": norm_query,
+                "source": "local",
+            }
+
+    if best and best.get("file_path") and best_score >= 0.45:
+        return best
+
+    return None
+
+
 def _record_play(track: Dict[str, Any]) -> None:
     vid_id = track.get("vid_id")
     if not vid_id:
@@ -617,4 +662,3 @@ def _cleanup_local_music_if_low_storage():
 
     _save_json_file(_stats_path(), stats)
     _save_index(index)
-
