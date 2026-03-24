@@ -241,6 +241,16 @@ def _spawn_player(file_path: str):
     if not file_path or not os.path.exists(file_path):
         return None
 
+    try:
+        from .audio_utils import ensure_bluetooth_audio_route
+        sink_name = ensure_bluetooth_audio_route()
+    except Exception:
+        sink_name = ""
+
+    env = os.environ.copy()
+    if sink_name:
+        env["PULSE_SINK"] = sink_name
+
     player_cmds = []
     if file_path.lower().endswith(".mp3") and shutil.which("mpg123"):
         player_cmds.append(["mpg123", "-o", "pulse", "-b", "16384", "--no-resync", "-q", file_path])
@@ -260,6 +270,7 @@ def _spawn_player(file_path: str):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,
+                env=env,
                 start_new_session=True,
             )
         except Exception as e:
@@ -475,6 +486,21 @@ def _on_track_finished(proc, generation: int):
         _play_track(next_track, announce_mode="silent", generation=generation, allow_prefetch=True)
         return
 
+    suggestion = None
+    try:
+        suggestion = get_related_song_recommendation((current_track_info or {}).get("title", ""))
+    except Exception as e:
+        print(f"[music] Prefetch suggestion failed: {e}", flush=True)
+
+    if suggestion:
+        suggestion_query = clean_music_query(suggestion)
+        if suggestion_query:
+            print(f"[music] 🔮 Loading next song after finish: {suggestion_query}", flush=True)
+            next_track = _prepare_track(suggestion_query, announce=False, prefetch=True)
+            if next_track and generation == _playlist_generation:
+                _play_track(next_track, announce_mode="silent", generation=generation, allow_prefetch=True)
+                return
+
     current_player = None
     current_track_info = None
     _set_music_state("idle", None)
@@ -493,8 +519,6 @@ def _play_track(track: Dict[str, Any], announce_mode: str = "now_playing", gener
     current_track_info = dict(track)
     _record_play(track)
     _set_music_state("playing", None)
-    if allow_prefetch:
-        _start_prefetch_thread(track, generation)
     threading.Thread(
         target=_on_track_finished,
         args=(proc, generation),

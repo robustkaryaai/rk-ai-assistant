@@ -748,6 +748,41 @@ def set_volume(change=0):
     except Exception as e:
         print(f"[audio] Error setting volume: {e}")
 
+
+def ensure_bluetooth_audio_route() -> str:
+    """
+    Best-effort route audio to the configured Bluetooth speaker sink.
+    Returns the sink name we selected, or an empty string if we could not find one.
+    """
+    if not shutil.which("pactl"):
+        return ""
+
+    try:
+        bt_mac = BLUETOOTH_SPEAKER_MAC.replace(":", "_")
+        preferred = f"bluez_output.{bt_mac}.1"
+
+        sinks = subprocess.check_output(["pactl", "list", "short", "sinks"], text=True).splitlines()
+        sink_names = []
+        for line in sinks:
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                sink_names.append(parts[1].strip())
+
+        selected = ""
+        for sink in sink_names:
+            if preferred in sink or "bluez_output" in sink:
+                selected = sink
+                break
+        if not selected and sink_names:
+            selected = sink_names[0]
+
+        if selected:
+            subprocess.run(["pactl", "set-default-sink", selected], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return selected
+    except Exception as e:
+        print(f"[audio] Could not select Bluetooth sink: {e}")
+    return ""
+
 def synthesize_to_wav(*args, **kwargs): return None
 
 
