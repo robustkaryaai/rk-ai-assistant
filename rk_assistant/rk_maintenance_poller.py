@@ -28,7 +28,7 @@ def run_poller():
             else:
                 print("[maintenance] Slug not found yet, skipping cycle.")
         except requests.exceptions.SSLError as e:
-            print(f"[maintenance] TLS warning, will retry quietly: {e}")
+            print(f"[maintenance] Backend TLS temporarily unavailable, retrying quietly: {e}")
         except requests.RequestException as e:
             print(f"[maintenance] Error pinging backend: {e}")
         except Exception as e:

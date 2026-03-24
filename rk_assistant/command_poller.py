@@ -14,6 +14,7 @@ from . import audio_utils_simple
 from .error_monitor import register_error
 from . import schedule_manager
 from . import alarm_manager
+from .networking import _session as backend_session
 
 # Global flag for mute state
 _muted = False
@@ -28,7 +29,7 @@ BACKOFF_DURATION = 15  # seconds — keep short so device recovers fast after Wi
 
 def _mark_command_complete(cmd_id, slug: str, result: str, success: bool, cmd_type: str) -> None:
     try:
-        requests.post(
+        backend_session.post(
             f"{BACKEND_BASE_URL}/device/{slug}/commands/{cmd_id}/complete",
             json={"result": result, "success": success},
             timeout=10,
@@ -126,7 +127,7 @@ def execute_command(cmd: dict, slug: str) -> None:
             result = f"Schedule set: {task} at {date or days} {time_str}"
             success = True
             try:
-                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_schedules", json={"schedules": schedule_manager.list_schedules()}, timeout=5)
+                backend_session.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_schedules", json={"schedules": schedule_manager.list_schedules()}, timeout=5)
             except: pass
             
         elif cmd_type == 'delete_schedule':
@@ -135,7 +136,7 @@ def execute_command(cmd: dict, slug: str) -> None:
             result = f"Schedule deleted: {s_id}"
             success = True
             try:
-                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_schedules", json={"schedules": schedule_manager.list_schedules()}, timeout=5)
+                backend_session.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_schedules", json={"schedules": schedule_manager.list_schedules()}, timeout=5)
             except: pass
 
         elif cmd_type == 'set_alarm':
@@ -149,7 +150,7 @@ def execute_command(cmd: dict, slug: str) -> None:
                 result = f"Alarm set for {time_str}"
                 success = True
                 try:
-                    requests.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_alarms", json={"alarms": alarm_manager.list_alarms()}, timeout=5)
+                    backend_session.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_alarms", json={"alarms": alarm_manager.list_alarms()}, timeout=5)
                 except: pass
             else:
                 result = "Failed to set alarm"
@@ -162,7 +163,7 @@ def execute_command(cmd: dict, slug: str) -> None:
                     alarm_manager.delete_alarm(a_id)
                 else: 
                     alarm_manager.cancel_all_alarms()
-                requests.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_alarms", json={"alarms": alarm_manager.list_alarms()}, timeout=5)
+                backend_session.post(f"{BACKEND_BASE_URL}/device/{slug}/sync_alarms", json={"alarms": alarm_manager.list_alarms()}, timeout=5)
             except: pass
             result = "Alarm deleted"
             success = True
@@ -194,7 +195,7 @@ def execute_command(cmd: dict, slug: str) -> None:
                 
                 # We must mark it complete BEFORE rebooting, so do it manually here
                 try:
-                    requests.post(
+                    backend_session.post(
                         f"{BACKEND_BASE_URL}/device/{slug}/commands/{cmd_id}/complete",
                         json={"result": result, "success": success},
                         timeout=5
@@ -247,7 +248,7 @@ def execute_command(cmd: dict, slug: str) -> None:
         
         # Mark command as complete
         try:
-            requests.post(
+            backend_session.post(
                 f"{BACKEND_BASE_URL}/device/{slug}/commands/{cmd_id}/complete",
                 json={"result": result, "success": success},
                 timeout=10
@@ -262,7 +263,7 @@ def execute_command(cmd: dict, slug: str) -> None:
         
         # Try to mark as failed
         try:
-            requests.post(
+            backend_session.post(
                 f"{BACKEND_BASE_URL}/device/{slug}/commands/{cmd_id}/complete",
                 json={"result": error_msg, "success": False},
                 timeout=10
@@ -291,7 +292,7 @@ def poll_commands(slug: str) -> None:
                 continue
             
             # Get pending commands from backend
-            response = requests.get(
+            response = backend_session.get(
                 f"{BACKEND_BASE_URL}/device/{slug}/commands/pending",
                 timeout=10
             )
@@ -342,6 +343,9 @@ def poll_commands(slug: str) -> None:
                 print("[commands] Poll timeout (retrying in 5s...)")
             _consecutive_failures += 1
             time.sleep(5) # Force sleep
+        except requests.exceptions.SSLError as e:
+            print(f"[commands] Backend TLS temporarily unavailable, retrying quietly: {e}")
+            _consecutive_failures += 1
         except requests.exceptions.ConnectionError:
             print("[commands] No backend connection (continuing...)")
             _consecutive_failures += 1
@@ -368,12 +372,12 @@ def _check_backend_health() -> bool:
     """Check if backend is reachable and healthy"""
     try:
         # Try to reach backend root
-        response = requests.get(f"{BACKEND_BASE_URL}/health", timeout=5)
+        response = backend_session.get(f"{BACKEND_BASE_URL}/health", timeout=5)
         return response.status_code == 200
     except:
         try:
             # Fallback: try base URL
-            response = requests.get(BACKEND_BASE_URL, timeout=5)
+            response = backend_session.get(BACKEND_BASE_URL, timeout=5)
             return response.status_code < 500
         except:
             return False

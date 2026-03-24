@@ -136,6 +136,9 @@ def refresh_device_settings_now(slug=None):
             except Exception as de:
                 print(f"[Settings Sync] smart_devices parse error: {de}")
         return True
+    except requests.exceptions.SSLError as exc:
+        print(f"[Settings Sync] Backend TLS temporarily unavailable, retrying quietly: {exc}")
+        return False
     except requests.RequestException as exc:
         print(f"[Settings Sync] Error fetching settings: {exc}")
         return False

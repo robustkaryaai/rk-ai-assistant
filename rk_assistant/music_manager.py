@@ -240,9 +240,31 @@ def _record_play(track: Dict[str, Any]):
 def _spawn_player(file_path: str):
     if not file_path or not os.path.exists(file_path):
         return None
-    # Run in a separate terminal using cvlc to prevent audio cracking from the main Python loop
-    cmd = ["lxterminal", "-t", "RK AI Music Player", "-e", "cvlc", "--play-and-exit", "--no-video", file_path]
-    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    player_cmds = []
+    if shutil.which("cvlc"):
+        player_cmds.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", file_path])
+    if shutil.which("vlc"):
+        player_cmds.append(["vlc", "--play-and-exit", "--no-video", "--quiet", file_path])
+    if shutil.which("ffplay"):
+        player_cmds.append(["ffplay", "-autoexit", "-nodisp", "-loglevel", "quiet", file_path])
+    if shutil.which("mpg123"):
+        player_cmds.append(["mpg123", "-q", file_path])
+
+    for cmd in player_cmds:
+        try:
+            return subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as e:
+            print(f"[music] Player launch failed for {cmd[0]}: {e}", flush=True)
+
+    print("[music] No supported background audio player found.", flush=True)
+    return None
 
 
 def _resolve_local_track(norm_query: str) -> Optional[Dict[str, Any]]:
