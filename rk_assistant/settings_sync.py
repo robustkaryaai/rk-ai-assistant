@@ -1,19 +1,20 @@
 """
-Appwrite Settings Sync
-Polls Appwrite devices collection to sync mute/memory settings from mobile app
+Appwrite Settings Sync (Depreciated) -> Render Backend Sync
+Polls the Render backend for device settings (TTS, wake words, etc.)
 """
 import os
 import time
 import requests
+import json
 from threading import Thread
 
-APPWRITE_ENDPOINT = os.getenv('APPWRITE_ENDPOINT', 'https://fra.cloud.appwrite.io/v1')
-APPWRITE_PROJECT_ID = os.getenv('APPWRITE_PROJECT_ID', '')
-APPWRITE_DATABASE_ID = os.getenv('APPWRITE_DATABASE_ID', '')
-APPWRITE_DEVICES_COLLECTION = os.getenv('APPWRITE_DEVICES_COLLECTION', 'devices')
-DEVICE_SLUG = os.getenv('DEVICE_SLUG', '')
+# Try to get the BACKEND URL from config, otherwise fallback
+try:
+    from .config import BACKEND_BASE_URL
+except ImportError:
+    BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'https://rk-ai-backend.onrender.com')
 
-import json
+DEVICE_SLUG = os.getenv('DEVICE_SLUG', '')
 
 # Global state
 device_settings = {
@@ -33,9 +34,9 @@ device_settings = {
 }
 
 def poll_device_settings(slug):
-    """Poll Appwrite every 30 seconds for device settings"""
-    if not all([APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_DATABASE_ID, slug]):
-        print(f"[Settings Sync] Missing config (slug={slug}), skipping sync")
+    """Poll Render every 30 seconds for device settings"""
+    if not slug:
+        print(f"[Settings Sync] Missing device slug, skipping sync")
         return
     
     print(f"[Settings Sync] Starting sync for device: {slug}")
@@ -44,7 +45,7 @@ def poll_device_settings(slug):
         try:
             refresh_device_settings_now(slug)
         except Exception as e:
-            print(f"[Settings Sync] Error polling Appwrite: {e}")
+            print(f"[Settings Sync] Error polling backend: {e}")
         
         # Poll every 30 seconds
         time.sleep(30)
@@ -59,26 +60,22 @@ def start_settings_sync(slug):
 def refresh_device_settings_now(slug=None):
     """Fetch the latest device settings immediately and apply them to local cache."""
     slug = slug or DEVICE_SLUG
-    if not all([APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_DATABASE_ID, slug]):
+    if not slug:
         return False
 
-    headers = {
-        'X-Appwrite-Project': APPWRITE_PROJECT_ID
-    }
-    url = f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}/collections/{APPWRITE_DEVICES_COLLECTION}/documents"
-    params = {
-        'queries': [f'equal("slug", "{slug}")']
-    }
+    url = f"{BACKEND_BASE_URL}/device/{slug}/settings"
 
-    response = requests.get(url, headers=headers, params=params, timeout=10)
-    if response.status_code != 200:
-        return False
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            return False
 
-    data = response.json()
-    if not data.get('documents'):
-        return False
+        data = response.json()
+        if not data.get('documents') or len(data['documents']) == 0:
+            return False
 
-    device = data['documents'][0]
+        device = data['documents'][0]
+
 
     device_settings['is_muted'] = device.get('isMuted') if device.get('isMuted') is not None else device.get('is_muted', False)
     device_settings['memory_enabled'] = device.get('memoryEnabled') if device.get('memoryEnabled') is not None else device.get('memory_enabled', True)

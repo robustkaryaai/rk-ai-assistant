@@ -240,10 +240,9 @@ def _record_play(track: Dict[str, Any]):
 def _spawn_player(file_path: str):
     if not file_path or not os.path.exists(file_path):
         return None
-    if file_path.endswith(".mp3"):
-        return subprocess.Popen(["mpg123", "-o", "pulse", "-q", file_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    pipeline = f"ffmpeg -hide_banner -loglevel error -i '{file_path}' -f wav - | paplay 2>/dev/null || ffmpeg -hide_banner -loglevel error -i '{file_path}' -f wav - | aplay -D pulse -q 2>/dev/null"
-    return subprocess.Popen(pipeline, shell=True, preexec_fn=os.setsid)
+    # Run in a separate terminal using cvlc to prevent audio cracking from the main Python loop
+    cmd = ["lxterminal", "-t", "RK AI Music Player", "-e", "cvlc", "--play-and-exit", "--no-video", file_path]
+    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _resolve_local_track(norm_query: str) -> Optional[Dict[str, Any]]:
@@ -661,13 +660,7 @@ def search_local_and_play(norm_query):
                          json.dump(index, f, indent=2)
 
                  # Play using appropriate player
-                 if found_file.endswith(".mp3"):
-                     cmd = ["mpg123", "-o", "pulse", "-q", found_file]
-                     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                 else:
-                     # For m4a/webm, use fast lightweight ffmpeg pipe to paplay/aplay (zero encoding overhead)
-                     pipeline = f"ffmpeg -hide_banner -loglevel error -i '{found_file}' -f wav - | paplay 2>/dev/null || ffmpeg -hide_banner -loglevel error -i '{found_file}' -f wav - | aplay -D pulse -q 2>/dev/null"
-                     return subprocess.Popen(pipeline, shell=True, preexec_fn=os.setsid)
+                 return _spawn_player(found_file)
         
         return None
         
@@ -768,10 +761,9 @@ def search_youtube_and_play(norm_query):
             speak(f"Playing {speak_title}")
             
             if file_path.endswith(".mp3"):
-                return subprocess.Popen(["mpg123", "-o", "pulse", "-q", file_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return _spawn_player(file_path)
             else:
-                pipeline = f"ffmpeg -hide_banner -loglevel error -i '{file_path}' -f wav - | paplay 2>/dev/null || ffmpeg -hide_banner -loglevel error -i '{file_path}' -f wav - | aplay -D pulse -q 2>/dev/null"
-                return subprocess.Popen(pipeline, shell=True, preexec_fn=os.setsid)
+                return _spawn_player(file_path)
         
         # Download completely (native format, no transcoding, totally silent)
         speak_title = title.partition('|')[0]
@@ -831,10 +823,9 @@ def search_youtube_and_play(norm_query):
         # Play the newly downloaded file
         print(f"[music] ▶️  Playing...", flush=True)
         if final_file.endswith(".mp3"):
-            return subprocess.Popen(["mpg123", "-o", "pulse", "-q", final_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return _spawn_player(final_file)
         else:
-            pipeline = f"ffmpeg -hide_banner -loglevel error -i '{final_file}' -f wav - | paplay 2>/dev/null || ffmpeg -hide_banner -loglevel error -i '{final_file}' -f wav - | aplay -D pulse -q 2>/dev/null"
-            return subprocess.Popen(pipeline, shell=True, preexec_fn=os.setsid)
+            return _spawn_player(final_file)
 
     except Exception as e:
         print(f"[music] ❌ Error: {e}", flush=True)
