@@ -19,6 +19,12 @@ BT_NAME="RK-AI-$SLUG"
 echo "[startup] --- STARTING RK AI STARTUP SEQUENCE ---"
 echo "[startup] Target Name: $BT_NAME"
 
+# Avoid duplicate launches when another RK AI main.py is already running.
+if pgrep -f "rk_assistant.main" >/dev/null 2>&1; then
+    echo "[startup] RK AI main.py is already running. Skipping duplicate start."
+    exit 0
+fi
+
 # ─── 0. Auto-Update (Blocking) ────────────────────────────
 echo "[startup] Checking for updates..."
 (

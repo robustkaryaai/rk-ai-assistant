@@ -117,8 +117,12 @@ def acquire_lock():
         fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return f
     except IOError:
-        print("[main] FATAL: Another instance of RK AI Home is already running. Exiting.")
-        sys.exit(1)
+        print("[main] Another instance of RK AI Home is already running. Exiting cleanly.", flush=True)
+        try:
+            f.close()
+        except Exception:
+            pass
+        return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Night Protocol ambient checker
@@ -380,6 +384,8 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
 def main():
     """Main entry point for the assistant."""
     _lock_handle = acquire_lock()
+    if _lock_handle is None:
+        return
     global is_first_boot
 
     print("\n" + "="*30)

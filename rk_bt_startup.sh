@@ -21,6 +21,12 @@ BT_NAME="RK-AI-$SLUG"
 
 echo "$LOG_PREFIX Starting RK AI Bluetooth Manager..."
 
+# Avoid launching a second RK AI main.py instance if one is already running.
+if pgrep -f "rk_assistant.main" >/dev/null 2>&1; then
+    echo "$LOG_PREFIX main.py is already running. Skipping duplicate Bluetooth bootstrap."
+    exit 0
+fi
+
 # ─── Step 1: Ensure bluetooth service is running ───────────
 if ! systemctl is-active --quiet bluetooth; then
     echo "$LOG_PREFIX bluetooth.service not active, starting it..."
