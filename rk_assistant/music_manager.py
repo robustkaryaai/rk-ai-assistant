@@ -27,7 +27,7 @@ _playlist_generation = 0
 _housekeeping_started = False
 
 _STATUS_UNSET = object()
-_SUPPORTED_EXTS = ("mp3", "m4a", "webm")
+_SUPPORTED_EXTS = ("mp3", "m4a", "webm", "mp4", "opus", "ogg", "mkv")
 
 def get_related_song_recommendation(title: str) -> Optional[str]:
     """Use Gemini to get a related song title based on the current one."""
@@ -144,6 +144,53 @@ def _get_slug() -> Optional[str]:
         return None
 
 
+def _resolve_next_track_from_backend(finished_track: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    try:
+        from .networking import backend_session
+        from .config import BACKEND_BASE_URL
+    except Exception as e:
+        print(f"[music] Backend resolver unavailable: {e}", flush=True)
+        return None
+
+    slug = _get_slug()
+    if not slug:
+        return None
+
+    payload = {
+        "current_title": finished_track.get("title") or "",
+        "current_query": finished_track.get("query") or "",
+    }
+    if not payload["current_title"] and not payload["current_query"]:
+        return None
+
+    try:
+        resp = backend_session.post(
+            f"{BACKEND_BASE_URL}/device/{slug}/music/recommend",
+            json=payload,
+            timeout=25,
+        )
+        if not resp.ok:
+            print(f"[music] Backend resolver failed: HTTP {resp.status_code}", flush=True)
+            return None
+        data = resp.json() if resp.content else {}
+        link = str(data.get("link") or "").strip()
+        vid_id = str(data.get("vid_id") or "").strip()
+        title = str(data.get("title") or "").strip()
+        if not (link and vid_id and title):
+            return None
+        return {
+            "vid_id": vid_id,
+            "title": title,
+            "file_path": None,
+            "query": str(data.get("query") or title).strip(),
+            "source": "backend",
+            "link": link,
+        }
+    except Exception as e:
+        print(f"[music] Backend resolver error: {e}", flush=True)
+        return None
+
+
 def _low_priority_prefix() -> List[str]:
     prefix = []
     if shutil.which("ionice"):
@@ -151,6 +198,43 @@ def _low_priority_prefix() -> List[str]:
     if shutil.which("nice"):
         prefix.extend(["nice", "-n", "10"])
     return prefix
+
+
+def _ytdlp_auth_options() -> List[List[str]]:
+    attempts: List[List[str]] = []
+
+    cookie_file = os.getenv("YT_DLP_COOKIES_FILE", "").strip()
+    if cookie_file and os.path.exists(cookie_file):
+        attempts.append(["--cookies", cookie_file])
+
+    browser = os.getenv("YT_DLP_COOKIES_BROWSER", "").strip()
+    if browser:
+        attempts.append(["--cookies-from-browser", browser])
+    else:
+        for candidate in ("chromium", "chrome", "firefox", "edge"):
+            attempts.append(["--cookies-from-browser", candidate])
+
+    # Try mobile clients that are often less restrictive than the default webpage client.
+    attempts.append(["--extractor-args", "youtube:player_client=android"])
+    attempts.append(["--extractor-args", "youtube:player_client=mweb"])
+    attempts.append(["--extractor-args", "youtube:player_client=android,mweb"])
+    return attempts
+
+
+def _run_ytdlp_download_attempts(file_path_template: str, safe_url: str, mp3_preferred: bool = True):
+    base = _low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"]
+    format_args = []
+    if mp3_preferred and shutil.which("ffmpeg"):
+        format_args = ["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"]
+    else:
+        format_args = ["-f", "ba[ext=m4a]/ba"]
+
+    attempts = []
+    for auth_args in _ytdlp_auth_options():
+        attempts.append(base + auth_args + format_args + ["-o", file_path_template, safe_url])
+    # Final fallback: plain download without auth modifiers.
+    attempts.append(base + format_args + ["-o", file_path_template, safe_url])
+    return attempts
 
 
 def _push_backend_status(busy_state=None, download_progress=_STATUS_UNSET):
@@ -190,10 +274,10 @@ def _clear_download_progress():
 
 
 def _extract_vid_id(filename: str) -> Optional[str]:
-    match = re.search(r"\[([a-zA-Z0-9_-]+)\]\.(mp3|m4a|webm)$", filename)
+    match = re.search(r"\[([a-zA-Z0-9_-]+)\]\.(mp3|m4a|webm|mp4|opus|ogg|mkv)$", filename)
     if match:
         return match.group(1)
-    match = re.search(r"^([a-zA-Z0-9_-]+)\.(mp3|m4a|webm)$", filename)
+    match = re.search(r"^([a-zA-Z0-9_-]+)\.(mp3|m4a|webm|mp4|opus|ogg|mkv)$", filename)
     if match:
         return match.group(1)
     return None
@@ -365,7 +449,7 @@ def _download_track(track: Dict[str, Any], first_song: bool = False) -> Optional
     vid_id = track["vid_id"]
     safe_title = _safe_title(title)
     file_path_template = str(cache_dir / f"{safe_title} [{vid_id}].%(ext)s"[:255])
-    safe_url = f"https://www.youtube.com/watch?v={vid_id}"
+    safe_url = str(track.get("link") or "").strip() or f"https://www.youtube.com/watch?v={vid_id}"
 
     if first_song:
         speak(f"Downloading {_announce_title(title)}")
@@ -406,9 +490,17 @@ def _download_track(track: Dict[str, Any], first_song: bool = False) -> Optional
             cache_dir / f"{safe_title} [{vid_id}].mp3",
             cache_dir / f"{safe_title} [{vid_id}].m4a",
             cache_dir / f"{safe_title} [{vid_id}].webm",
+            cache_dir / f"{safe_title} [{vid_id}].mp4",
+            cache_dir / f"{safe_title} [{vid_id}].opus",
+            cache_dir / f"{safe_title} [{vid_id}].ogg",
+            cache_dir / f"{safe_title} [{vid_id}].mkv",
             cache_dir / f"{vid_id}.mp3",
             cache_dir / f"{vid_id}.m4a",
             cache_dir / f"{vid_id}.webm",
+            cache_dir / f"{vid_id}.mp4",
+            cache_dir / f"{vid_id}.opus",
+            cache_dir / f"{vid_id}.ogg",
+            cache_dir / f"{vid_id}.mkv",
         ]
         for candidate in exact_candidates:
             if candidate.exists():
@@ -477,14 +569,11 @@ def _prepare_track(norm_query: str, announce: bool = True, prefetch: bool = Fals
 
 def _prefetch_next_track(finished_track: Dict[str, Any], generation: int):
     global prefetched_track_info
-    suggestion = get_related_song_recommendation(finished_track.get("title", ""))
-    if not suggestion:
+    next_track = _resolve_next_track_from_backend(finished_track)
+    if not next_track:
         return
-    suggestion_query = clean_music_query(suggestion)
-    if not suggestion_query:
-        return
-    print(f"[music] 🔮 Prefetching next suggestion locally: {suggestion_query}", flush=True)
-    next_track = _prepare_track(suggestion_query, announce=False, prefetch=True)
+    print(f"[music] 🔮 Backend suggested next track: {next_track.get('title')}", flush=True)
+    next_track = _download_track(next_track, first_song=False)
     if not next_track:
         return
 
@@ -564,6 +653,8 @@ def _play_track(track: Dict[str, Any], announce_mode: str = "now_playing", gener
     current_track_info = dict(track)
     _record_play(track)
     _set_music_state("playing", None)
+    if allow_prefetch:
+        _start_prefetch_thread(track, generation)
     threading.Thread(
         target=_on_track_finished,
         args=(proc, generation),
@@ -880,25 +971,21 @@ def search_youtube_and_play(norm_query):
         except:
             pass
         
-        safe_url = f"https://www.youtube.com/watch?v={vid_id}"
-        
-        if shutil.which("ffmpeg"):
-            dl_cmd = _low_priority_prefix() + [
-                "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
-                "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0",
-                "-o", file_path_template, safe_url
-            ]
-        else:
-            dl_cmd = _low_priority_prefix() + [
-                "yt-dlp", "--quiet", "--no-warnings", "--force-ipv4",
-                "-f", "ba[ext=m4a]/ba", "-o", file_path_template, safe_url
-            ]
-        
-        dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
-        if dl_res.returncode != 0:
-            err_text = (dl_res.stderr or dl_res.stdout or "").strip()
-            if err_text:
-                print(f"[music] yt-dlp download failed: {err_text[-500:]}", flush=True)
+        safe_url = str(track.get("link") or "").strip() or f"https://www.youtube.com/watch?v={vid_id}"
+
+        dl_res = None
+        last_error = ""
+        for dl_cmd in _run_ytdlp_download_attempts(file_path_template, safe_url, mp3_preferred=bool(shutil.which("ffmpeg"))):
+            dl_res = subprocess.run(dl_cmd, capture_output=True, text=True)
+            if dl_res.returncode == 0:
+                break
+            last_error = (dl_res.stderr or dl_res.stdout or "").strip()
+            if last_error:
+                print(f"[music] yt-dlp attempt failed: {last_error[-500:]}", flush=True)
+
+        if not dl_res or dl_res.returncode != 0:
+            if last_error:
+                print(f"[music] yt-dlp download failed: {last_error[-500:]}", flush=True)
         
         # 🚀 CLEAR DOWNLOAD STATUS
         try:
@@ -925,9 +1012,17 @@ def search_youtube_and_play(norm_query):
                 cache_dir / f"{safe_title} [{vid_id}].mp3",
                 cache_dir / f"{safe_title} [{vid_id}].m4a",
                 cache_dir / f"{safe_title} [{vid_id}].webm",
+                cache_dir / f"{safe_title} [{vid_id}].mp4",
+                cache_dir / f"{safe_title} [{vid_id}].opus",
+                cache_dir / f"{safe_title} [{vid_id}].ogg",
+                cache_dir / f"{safe_title} [{vid_id}].mkv",
                 cache_dir / f"{vid_id}.mp3",
                 cache_dir / f"{vid_id}.m4a",
                 cache_dir / f"{vid_id}.webm",
+                cache_dir / f"{vid_id}.mp4",
+                cache_dir / f"{vid_id}.opus",
+                cache_dir / f"{vid_id}.ogg",
+                cache_dir / f"{vid_id}.mkv",
             ]
             for candidate in exact_candidates:
                 if candidate.exists():
@@ -936,7 +1031,7 @@ def search_youtube_and_play(norm_query):
 
         if not final_file:
             new_matches = []
-            for ext in ["mp3", "m4a", "webm"]:
+            for ext in ["mp3", "m4a", "webm", "mp4", "opus", "ogg", "mkv"]:
                 new_matches.extend(list(cache_dir.glob(f"*{glob.escape(vid_id)}*.{ext}")))
             final_file = str(new_matches[0]) if new_matches else None
         
