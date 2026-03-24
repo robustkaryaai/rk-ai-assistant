@@ -268,19 +268,33 @@ def _ytdlp_auth_options() -> List[List[str]]:
 
 def _run_ytdlp_attempts(base_args: List[str], out_path: Optional[str] = None) -> List[List[str]]:
     attempts: List[List[str]] = []
+    retry_flags = [
+        "--continue",
+        "--no-part",
+        "--retries",
+        "10",
+        "--fragment-retries",
+        "10",
+        "--extractor-retries",
+        "3",
+        "--socket-timeout",
+        "20",
+    ]
     for auth_args in _ytdlp_auth_options():
-        cmd = _low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + auth_args + base_args
+        cmd = _low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + retry_flags + auth_args + base_args
         if out_path:
             cmd += ["-o", out_path]
         attempts.append(cmd)
     # Final fallback without auth modifiers.
-    attempts.append(_low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + base_args + (["-o", out_path] if out_path else []))
+    attempts.append(_low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + retry_flags + base_args + (["-o", out_path] if out_path else []))
     return attempts
 
 
 def _spawn_player(file_path: str):
     if not file_path or not os.path.exists(file_path):
-        return None
+        # Allow direct stream URLs for fallback playback.
+        if not (isinstance(file_path, str) and file_path.startswith(("http://", "https://"))):
+            return None
 
     sink_name = ""
     try:
@@ -292,10 +306,11 @@ def _spawn_player(file_path: str):
     if sink_name:
         env["PULSE_SINK"] = sink_name
 
+    is_url = isinstance(file_path, str) and file_path.startswith(("http://", "https://"))
     candidates: List[List[str]] = []
     if shutil.which("mpv"):
         candidates.append(["mpv", "--really-quiet", "--no-video", "--ao=pulse", file_path])
-    if file_path.lower().endswith(".mp3") and shutil.which("mpg123"):
+    if not is_url and file_path.lower().endswith(".mp3") and shutil.which("mpg123"):
         candidates.append(["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", file_path])
     if shutil.which("ffplay"):
         candidates.append(["ffplay", "-autoexit", "-nodisp", "-loglevel", "quiet", file_path])
@@ -303,7 +318,7 @@ def _spawn_player(file_path: str):
         candidates.append(["vlc", "--play-and-exit", "--no-video", "--quiet", file_path])
     if shutil.which("cvlc"):
         candidates.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", file_path])
-    if shutil.which("mpg123"):
+    if not is_url and shutil.which("mpg123"):
         candidates.append(["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", file_path])
 
     for cmd in candidates:
@@ -320,6 +335,37 @@ def _spawn_player(file_path: str):
             print(f"[music] Player launch failed for {cmd[0]}: {e}", flush=True)
 
     print("[music] No supported background audio player found.", flush=True)
+    return None
+
+
+def _probe_duration_seconds(file_path: str) -> Optional[float]:
+    if not file_path or not os.path.exists(file_path):
+        return None
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        res = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                file_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if res.returncode == 0:
+            text = (res.stdout or "").strip()
+            if text:
+                return float(text)
+    except Exception:
+        return None
     return None
 
 
@@ -353,8 +399,8 @@ def _download_track(track: Dict[str, Any], first_song: bool = False, announce_st
 
     print(f"[music] ⬇️  Downloading... ({title})", flush=True)
 
-    use_mp3 = bool(shutil.which("ffmpeg"))
-    base_args = ["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"] if use_mp3 else ["-f", "ba[ext=m4a]/ba"]
+    # Prefer an audio-only file so the Pi Zero doesn't waste cycles on conversion.
+    base_args = ["-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best"]
     attempts: List[List[str]] = []
     for auth_args in _ytdlp_auth_options():
         attempts.append(_low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + auth_args + base_args + ["-o", file_path_template, safe_url])
@@ -410,6 +456,7 @@ def _download_track(track: Dict[str, Any], first_song: bool = False, announce_st
 
     track = dict(track)
     track["file_path"] = final_file
+    track["source_url"] = safe_url
     _append_query_to_index(vid_id, title, track.get("query", ""))
     return track
 
@@ -495,7 +542,13 @@ def play_music(query: str, announce_status: bool = True):
         speak(f"Now playing {speak_title}")
     print(f"[music] ▶️  Now playing {track.get('title')}", flush=True)
 
-    proc = _spawn_player(track.get("file_path"))
+    play_ref = track.get("file_path")
+    duration = _probe_duration_seconds(str(play_ref or ""))
+    if duration is not None and duration < 90 and track.get("source_url"):
+        print(f"[music] ⚠️  File duration looks short ({duration:.0f}s); using stream fallback.", flush=True)
+        play_ref = track.get("source_url")
+
+    proc = _spawn_player(str(play_ref or ""))
     if not proc:
         if announce_status:
             speak("I couldn't play that song.")
