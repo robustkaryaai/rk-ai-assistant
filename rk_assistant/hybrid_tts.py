@@ -163,11 +163,9 @@ def _speak_with_gtts(
 
     try:
         if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
-            play_commands = [
-                f"mpg123 -o pulse -q {shlex.quote(mp3_path)}",
-                f"ffplay -nodisp -autoexit -loglevel quiet {shlex.quote(mp3_path)}",
-            ]
-            return any(_run_command(cmd) for cmd in play_commands)
+            return _run_command(
+                f"mpg123 -o pulse -b 8192 --no-resync -q {shlex.quote(mp3_path)}"
+            )
         if not allow_network:
             return False
         if not os.path.exists(mp3_path) or os.path.getsize(mp3_path) == 0:
@@ -176,11 +174,9 @@ def _speak_with_gtts(
     except Exception:
         return False
 
-    play_commands = [
-        f"mpg123 -o pulse -q {shlex.quote(mp3_path)}",
-        f"ffplay -nodisp -autoexit -loglevel quiet {shlex.quote(mp3_path)}",
-    ]
-    return any(_run_command(cmd) for cmd in play_commands)
+    return _run_command(
+        f"mpg123 -o pulse -b 8192 --no-resync -q {shlex.quote(mp3_path)}"
+    )
 
 
 def _speak_with_espeak(
