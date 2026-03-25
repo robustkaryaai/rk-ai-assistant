@@ -26,6 +26,7 @@ if __name__ == "__main__" and __package__ is None:
     __package__ = "rk_assistant"
 
 import json
+import re
 import queue
 import subprocess
 import tempfile
@@ -299,6 +300,50 @@ def trigger_music_playback(query, music_proc_holder):
     if proc:
         music_proc_holder["proc"] = proc
 
+def _user_explicitly_asked_for_device_id(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "your id",
+            "my id",
+            "device id",
+            "device code",
+            "identity code",
+            "serial number",
+            "what is your id",
+            "what's your id",
+            "what is your serial",
+            "what's your serial",
+            "who are you",
+            "what are you",
+        )
+    )
+
+def _strip_unrequested_device_id(reply: str, text: str, slug: str) -> str:
+    reply = str(reply or "").strip()
+    if not reply or _user_explicitly_asked_for_device_id(text):
+        return reply
+
+    slug = str(slug or "").strip()
+    cleaned = reply
+    if slug and slug != "000000000":
+        patterns = [
+            rf"(?i)\b(?:my|the|your)?\s*(?:identification code|device code|device id|serial number|id|code)\s*(?:is|:)?\s*{re.escape(slug)}\b[\s\.,!?]*",
+            rf"(?i)\b{re.escape(slug)}\b[\s\.,!?]*",
+        ]
+        for pattern in patterns:
+            cleaned = re.sub(pattern, " ", cleaned)
+
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    cleaned = cleaned.replace(" .", ".").replace(" ,", ",")
+    return cleaned or reply
+
+def speak_reply(reply: str, text: str, slug: str):
+    cleaned = _strip_unrequested_device_id(reply, text, slug)
+    if cleaned:
+        speak(cleaned)
+
 def handle_backend_reply(text, online, music_proc_holder, slug):
     """Process text via Gemini or Backend and handle the response actions."""
     print(f"[gemini] Processing: '{text}'")
@@ -349,34 +394,36 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
 
         if intent == "music":
             if intent_reply:
-                speak(intent_reply)
+                speak_reply(intent_reply, text, slug)
             query = params.get("prompt") or text
             trigger_music_playback(query, music_proc_holder)
+        elif intent in ("chat", "general"):
+            speak_reply(reply_text or intent_obj.get("reply") or "", text, slug)
         elif intent in ("weather", "news"):
-            speak(intent_reply or reply_text)
+            speak_reply(intent_reply or reply_text, text, slug)
         elif intent in ("cozy_setup", "focus_mode", "open_app"):
             from .desktop_link import trigger_desktop_action
-            speak(intent_reply or reply_text)
+            speak_reply(intent_reply or reply_text, text, slug)
             trigger_desktop_action(intent, params, slug=slug)
         elif intent == "lumina_coding":
             from . import smart_home
             from .desktop_link import trigger_desktop_action
             smart_home.run_coding_ambience()
-            speak(intent_reply or reply_text)
+            speak_reply(intent_reply or reply_text, text, slug)
             trigger_desktop_action("lumina_coding_session", params, slug=slug)
         elif intent == "shutdown/exit":
             lowered = text.lower()
             desktop_words = ("computer", "desktop", "pc", "laptop", "mac", "windows")
             if any(word in lowered for word in desktop_words):
                 from .desktop_link import trigger_desktop_action
-                speak(intent_reply or reply_text or "Shutting down your desktop.")
+                speak_reply(intent_reply or reply_text or "Shutting down your desktop.", text, slug)
                 trigger_desktop_action("desktop_shutdown", params, slug=slug)
             else:
-                speak(intent_reply or reply_text)
+                speak_reply(intent_reply or reply_text, text, slug)
         elif intent == "alarm":
-            speak(intent_reply or reply_text)
+            speak_reply(intent_reply or reply_text, text, slug)
         else:
-            speak(intent_reply or reply_text)
+            speak_reply(intent_reply or reply_text, text, slug)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

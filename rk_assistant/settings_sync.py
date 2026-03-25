@@ -112,9 +112,20 @@ def refresh_device_settings_now(slug=None):
                     meta = wake_words_data.get('meta') if isinstance(wake_words_data.get('meta'), dict) else {}
                     if 'nightProtocolEnabled' in meta:
                         device_settings['night_protocol_enabled'] = bool(meta['nightProtocolEnabled'])
-                    if isinstance(meta.get('ttsConfig'), dict):
+                    tts_source = meta.get('ttsConfig')
+                    if not isinstance(tts_source, dict) and isinstance(device.get('ttsConfig'), str):
+                        try:
+                            parsed_tts = json.loads(device['ttsConfig'])
+                            if isinstance(parsed_tts, dict):
+                                tts_source = parsed_tts
+                        except Exception:
+                            pass
+                    elif not isinstance(tts_source, dict) and isinstance(device.get('ttsConfig'), dict):
+                        tts_source = device['ttsConfig']
+
+                    if isinstance(tts_source, dict):
                         tts_config = dict(device_settings['tts_config'])
-                        tts_config.update(meta['ttsConfig'])
+                        tts_config.update(tts_source)
                         device_settings['tts_config'] = tts_config
                         print(
                             "[Settings Sync] TTS config synced: "
