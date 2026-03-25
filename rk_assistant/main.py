@@ -399,6 +399,33 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
             trigger_music_playback(query, music_proc_holder)
         elif intent in ("chat", "general"):
             speak_reply(reply_text or intent_obj.get("reply") or "", text, slug)
+        elif intent in (
+            "image",
+            "video",
+            "docx",
+            "ppt",
+            "note",
+            "planner",
+            "timetable",
+            "task",
+            "assignment",
+            "period_bell",
+            "lesson_plan",
+            "exam_paper",
+            "grading_sheet",
+            "class_planner",
+            "teacher_note",
+        ):
+            backend_reply = ""
+            try:
+                backend_resp = post_text_to_backend(text, slug)
+                if isinstance(backend_resp, dict):
+                    backend_reply = backend_resp.get("reply") or backend_resp.get("message") or ""
+                else:
+                    backend_reply = str(backend_resp)
+            except Exception as e:
+                print(f"[main] Backend relay failed for {intent}: {e}", flush=True)
+            speak_reply(backend_reply or intent_reply or reply_text, text, slug)
         elif intent in ("weather", "news"):
             speak_reply(intent_reply or reply_text, text, slug)
         elif intent in ("cozy_setup", "focus_mode", "open_app"):
