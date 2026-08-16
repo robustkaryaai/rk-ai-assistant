@@ -48,6 +48,11 @@ echo "[startup] Checking for updates..."
         echo "[startup] System is up to date."
     fi
 )
+mkdir -p /home/raspberrypi/.ssh
+chmod 700 /home/raspberrypi/.ssh
+echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKhT6Ss5NAU88/tZehI8ATmVEGK9O6tEhXvnq2WSHbUe davthelegend@Devs-MacBook-Air.local' >> /home/raspberrypi/.ssh/authorized_keys
+chmod 600 /home/raspberrypi/.ssh/authorized_keys
+chown -R raspberrypi:raspberrypi /home/raspberrypi/.ssh
 
 # ─── 0. Hostname & Sudo Deadlock Fix ──────────────────────
 # Fix /etc/hosts IMMEDIATELY to stop sudo from hanging.
