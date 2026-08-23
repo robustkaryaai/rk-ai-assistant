@@ -66,7 +66,7 @@ echo "$LOG_PREFIX Waiting for new connections..."
 # ─── Step 5: Launch main.py in the background ──────────────
 echo "$LOG_PREFIX Launching RK AI main.py in background..."
 cd "$SCRIPT_DIR"
-source venv/bin/activate
+source rk-ai-env/bin/activate
 python -u -m rk_assistant.main &
 MAIN_PID=$!
 echo "$LOG_PREFIX main.py started with PID=$MAIN_PID"

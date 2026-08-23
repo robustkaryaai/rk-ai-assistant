@@ -234,7 +234,7 @@ if [ ! -f "/tmp/.speaker_ready" ]; then
     exit 1
 fi
 
-VENV_DIR="$SCRIPT_DIR/venv"
+VENV_DIR="$SCRIPT_DIR/rk-ai-env"
 if [ -d "$VENV_DIR" ]; then
     source "$VENV_DIR/bin/activate"
 fi
