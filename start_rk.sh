@@ -249,7 +249,23 @@ fi
 echo "[startup] Setting volume to 50%..."
 amixer sset Master 50% 2>/dev/null || true
 amixer sset PCM 50% 2>/dev/null || true
+
+# ─── Switch Bluetooth Speaker to HFP (enables mic) ────────
+SPEAKER_MAC_ENV="${SPEAKER_MAC:-D0:78:1D:4F:F4:1E}"
+BT_CARD="bluez_card.${SPEAKER_MAC_ENV//:/_}"
+echo "[startup] Switching $BT_CARD to HFP (headset-head-unit) for microphone support..."
+# Ensure speaker is connected first
+bluetoothctl connect "$SPEAKER_MAC_ENV" &>/dev/null || true
+sleep 3
+# Switch to HFP profile (sources=1 means mic is active)
+pactl set-card-profile "$BT_CARD" headset-head-unit 2>/dev/null || \
+pactl set-card-profile "$BT_CARD" headset-head-unit-cvsd 2>/dev/null || true
+# Set as default sink and source
+pactl set-default-sink "bluez_output.${SPEAKER_MAC_ENV//:/_}.1" 2>/dev/null || true
+pactl set-default-source "bluez_input.${SPEAKER_MAC_ENV//:/_}.1" 2>/dev/null || true
+# Now apply volume to the active sink
 pactl set-sink-volume @DEFAULT_SINK@ 50% 2>/dev/null || true
+echo "[startup] Bluetooth HFP profile active — mic + speaker ready."
 
 echo "[startup] Step 8: Launching main.py..."
 # If first boot flag exists, it's NOT first boot anymore.

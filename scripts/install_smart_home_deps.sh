@@ -3,9 +3,9 @@
 # Usage: bash scripts/install_smart_home_deps.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
-if [[ -f venv/bin/activate ]]; then
+if [[ -f rk-ai-env/bin/activate ]]; then
   # shellcheck source=/dev/null
-  source venv/bin/activate
+  source rk-ai-env/bin/activate
 fi
 export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.org/simple}"
 export PIP_EXTRA_INDEX_URL="${PIP_EXTRA_INDEX_URL:-}"
