@@ -15,7 +15,7 @@ IOSchedulingPriority=4
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
 WorkingDirectory=/home/raspberrypi/Documents/rk-ai-assistant
-ExecStart=/home/raspberrypi/Documents/rk-ai-assistant/rk-ai-env/bin/python3 -u -m rk_assistant.main
+ExecStart=/usr/bin/bash /home/raspberrypi/Documents/rk-ai-assistant/rk_launcher.sh
 Restart=always
 RestartSec=5
 StandardOutput=inherit
