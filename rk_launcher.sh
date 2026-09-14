@@ -18,7 +18,7 @@ echo "[launcher] Device slug: $SLUG | BT Name: $BT_NAME"
 
 # Set hostname and BT adapter name to match slug
 sudo hostnamectl set-hostname "$BT_NAME" 2>/dev/null || true
-sudo bluetoothctl system-alias "$BT_NAME" 2>/dev/null || true
+timeout 3 sudo bluetoothctl system-alias "$BT_NAME" 2>/dev/null || true
 
 # Fix /etc/hosts so sudo doesn't warn "unable to resolve host"
 if ! grep -q "$BT_NAME" /etc/hosts 2>/dev/null; then
