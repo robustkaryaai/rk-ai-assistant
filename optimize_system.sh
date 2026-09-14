@@ -28,5 +28,14 @@ fi
 # This requires /boot/config.txt edit, usually max_usb_current=1
 # We'll skip editing config.txt automatically to be safe, but log it.
 
-echo "✅ System optimized. CPU is high performance, WiFi sleep is OFF."
+
+# 4. Set volume to 50% (prevents ear-blasting loud audio on boot)
+echo "🔊 Setting volume to 50%..."
+# ALSA (direct hardware)
+amixer sset Master 50% 2>/dev/null || true
+amixer sset PCM 50% 2>/dev/null || true
+# PulseAudio (Bluetooth speakers use this)
+pactl set-sink-volume @DEFAULT_SINK@ 50% 2>/dev/null || true
+
+echo "✅ System optimized. CPU is high performance, WiFi sleep is OFF, volume is 50%."
 echo "   Audio should be much more stable now."

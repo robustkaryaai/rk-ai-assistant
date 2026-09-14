@@ -245,6 +245,12 @@ if [ ! -f "$SCRIPT_DIR/rk_assistant/main.py" ]; then
     exit 1
 fi
 
+# ─── Set Volume to 50% on every boot ─────────────────────
+echo "[startup] Setting volume to 50%..."
+amixer sset Master 50% 2>/dev/null || true
+amixer sset PCM 50% 2>/dev/null || true
+pactl set-sink-volume @DEFAULT_SINK@ 50% 2>/dev/null || true
+
 echo "[startup] Step 8: Launching main.py..."
 # If first boot flag exists, it's NOT first boot anymore.
 if [ -f "$FIRST_BOOT_FLAG" ]; then
