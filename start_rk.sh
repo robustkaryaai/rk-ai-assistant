@@ -5,7 +5,7 @@
 export XDG_RUNTIME_DIR=/run/user/1000
 export PULSE_RUNTIME_PATH=/run/user/1000/pulse
 
-SCRIPT_DIR="/home/raspberrypi/Documents/rk-ai-assistant-main"
+SCRIPT_DIR="/home/raspberrypi/Documents/rk-ai-assistant"
 PAIRING_FILE="$SCRIPT_DIR/.last_bt_device"
 FIRST_BOOT_FLAG="$SCRIPT_DIR/.first_boot_done"
 

@@ -8,6 +8,18 @@ export PULSE_RUNTIME_PATH=/run/user/1000/pulse
 
 SCRIPT_DIR="/home/raspberrypi/Documents/rk-ai-assistant"
 
+# ─── Read slug from slug.txt ──────────────────────────────
+SLUG="000000000"
+if [ -f "$SCRIPT_DIR/rk_assistant/slug.txt" ]; then
+    SLUG=$(head -n1 "$SCRIPT_DIR/rk_assistant/slug.txt" | tr -d '[:space:]')
+fi
+BT_NAME="RK-AI-$SLUG"
+echo "[launcher] Device slug: $SLUG | BT Name: $BT_NAME"
+
+# Set hostname and BT adapter name to match slug
+sudo hostnamectl set-hostname "$BT_NAME" 2>/dev/null || true
+sudo bluetoothctl system-alias "$BT_NAME" 2>/dev/null || true
+
 # ─── Read speaker MAC from .env or use default ────────────────
 SPEAKER_MAC="D0:78:1D:4F:F4:1E"
 ENV_FILE="$SCRIPT_DIR/.env"
