@@ -20,6 +20,11 @@ echo "[launcher] Device slug: $SLUG | BT Name: $BT_NAME"
 sudo hostnamectl set-hostname "$BT_NAME" 2>/dev/null || true
 sudo bluetoothctl system-alias "$BT_NAME" 2>/dev/null || true
 
+# Fix /etc/hosts so sudo doesn't warn "unable to resolve host"
+if ! grep -q "$BT_NAME" /etc/hosts 2>/dev/null; then
+    echo "127.0.1.1 $BT_NAME" | sudo tee -a /etc/hosts > /dev/null
+fi
+
 # ─── Read speaker MAC from .env or use default ────────────────
 SPEAKER_MAC="D0:78:1D:4F:F4:1E"
 ENV_FILE="$SCRIPT_DIR/.env"
