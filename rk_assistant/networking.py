@@ -126,16 +126,23 @@ def wait_for_internet(timeout: int = 60) -> bool:
     return False
 
 
+_LAST_REPORTED_STATE = None
+
 def report_state(slug: str, state: str) -> bool:
     """
     Report the current activity state of the assistant to the backend.
     States: 'idle', 'thinking', 'speaking', 'playing', 'listening'
     """
+    global _LAST_REPORTED_STATE
     if not slug or not is_online():
         return False
+    # Avoid spamming backend if state has not changed
+    if _LAST_REPORTED_STATE == state:
+        return True
     try:
         url = f"{BACKEND_BASE_URL}/device/{slug}/state"
         _session.post(url, json={"state": state}, timeout=5)
+        _LAST_REPORTED_STATE = state
         return True
     except Exception as e:
         print(f"[network] Failed to report state '{state}': {e}")

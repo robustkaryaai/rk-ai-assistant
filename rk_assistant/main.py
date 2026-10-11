@@ -663,14 +663,6 @@ def main():
             if music_state:
                 report_state(slug_val, music_state)
             else:
-                report_state(slug_val, "idle")
-
-            # ── Night TTS suppression flag ──────────────────────────────────
-            night_tts_suppressed = (night_monitor.night_tts_suppressed
-                                    if night_monitor else False)
-
-            # ── Wait for a command from the engine ─────────────────────────
-            if not music_state:
                 report_state(slug_val, "listening")
             log_stt_status("Listening...", throttle_sec=12.0)
             if stt_engine:
