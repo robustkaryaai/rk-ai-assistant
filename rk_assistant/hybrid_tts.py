@@ -90,8 +90,6 @@ def _normalize_engine(engine: str) -> str:
 
 def _normalize_language(language: str | None, text: str, engine: str | None = None) -> str:
     language_name = str(language or "").strip().lower()
-    if engine == "gtts":
-        return "hi"
     if language_name in {"hi", "hindi"}:
         return "hi"
     if language_name in {"en", "english"}:
@@ -146,6 +144,19 @@ def _speak_with_flite(text: str, gender: str, voice: str | None = None) -> bool:
     return _run_command(cmd)
 
 
+def _play_mp3(mp3_path: str) -> bool:
+    """Try playing mp3 via mpg123 (pulse, alsa, or default output)."""
+    quoted = shlex.quote(mp3_path)
+    # 1. Try pulse output
+    if _run_command(f"mpg123 -o pulse -b 8192 --no-resync -q {quoted}"):
+        return True
+    # 2. Try alsa output
+    if _run_command(f"mpg123 -o alsa -b 8192 --no-resync -q {quoted}"):
+        return True
+    # 3. Default mpg123
+    return _run_command(f"mpg123 -q {quoted}")
+
+
 def _speak_with_gtts(
     text: str,
     language: str | None = None,
@@ -163,9 +174,7 @@ def _speak_with_gtts(
 
     try:
         if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
-            return _run_command(
-                f"mpg123 -o pulse -b 8192 --no-resync -q {shlex.quote(mp3_path)}"
-            )
+            return _play_mp3(mp3_path)
         if not allow_network:
             return False
         if not os.path.exists(mp3_path) or os.path.getsize(mp3_path) == 0:
@@ -174,9 +183,7 @@ def _speak_with_gtts(
     except Exception:
         return False
 
-    return _run_command(
-        f"mpg123 -o pulse -b 8192 --no-resync -q {shlex.quote(mp3_path)}"
-    )
+    return _play_mp3(mp3_path)
 
 
 def _speak_with_espeak(

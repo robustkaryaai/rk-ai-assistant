@@ -48,7 +48,8 @@ def speak(
     requested_language = str(language or profile.get("language") or "en").strip().lower()
 
     if requested_engine == "gtts":
-        requested_language = "hi"
+        if contains_hindi(spoken_text):
+            requested_language = "hi"
     elif requested_engine == "flite":
         requested_language = "en"
 
