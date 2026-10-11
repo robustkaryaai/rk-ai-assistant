@@ -48,10 +48,18 @@ sudo bluetoothctl <<'EOF' &>/dev/null
 power on
 discoverable on
 pairable on
-agent on
-default-agent
 discoverable-timeout 0
 EOF
+
+# ─── Step 1b: Launch Auto-Pairing Agent & Provisioning for Mobile App ─
+echo "[launcher] Starting Auto-Pairing Agent (No 'yes' prompts needed)..."
+sudo PYTHONPATH="$SCRIPT_DIR" python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &>/tmp/rk_bt_agent.log &
+
+echo "[launcher] Starting BLE Provisioning Service for mobile app..."
+sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.provisioning_service &>/tmp/rk_ble_provision.log &
+
+echo "[launcher] Starting Classic Bluetooth Server..."
+sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.classic_bluetooth_server &>/tmp/rk_classic_bt.log &
 
 # ─── Step 2: Connect to speaker ───────────────────────────────
 echo "[launcher] Connecting to speaker $SPEAKER_MAC..."
