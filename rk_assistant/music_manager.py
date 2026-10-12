@@ -254,39 +254,27 @@ def _ytdlp_auth_options() -> List[List[str]]:
             attempts.append(["--cookies", cookie_file])
             break
 
-    # Then try client emulation modes.
+    # Use fast android/mweb client emulation
     attempts.append(["--extractor-args", "youtube:player_client=android,mweb"])
-    attempts.append(["--extractor-args", "youtube:player_client=android"])
-    attempts.append(["--extractor-args", "youtube:player_client=mweb"])
-    attempts.append(["--extractor-args", "youtube:player_client=android_music"])
-    attempts.append(["--extractor-args", "youtube:player_client=ios"])
-    attempts.append(["--extractor-args", "youtube:player_client=tv_embedded"])
-    attempts.append(["--extractor-args", "youtube:player_client=tv"])
-    attempts.append(["--extractor-args", "youtube:player_client=web_music"])
     return attempts
 
 
 def _run_ytdlp_attempts(base_args: List[str], out_path: Optional[str] = None) -> List[List[str]]:
     attempts: List[List[str]] = []
-    retry_flags = [
-        "--continue",
+    fast_flags = [
         "--no-part",
         "--retries",
-        "10",
-        "--fragment-retries",
-        "10",
-        "--extractor-retries",
-        "3",
+        "2",
         "--socket-timeout",
-        "20",
+        "8",
     ]
     for auth_args in _ytdlp_auth_options():
-        cmd = _low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + retry_flags + auth_args + base_args
+        cmd = _low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + fast_flags + auth_args + base_args
         if out_path:
             cmd += ["-o", out_path]
         attempts.append(cmd)
-    # Final fallback without auth modifiers.
-    attempts.append(_low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + retry_flags + base_args + (["-o", out_path] if out_path else []))
+    # Fast fallback without auth modifiers.
+    attempts.append(_low_priority_prefix() + ["yt-dlp", "--quiet", "--no-warnings", "--force-ipv4"] + fast_flags + base_args + (["-o", out_path] if out_path else []))
     return attempts
 
 
@@ -459,6 +447,60 @@ def _download_track(track: Dict[str, Any], first_song: bool = False, announce_st
     return track
 
 
+def _search_and_stream(norm_query: str) -> Optional[Dict[str, Any]]:
+    """Fast 1-shot search returning title, vid_id, and direct streaming URL."""
+    # We ask yt-dlp to get the title, video id, and streaming audio url in one single request
+    cmd = _low_priority_prefix() + [
+        "yt-dlp",
+        "--quiet",
+        "--no-warnings",
+        "--force-ipv4",
+        "--no-part",
+        "--socket-timeout", "10",
+        "--get-title",
+        "--get-id",
+        "-g",
+        "-f", "bestaudio/best",
+        f"ytsearch1:{norm_query}",
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        if res.returncode == 0 and res.stdout.strip():
+            lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+            if len(lines) >= 3:
+                return {
+                    "title": lines[0],
+                    "vid_id": lines[1],
+                    "source_url": lines[2],
+                }
+            elif len(lines) >= 2:
+                return {
+                    "title": lines[0],
+                    "vid_id": lines[1],
+                    "source_url": f"https://www.youtube.com/watch?v={lines[1]}",
+                }
+    except Exception as e:
+        print(f"[music] Fast search/stream failed: {e}", flush=True)
+
+    # Fallback search if combined extraction timed out
+    match = _search_youtube_match(norm_query)
+    if match:
+        return {
+            "title": match["title"],
+            "vid_id": match["vid_id"],
+            "source_url": f"https://www.youtube.com/watch?v={match['vid_id']}",
+        }
+    return None
+
+
+def _download_track_bg(track: Dict[str, Any]):
+    """Download and cache track in the background without holding up playback."""
+    try:
+        _download_track(track, first_song=False, announce_status=False)
+    except Exception as e:
+        print(f"[music] Background download error: {e}", flush=True)
+
+
 def _resolve_track(norm_query: str, announce: bool = True) -> Optional[Dict[str, Any]]:
     if not norm_query:
         return None
@@ -471,27 +513,37 @@ def _resolve_track(norm_query: str, announce: bool = True) -> Optional[Dict[str,
         speak(f"Searching for song {norm_query}")
     _set_music_state("searching")
 
-    match = _search_youtube_match(norm_query)
+    match = _search_and_stream(norm_query)
     if not match:
         _set_music_state("idle")
         return None
 
     title = match["title"]
     vid_id = match["vid_id"]
+    source_url = match.get("source_url")
     print(f"[music] ✓ Found: {title} ({vid_id})", flush=True)
+
     cached_file = _find_cached_file(vid_id)
     track = {
         "vid_id": vid_id,
         "title": title,
-        "file_path": cached_file,
+        "file_path": cached_file or source_url,
+        "source_url": source_url,
         "query": norm_query,
         "source": "youtube",
     }
     _append_query_to_index(vid_id, title, norm_query)
 
     if cached_file and os.path.exists(cached_file):
+        track["file_path"] = cached_file
         return track
 
+    # Start downloading in the background for next time, but return immediately with stream URL!
+    if source_url:
+        threading.Thread(target=_download_track_bg, args=(track,), daemon=True).start()
+        return track
+
+    # Fallback to synchronous download if stream URL wasn't available
     downloaded = _download_track(track, first_song=announce, announce_status=announce)
     if not downloaded:
         _set_music_state("idle")
