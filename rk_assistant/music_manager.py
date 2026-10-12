@@ -514,10 +514,6 @@ def _music_done_watcher(proc, generation: int):
 def play_music(query: str, announce_status: bool = True):
     global current_player, current_track_info, last_played_query
 
-    if not shutil.which("yt-dlp"):
-        print("[music] Install yt-dlp first.", flush=True)
-        return None
-
     norm_query = _clean_query(query)
     print(f"[music] 🧹 Cleaned Query: '{norm_query}' (Original: '{query}')", flush=True)
 
@@ -525,11 +521,19 @@ def play_music(query: str, announce_status: bool = True):
         stop_music()
         return None
 
+    # Check local cached songs first
+    local_track = _resolve_local_track(norm_query)
+    if not local_track and not shutil.which("yt-dlp"):
+        print("[music] Install yt-dlp first for YouTube search/playback.", flush=True)
+        if announce_status:
+            speak("Please install yt-dlp on your device to play online music.")
+        return None
+
     if current_player and current_player.poll() is None:
         stop_music()
 
     last_played_query = query
-    track = _resolve_track(norm_query, announce=announce_status)
+    track = local_track or _resolve_track(norm_query, announce=announce_status)
     if not track:
         if announce_status:
             speak("I couldn't find that song.")

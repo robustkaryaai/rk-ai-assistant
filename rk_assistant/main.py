@@ -805,6 +805,16 @@ def main():
                 speak("Alarm stopped.")
                 continue
 
+            # ── Instant Music Play Intercept (Fast Local Routing) ─────────
+            # Matches "play <song>", "bajao <song>", etc. immediately without waiting for backend network trip
+            play_match = re.match(r"^(?:play|bajao|chalao|play song|play music)\s+(.+)$", lowered_text.strip())
+            if play_match:
+                music_query = play_match.group(1).strip()
+                if music_query and not any(kw in music_query for kw in ("game", "video", "with me", "quiz")):
+                    print(f"[main] Fast Music Play intercepted: '{music_query}'", flush=True)
+                    trigger_music_playback(text, music_proc_holder)
+                    continue
+
             # ── Quick media/offline command shortcut ──────────────────────
             offline_kw = match_offline_command(text.lower())
             if offline_kw in ("stop", "pause", "resume", "volume up", "volume down",
