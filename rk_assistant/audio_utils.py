@@ -994,13 +994,24 @@ class SmartSTTEngine:
 
     @staticmethod
     def _strip_wake_word(text: str) -> str:
-        """Remove the leading wake word from a transcribed string."""
+        """Remove the wake word from a transcribed string whether it appears at start or end."""
+        cleaned = text.strip()
         # Check all wake words (longest first to avoid partial matches)
         for ww in sorted(WAKE_WORDS, key=len, reverse=True):
-            idx = text.find(ww)
-            if idx != -1:
-                return text[idx + len(ww):].strip(" ,.").strip()
-        return text.strip()
+            # Check prefix: "rk play music" -> "play music"
+            if cleaned.startswith(ww):
+                cleaned = cleaned[len(ww):].strip(" ,.").strip()
+                break
+            # Check suffix: "play music rk" -> "play music"
+            if cleaned.endswith(ww):
+                cleaned = cleaned[:-len(ww)].strip(" ,.").strip()
+                break
+            # Check word boundary anywhere: "can you rk play music"
+            pattern = rf"\b{re.escape(ww)}\b"
+            if re.search(pattern, cleaned, re.IGNORECASE):
+                cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip(" ,.").strip()
+                break
+        return cleaned
 
 
 def create_stt_engine(

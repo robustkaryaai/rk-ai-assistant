@@ -112,30 +112,36 @@ def refresh_device_settings_now(slug=None):
                     meta = wake_words_data.get('meta') if isinstance(wake_words_data.get('meta'), dict) else {}
                     if 'nightProtocolEnabled' in meta:
                         device_settings['night_protocol_enabled'] = bool(meta['nightProtocolEnabled'])
-                    tts_source = meta.get('ttsConfig')
-                    if not isinstance(tts_source, dict) and isinstance(device.get('ttsConfig'), str):
-                        try:
-                            parsed_tts = json.loads(device['ttsConfig'])
-                            if isinstance(parsed_tts, dict):
-                                tts_source = parsed_tts
-                        except Exception:
-                            pass
-                    elif not isinstance(tts_source, dict) and isinstance(device.get('ttsConfig'), dict):
-                        tts_source = device['ttsConfig']
-
-                    if isinstance(tts_source, dict):
-                        tts_config = dict(device_settings['tts_config'])
-                        tts_config.update(tts_source)
-                        device_settings['tts_config'] = tts_config
-                        print(
-                            "[Settings Sync] TTS config synced: "
-                            f"engine={tts_config.get('engine')} "
-                            f"voice={tts_config.get('voice')} "
-                            f"language={tts_config.get('language')} "
-                            f"gender={tts_config.get('gender')}"
-                        )
+        # TTS Configuration Sync (can be in device.ttsConfig or wakeWords.meta.ttsConfig)
+        tts_source = None
+        if isinstance(device.get('ttsConfig'), dict):
+            tts_source = device['ttsConfig']
+        elif isinstance(device.get('ttsConfig'), str):
+            try:
+                tts_source = json.loads(device['ttsConfig'])
             except Exception:
                 pass
+
+        if not tts_source and isinstance(device.get('wakeWords'), str):
+            try:
+                ww_data = json.loads(device['wakeWords'])
+                if isinstance(ww_data, dict) and isinstance(ww_data.get('meta'), dict):
+                    tts_source = ww_data['meta'].get('ttsConfig')
+            except Exception:
+                pass
+
+        if isinstance(tts_source, dict):
+            tts_config = dict(device_settings['tts_config'])
+            tts_config.update(tts_source)
+            device_settings['tts_config'] = tts_config
+            print(
+                "[Settings Sync] TTS config synced: "
+                f"engine={tts_config.get('engine')} "
+                f"voice={tts_config.get('voice')} "
+                f"language={tts_config.get('language')} "
+                f"gender={tts_config.get('gender')}",
+                flush=True
+            )
 
         if device.get('smart_devices') is not None:
             try:
