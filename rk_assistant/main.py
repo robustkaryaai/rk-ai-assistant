@@ -731,6 +731,15 @@ def main():
                 speak(resp)
                 continue
 
+            # ── Instant Alarm Stop Intercept ─────────────────────────────
+            lowered_text = text.lower()
+            if any(k in lowered_text for k in ("stop alarm", "stop the alarm", "turn off alarm", "turn off the alarm", "cancel alarm", "silence alarm", "dismiss alarm", "band karo")):
+                print("[main] Immediate Alarm Stop intercepted!", flush=True)
+                alarm_manager.stop_active_alarm()
+                alarm_manager.cancel_all_alarms()
+                speak("Alarm stopped.")
+                continue
+
             # ── Quick media/offline command shortcut ──────────────────────
             offline_kw = match_offline_command(text.lower())
             if offline_kw in ("stop", "pause", "resume", "volume up", "volume down",

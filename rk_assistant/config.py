@@ -98,7 +98,7 @@ WAKE_WORDS = [
 
     # Indian-accent realistic matches
     "aarki", "aarky", "aari", "aarav",
-    "aarti", "arti", "arty", "artie", "aarty",
+    "aarti", "arty", "artie", "aarty",
 
     # Close sound-alike names/words
     "archana", "arya", "aryan", "rishi", "rushi", "ruby",
