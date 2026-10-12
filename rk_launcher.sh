@@ -55,15 +55,16 @@ sudo PYTHONPATH="$SCRIPT_DIR" python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &>/
 sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.provisioning_service &>/tmp/rk_ble_provision.log &
 sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.classic_bluetooth_server &>/tmp/rk_classic_bt.log &
 
-# ─── Step 2: Connect to speaker with short timeout ───────────
+# ─── Step 2: Connect to speaker with reliable handshake ───────
 echo "[launcher] Connecting to speaker $SPEAKER_MAC..."
-timeout 3 bluetoothctl connect "$SPEAKER_MAC" &>/dev/null || true
-sleep 1
+timeout 8 bluetoothctl connect "$SPEAKER_MAC" &>/dev/null || true
+sleep 2
 
 # ─── Step 3: Switch to HFP to enable mic ──────────────────────
 echo "[launcher] Switching to HFP profile (mic + speaker)..."
 pactl set-card-profile "$BT_CARD" headset-head-unit 2>/dev/null || \
 pactl set-card-profile "$BT_CARD" headset-head-unit-cvsd 2>/dev/null || true
+sleep 1
 
 # ─── Step 4: Set default sink/source ─────────────────────────
 BT_ID="${SPEAKER_MAC//:/_}"
