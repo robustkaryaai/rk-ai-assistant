@@ -16,14 +16,15 @@ fi
 BT_NAME="RK-AI-$SLUG"
 echo "[launcher] Device slug: $SLUG | BT Name: $BT_NAME"
 
-# Set hostname and BT adapter name to match slug
-sudo hostnamectl set-hostname "$BT_NAME" 2>/dev/null || true
-timeout 3 sudo bluetoothctl system-alias "$BT_NAME" 2>/dev/null || true
-
-# Fix /etc/hosts so sudo doesn't warn "unable to resolve host"
-if ! grep -q "$BT_NAME" /etc/hosts 2>/dev/null; then
-    echo "127.0.1.1 $BT_NAME" | sudo tee -a /etc/hosts > /dev/null
+# Set hostname only if it changed
+CURRENT_HOSTNAME=$(cat /etc/hostname 2>/dev/null | tr -d '[:space:]')
+if [ "$CURRENT_HOSTNAME" != "$BT_NAME" ]; then
+    sudo hostnamectl set-hostname "$BT_NAME" 2>/dev/null || true
+    if ! grep -q "$BT_NAME" /etc/hosts 2>/dev/null; then
+        echo "127.0.1.1 $BT_NAME" | sudo tee -a /etc/hosts > /dev/null
+    fi
 fi
+timeout 2 sudo bluetoothctl system-alias "$BT_NAME" 2>/dev/null || true
 
 # ─── Read speaker MAC from .env or use default ────────────────
 SPEAKER_MAC="D0:78:1D:4F:F4:1E"
@@ -44,33 +45,25 @@ if ! hciconfig | grep -q "hci1"; then
     HCI_DEV="hci0"
 fi
 sudo hciconfig "$HCI_DEV" up 2>/dev/null || true
-sudo bluetoothctl <<'EOF' &>/dev/null
-power on
-discoverable on
-pairable on
-discoverable-timeout 0
-EOF
+timeout 2 sudo bluetoothctl power on 2>/dev/null || true
+timeout 2 sudo bluetoothctl discoverable on 2>/dev/null || true
+timeout 2 sudo bluetoothctl pairable on 2>/dev/null || true
 
 # ─── Step 1b: Launch Auto-Pairing Agent & Provisioning for Mobile App ─
-echo "[launcher] Starting Auto-Pairing Agent (No 'yes' prompts needed)..."
+echo "[launcher] Starting Auto-Pairing Agent & BLE Provisioning..."
 sudo PYTHONPATH="$SCRIPT_DIR" python3 "$SCRIPT_DIR/rk_assistant/bt_agent.py" &>/tmp/rk_bt_agent.log &
-
-echo "[launcher] Starting BLE Provisioning Service for mobile app..."
 sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.provisioning_service &>/tmp/rk_ble_provision.log &
-
-echo "[launcher] Starting Classic Bluetooth Server..."
 sudo PYTHONPATH="$SCRIPT_DIR" python3 -u -m rk_assistant.classic_bluetooth_server &>/tmp/rk_classic_bt.log &
 
-# ─── Step 2: Connect to speaker ───────────────────────────────
+# ─── Step 2: Connect to speaker with short timeout ───────────
 echo "[launcher] Connecting to speaker $SPEAKER_MAC..."
-bluetoothctl connect "$SPEAKER_MAC" &>/dev/null || true
-sleep 4
+timeout 3 bluetoothctl connect "$SPEAKER_MAC" &>/dev/null || true
+sleep 1
 
 # ─── Step 3: Switch to HFP to enable mic ──────────────────────
 echo "[launcher] Switching to HFP profile (mic + speaker)..."
 pactl set-card-profile "$BT_CARD" headset-head-unit 2>/dev/null || \
 pactl set-card-profile "$BT_CARD" headset-head-unit-cvsd 2>/dev/null || true
-sleep 1
 
 # ─── Step 4: Set default sink/source ─────────────────────────
 BT_ID="${SPEAKER_MAC//:/_}"
