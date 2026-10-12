@@ -112,6 +112,9 @@ def refresh_device_settings_now(slug=None):
                     meta = wake_words_data.get('meta') if isinstance(wake_words_data.get('meta'), dict) else {}
                     if 'nightProtocolEnabled' in meta:
                         device_settings['night_protocol_enabled'] = bool(meta['nightProtocolEnabled'])
+            except Exception as e:
+                print(f"[Settings Sync] Error parsing wakeWords: {e}")
+
         # TTS Configuration Sync (can be in device.ttsConfig or wakeWords.meta.ttsConfig)
         tts_source = None
         if isinstance(device.get('ttsConfig'), dict):
