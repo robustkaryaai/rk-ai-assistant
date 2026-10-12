@@ -344,11 +344,116 @@ def speak_reply(reply: str, text: str, slug: str):
     if cleaned:
         speak(cleaned)
 
-def handle_backend_reply(text, online, music_proc_holder, slug):
-    """Process text via Gemini or Backend and handle the response actions."""
-    print(f"[gemini] Processing: '{text}'")
-    print(f"[gemini] User: {text}")
+def _act_on_intents(intents, text, music_proc_holder, slug, reply_text=""):
+    """Execute a list of classified intent objects (shared by both Gemini-direct and backend paths)."""
+    for intent_obj in intents:
+        intent = intent_obj.get("intent", "general")
+        params = intent_obj.get("parameters", {})
+        intent_reply = intent_obj.get("reply") or reply_text or ""
 
+        if intent == "music":
+            if intent_reply:
+                speak_reply(intent_reply, text, slug)
+            query = params.get("prompt") or text
+            trigger_music_playback(query, music_proc_holder)
+        elif intent in ("chat", "general"):
+            speak_reply(reply_text or intent_reply, text, slug)
+        elif intent in ("weather", "news"):
+            speak_reply(intent_reply or reply_text, text, slug)
+        elif intent == "alarm":
+            speak_reply(intent_reply or reply_text, text, slug)
+        elif intent in (
+            "image", "video", "docx", "ppt", "note", "planner",
+            "timetable", "task", "assignment", "period_bell",
+            "lesson_plan", "exam_paper", "grading_sheet",
+            "class_planner", "teacher_note",
+        ):
+            # For generative intents when coming from backend path, reply is already in intent_reply
+            speak_reply(intent_reply or reply_text, text, slug)
+        elif intent in ("cozy_setup", "focus_mode", "open_app"):
+            from .desktop_link import trigger_desktop_action
+            speak_reply(intent_reply or reply_text, text, slug)
+            trigger_desktop_action(intent, params, slug=slug)
+        elif intent == "lumina_coding":
+            from . import smart_home
+            from .desktop_link import trigger_desktop_action
+            smart_home.run_coding_ambience()
+            speak_reply(intent_reply or reply_text, text, slug)
+            trigger_desktop_action("lumina_coding_session", params, slug=slug)
+        elif intent == "shutdown/exit":
+            lowered = text.lower()
+            desktop_words = ("computer", "desktop", "pc", "laptop", "mac", "windows")
+            if any(word in lowered for word in desktop_words):
+                from .desktop_link import trigger_desktop_action
+                speak_reply(intent_reply or reply_text or "Shutting down your desktop.", text, slug)
+                trigger_desktop_action("desktop_shutdown", params, slug=slug)
+            else:
+                speak_reply(intent_reply or reply_text, text, slug)
+        else:
+            speak_reply(intent_reply or reply_text, text, slug)
+
+
+def handle_backend_reply(text, online, music_proc_holder, slug):
+    """Process text via Gemini (if available on-device) or backend, then act on the intent."""
+    print(f"[gemini] Processing: '{text}'", flush=True)
+
+    # ── Path A: google-genai is NOT installed on this device (e.g. Pi Zero W) ──
+    # Send directly to the backend. The backend runs Gemini server-side and
+    # returns a full structured JSON: {intent, reply, parameters, ...}
+    # We parse that and act locally so the user gets a real response.
+    if not gemini_client.GEMINI_AVAILABLE:
+        print("[gemini] Library not available — delegating to backend for intent classification", flush=True)
+        try:
+            backend_resp = post_text_to_backend(text, slug)
+        except Exception as e:
+            print(f"[main] Backend call failed: {e}", flush=True)
+            speak("I'm having trouble reaching my backend right now.")
+            return
+
+        if not isinstance(backend_resp, dict) or backend_resp.get("error"):
+            speak("I couldn't reach my brain. Please check the connection.")
+            return
+
+        # Backend may return a flat dict {intent, reply, parameters} or
+        # a list under an "intents" key — normalise to a list
+        if "intents" in backend_resp and isinstance(backend_resp["intents"], list):
+            intents = backend_resp["intents"]
+        elif "intent" in backend_resp:
+            intents = [backend_resp]
+        else:
+            # Fallback: plain text reply (old backend behaviour)
+            reply_text = backend_resp.get("reply") or backend_resp.get("message") or ""
+            if reply_text and reply_text.strip().lower() not in (
+                "i processed that for you.", "processed.", ""
+            ):
+                print(f"[gemini] Backend reply: {reply_text}", flush=True)
+                speak_reply(reply_text, text, slug)
+            else:
+                # Backend didn't give us a useful reply; try chat fallback
+                print("[gemini] Backend gave generic reply — attempting direct chat via backend", flush=True)
+                chat_resp = post_text_to_backend(f"__chat__ {text}", slug)
+                chat_text = ""
+                if isinstance(chat_resp, dict):
+                    chat_text = chat_resp.get("reply") or chat_resp.get("message") or ""
+                speak_reply(chat_text or "I'm not sure how to help with that.", text, slug)
+            return
+
+        # Enrich intents: if music intent has no query, use full text
+        for obj in intents:
+            if obj.get("intent") == "music":
+                params = obj.setdefault("parameters", {})
+                if not params.get("prompt"):
+                    params["prompt"] = text
+
+        reply_text = next(
+            (obj.get("reply", "") for obj in intents if obj.get("reply")), ""
+        )
+        print(f"[gemini] Backend intent(s): {[o.get('intent') for o in intents]} | reply: {reply_text!r}", flush=True)
+        _act_on_intents(intents, text, music_proc_holder, slug, reply_text=reply_text)
+        return
+
+    # ── Path B: google-genai IS available (classify locally, act locally) ──
+    print(f"[gemini] User: {text}", flush=True)
     intents = gemini_client.classify_intent(
         text,
         api_key=GEMINI_API_KEY,
@@ -361,7 +466,9 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
         speak("I am having trouble connecting to my brain.")
         return
 
-    wants_chat_response = any((intent_obj.get("intent") in ("chat", "general")) for intent_obj in intents)
+    wants_chat_response = any(
+        intent_obj.get("intent") in ("chat", "general") for intent_obj in intents
+    )
     reply_text = ""
 
     if wants_chat_response:
@@ -387,70 +494,28 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
         if reply_text:
             print(f"[gemini] Reply: {reply_text}")
 
+    # For generative intents in Path B, relay to backend to trigger server-side processing
+    enriched_intents = []
     for intent_obj in intents:
-        intent = intent_obj.get("intent", "general")
-        params = intent_obj.get("parameters", {})
-        intent_reply = intent_obj.get("reply") or reply_text or ""
-
-        if intent == "music":
-            if intent_reply:
-                speak_reply(intent_reply, text, slug)
-            query = params.get("prompt") or text
-            trigger_music_playback(query, music_proc_holder)
-        elif intent in ("chat", "general"):
-            speak_reply(reply_text or intent_obj.get("reply") or "", text, slug)
-        elif intent in (
-            "image",
-            "video",
-            "docx",
-            "ppt",
-            "note",
-            "planner",
-            "timetable",
-            "task",
-            "assignment",
-            "period_bell",
-            "lesson_plan",
-            "exam_paper",
-            "grading_sheet",
-            "class_planner",
-            "teacher_note",
+        obj = dict(intent_obj)
+        intent = obj.get("intent", "general")
+        if intent in (
+            "image", "video", "docx", "ppt", "note", "planner",
+            "timetable", "task", "assignment", "period_bell",
+            "lesson_plan", "exam_paper", "grading_sheet",
+            "class_planner", "teacher_note",
         ):
-            backend_reply = ""
             try:
                 backend_resp = post_text_to_backend(text, slug)
                 if isinstance(backend_resp, dict):
-                    backend_reply = backend_resp.get("reply") or backend_resp.get("message") or ""
-                else:
-                    backend_reply = str(backend_resp)
+                    b_reply = backend_resp.get("reply") or backend_resp.get("message") or ""
+                    if b_reply:
+                        obj["reply"] = b_reply
             except Exception as e:
                 print(f"[main] Backend relay failed for {intent}: {e}", flush=True)
-            speak_reply(backend_reply or intent_reply or reply_text, text, slug)
-        elif intent in ("weather", "news"):
-            speak_reply(intent_reply or reply_text, text, slug)
-        elif intent in ("cozy_setup", "focus_mode", "open_app"):
-            from .desktop_link import trigger_desktop_action
-            speak_reply(intent_reply or reply_text, text, slug)
-            trigger_desktop_action(intent, params, slug=slug)
-        elif intent == "lumina_coding":
-            from . import smart_home
-            from .desktop_link import trigger_desktop_action
-            smart_home.run_coding_ambience()
-            speak_reply(intent_reply or reply_text, text, slug)
-            trigger_desktop_action("lumina_coding_session", params, slug=slug)
-        elif intent == "shutdown/exit":
-            lowered = text.lower()
-            desktop_words = ("computer", "desktop", "pc", "laptop", "mac", "windows")
-            if any(word in lowered for word in desktop_words):
-                from .desktop_link import trigger_desktop_action
-                speak_reply(intent_reply or reply_text or "Shutting down your desktop.", text, slug)
-                trigger_desktop_action("desktop_shutdown", params, slug=slug)
-            else:
-                speak_reply(intent_reply or reply_text, text, slug)
-        elif intent == "alarm":
-            speak_reply(intent_reply or reply_text, text, slug)
-        else:
-            speak_reply(intent_reply or reply_text, text, slug)
+        enriched_intents.append(obj)
+
+    _act_on_intents(enriched_intents, text, music_proc_holder, slug, reply_text=reply_text)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
