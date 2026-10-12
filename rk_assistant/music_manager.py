@@ -592,21 +592,18 @@ def play_music(query: str, announce_status: bool = True):
         return None
 
     speak_title = _announce_title(track.get("title", "music"))
-    if announce_status and current_track_info is None:
-        speak(f"Now playing {speak_title}")
     print(f"[music] ▶️  Now playing {track.get('title')}", flush=True)
 
-    play_ref = track.get("file_path")
-    duration = _probe_duration_seconds(str(play_ref or ""))
-    if duration is not None and duration < 90 and track.get("source_url"):
-        print(f"[music] ⚠️  File duration looks short ({duration:.0f}s); using stream fallback.", flush=True)
-        play_ref = track.get("source_url")
-
+    play_ref = track.get("file_path") or track.get("source_url")
     proc = _spawn_player(str(play_ref or ""))
     if not proc:
         if announce_status:
             speak("I couldn't play that song.")
         return None
+
+    # Announce in background thread so playback starts immediately without waiting for speech
+    if announce_status and current_track_info is None:
+        threading.Thread(target=speak, args=(f"Now playing {speak_title}",), daemon=True).start()
 
     current_player = proc
     current_track_info = dict(track)
