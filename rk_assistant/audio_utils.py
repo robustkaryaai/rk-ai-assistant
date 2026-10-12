@@ -725,24 +725,27 @@ def wait_for_wake_word(use_offline: bool = True, recognizer=None, mic=None) -> b
     return False
 def stop_process(*args, **kwargs): pass
 
-def set_volume(change=0):
+def set_volume(change=0, is_absolute=False):
     """
     Adjust system volume.
-    change: int — positive = up, negative = down.
-    Values >= 50 treated as absolute % (e.g. startup set_volume(80) → 80%).
+    change: int — positive = up, negative = down (if relative), or exact 0-100% (if is_absolute).
     """
     try:
-        if change == 0 or not shutil.which("pactl"):
+        if not shutil.which("pactl"):
             return
 
         # Target BT sink by name so it works even if @DEFAULT_SINK@ is wrong
         bt_sink = f"bluez_output.{BLUETOOTH_SPEAKER_MAC.replace(':', '_')}.1"
 
-        if abs(change) >= 50:
-            # Absolute volume (startup call)
-            vol_str = f"{abs(change)}%"
+        if is_absolute:
+            val = max(0, min(100, int(change)))
+            vol_str = f"{val}%"
+        elif abs(change) > 30 and abs(change) not in (50,):  # Legacy fallback
+            val = max(0, min(100, int(abs(change))))
+            vol_str = f"{val}%"
         else:
-            # Relative change (+10% / -10%)
+            if change == 0:
+                return
             vol_str = f"{'+' if change > 0 else '-'}{abs(change)}%"
 
         subprocess.run(["pactl", "set-sink-volume", bt_sink, vol_str],

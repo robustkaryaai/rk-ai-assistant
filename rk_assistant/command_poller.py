@@ -105,7 +105,7 @@ def execute_command(cmd: dict, slug: str) -> None:
             
         elif cmd_type == 'volume':
             volume = payload.get('volume', 50)
-            set_volume(volume)
+            set_volume(volume, is_absolute=True)
             result = f"Volume set to {volume}%"
             success = True
             
