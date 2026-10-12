@@ -468,7 +468,7 @@ def _resolve_track(norm_query: str, announce: bool = True) -> Optional[Dict[str,
         return local_track
 
     if announce:
-        speak(f"Searching for {norm_query}")
+        speak(f"Searching for song {norm_query}")
     _set_music_state("searching")
 
     match = _search_youtube_match(norm_query)

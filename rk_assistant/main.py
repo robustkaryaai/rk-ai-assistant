@@ -292,11 +292,11 @@ def play_audio_file_local(filename):
     if p.exists():
         audio_utils.play_audio_file(str(p))
 
-def trigger_music_playback(query, music_proc_holder):
+def trigger_music_playback(query, music_proc_holder, announce=True):
     """Start music playback in a way that doesn't block the main loop."""
     if music_proc_holder.get("proc"):
         stop_process(music_proc_holder["proc"])
-    proc = music_manager.play_music(query, announce_status=False)
+    proc = music_manager.play_music(query, announce_status=announce)
     if proc:
         music_proc_holder["proc"] = proc
 
