@@ -664,6 +664,11 @@ def main():
                 report_state(slug_val, music_state)
             else:
                 report_state(slug_val, "listening")
+
+            # ── Night TTS suppression flag ──────────────────────────────────
+            night_tts_suppressed = (night_monitor.night_tts_suppressed
+                                    if night_monitor else False)
+
             log_stt_status("Listening...", throttle_sec=12.0)
             if stt_engine:
                 try:
