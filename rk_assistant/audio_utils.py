@@ -16,6 +16,37 @@ import requests
 _stt_log_guard = threading.Lock()
 _last_stt_log_times = {}
 
+# ── Audio Priority & Activity State ──────────────────────────────────────────
+# Keeps Pi Zero W responsive: background pollers yield while speaking or transcribing
+_audio_busy_count = 0
+_audio_busy_lock = threading.Lock()
+_last_audio_activity = 0.0
+
+def set_audio_active(active: bool):
+    """Mark that user interaction (speaking/listening) is actively taking place."""
+    global _audio_busy_count, _last_audio_activity
+    with _audio_busy_lock:
+        if active:
+            _audio_busy_count = max(0, _audio_busy_count) + 1
+            _last_audio_activity = time.time()
+        else:
+            _audio_busy_count = max(0, _audio_busy_count - 1)
+            _last_audio_activity = time.time()
+
+def is_audio_active() -> bool:
+    """Return True if high-priority voice interaction is in progress."""
+    with _audio_busy_lock:
+        if _audio_busy_count > 0:
+            return True
+        # Grace period of 1.5 seconds after audio finishes
+        return (time.time() - _last_audio_activity) < 1.5
+
+def wait_if_audio_active(max_wait: float = 6.0):
+    """Yield background CPU while voice interaction is taking place."""
+    start = time.time()
+    while is_audio_active() and (time.time() - start) < max_wait:
+        time.sleep(0.3)
+
 def _resolve_stt_slug() -> str:
     slug = os.getenv("DEVICE_SLUG")
     if slug:
@@ -845,6 +876,7 @@ class SmartSTTEngine:
         self._stop_listening = None   # The callable returned by listen_in_background
         self._running = False
         self._night_mode = False
+        self._latest_ambient_rms = 0.0
         self._base_energy = recognizer.energy_threshold if recognizer else 300
         self._lock = threading.Lock()
 
@@ -939,6 +971,15 @@ class SmartSTTEngine:
         """
         if not self._running:
             return
+
+        # Measure ambient RMS safely from the stream without stopping the engine
+        try:
+            raw_data = audio.get_raw_data()
+            if raw_data:
+                self._latest_ambient_rms = float(audioop.rms(raw_data, 2))
+        except Exception:
+            pass
+
         try:
             text = self._transcribe(recognizer, audio)
         except Exception as e:

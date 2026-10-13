@@ -17,6 +17,9 @@ def run_poller():
     print("[maintenance] Standalone poller starting...")
     while True:
         try:
+            from .audio_utils import wait_if_audio_active
+            wait_if_audio_active(max_wait=10.0)
+
             slug_val, _ = read_slug()
             if slug_val:
                 url = f"{BACKEND_BASE_URL}/device/{slug_val}/maintenance"

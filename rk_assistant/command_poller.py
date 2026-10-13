@@ -305,6 +305,9 @@ def poll_commands(slug: str) -> None:
                     print(f"[commands] Fetched {len(commands)} pending command(s)")
                 
                 for cmd in commands:
+                    # If user is talking or assistant is replying, wait briefly so we don't lag speech
+                    from .audio_utils import wait_if_audio_active
+                    wait_if_audio_active(max_wait=8.0)
                     execute_command(cmd, slug)
                 
                 # Reset failure counter on success

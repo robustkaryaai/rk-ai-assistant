@@ -217,17 +217,11 @@ class NightProtocolMonitor:
                 continue
 
             # 3. Only run the RMS checking logic if feature is enabled and it's night
-            # AGENT FIX: Pause engine to avoid microphone resource clash
-            was_running = self.engine._running
-            if was_running:
-                self.engine.stop()
-                time.sleep(0.5) # Give ALSA a breath
-
-            rms = measure_ambient_rms(self.mic, self.recognizer, duration=1.5)
-            
-            # AGENT FIX: Restart engine immediately after RMS check
-            if was_running:
-                self.engine.start()
+            # Read streaming RMS directly from the engine without stopping it and locking the mic
+            rms = getattr(self.engine, "_latest_ambient_rms", 0.0)
+            if rms <= 0.0:
+                # If engine hasn't received audio yet, use a neutral reading instead of breaking STT
+                rms = float(NIGHT_AMBIENT_THRESHOLD + 50)
 
             print(f"[night] Ambient RMS: {rms:.0f} (threshold: {NIGHT_AMBIENT_THRESHOLD})", flush=True)
 
@@ -780,6 +774,7 @@ def main():
             update_activity()
             print(f"[main] Command received: '{text}'", flush=True)
             report_state(slug_val, "thinking")
+            audio_utils.set_audio_active(True)
 
             # ── Play listen chime ─────────────────────────────────────────
             play_audio_file_local("listen.wav")

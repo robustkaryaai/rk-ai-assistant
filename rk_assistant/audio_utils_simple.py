@@ -63,14 +63,19 @@ def speak(
         elif requested_engine == "auto" and contains_hindi(spoken_text):
             requested_engine = "espeak"
 
-    with _tts_lock:
-        print(f"🔊 {spoken_text}", flush=True)
-        speak_with_options(
-            text=spoken_text,
-            engine=requested_engine,
-            gender=requested_gender,
-            voice=requested_voice,
-            language=requested_language,
-            allow_gtts=allow_gtts,
-            allow_network_gtts=allow_network_gtts,
-        )
+    from .audio_utils import set_audio_active
+    set_audio_active(True)
+    try:
+        with _tts_lock:
+            print(f"🔊 {spoken_text}", flush=True)
+            speak_with_options(
+                text=spoken_text,
+                engine=requested_engine,
+                gender=requested_gender,
+                voice=requested_voice,
+                language=requested_language,
+                allow_gtts=allow_gtts,
+                allow_network_gtts=allow_network_gtts,
+            )
+    finally:
+        set_audio_active(False)
