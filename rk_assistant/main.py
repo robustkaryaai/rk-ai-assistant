@@ -824,7 +824,10 @@ def main():
             lowered_text = text.lower()
             if any(k in lowered_text for k in ("stop alarm", "stop the alarm", "turn off alarm", "turn off the alarm", "cancel alarm", "silence alarm", "dismiss alarm", "band karo")):
                 print("[main] Immediate Alarm Stop intercepted!", flush=True)
-                alarm_manager.stop_active_alarm()
+                try:
+                    alarm_manager.stop_all_alarms()
+                except Exception as _ae:
+                    print(f"[main] Alarm stop error: {_ae}", flush=True)
                 alarm_manager.cancel_all_alarms()
                 speak("Alarm stopped.")
                 continue

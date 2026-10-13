@@ -144,6 +144,10 @@ def stop_all_alarms() -> None:
     subprocess.run(["killall", "-9", "mpg123"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
 
+# Alias for backward compatibility
+stop_active_alarm = stop_all_alarms
+
+
 def list_alarms() -> List[Dict]:
     """List all active alarms."""
     return [a for a in load_alarms() if a.get("enabled", True)]
