@@ -495,15 +495,41 @@ def _http_fast_search(norm_query: str) -> Optional[Dict[str, str]]:
 
 def _search_and_stream(norm_query: str) -> Optional[Dict[str, Any]]:
     """Fast search returning title, vid_id, and streaming URL."""
-    # Step 1: Lightning fast HTTP search (~0.5 - 1s on Pi)
-    fast_match = _http_fast_search(norm_query)
-    if fast_match:
-        vid_id = fast_match["vid_id"]
-        title = fast_match["title"]
-        watch_url = f"https://www.youtube.com/watch?v={vid_id}"
+    # Step 1: Ultra-fast flat-playlist search via yt-dlp (<1.5s on Pi, no extraction overhead)
+    flat_cmd = _low_priority_prefix() + [
+        "yt-dlp",
+        "--flat-playlist",
+        "--quiet",
+        "--no-warnings",
+        "--force-ipv4",
+        "--socket-timeout", "10",
+        "--get-title",
+        "--get-id",
+        f"ytsearch1:{norm_query}",
+    ]
+    title = ""
+    vid_id = ""
+    try:
+        res = subprocess.run(flat_cmd, capture_output=True, text=True, timeout=15)
+        if res.returncode == 0 and res.stdout.strip():
+            lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+            if len(lines) >= 2:
+                title = lines[0]
+                vid_id = lines[1]
+    except Exception as e:
+        print(f"[music] Flat search failed: {e}", flush=True)
 
-        # Resolve direct stream URL quickly for known video ID
-        cmd = _low_priority_prefix() + [
+    # Fallback to HTTP search if flat search didn't get it
+    if not vid_id:
+        fast_match = _http_fast_search(norm_query)
+        if fast_match:
+            vid_id = fast_match["vid_id"]
+            title = fast_match["title"]
+
+    if vid_id:
+        watch_url = f"https://www.youtube.com/watch?v={vid_id}"
+        # Direct stream URL extraction for the single known video ID
+        stream_cmd = _low_priority_prefix() + [
             "yt-dlp",
             "--quiet",
             "--no-warnings",
@@ -515,62 +541,23 @@ def _search_and_stream(norm_query: str) -> Optional[Dict[str, Any]]:
             watch_url,
         ]
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            res = subprocess.run(stream_cmd, capture_output=True, text=True, timeout=20)
             if res.returncode == 0 and res.stdout.strip():
                 stream_url = res.stdout.strip().splitlines()[0]
                 return {
-                    "title": title,
+                    "title": title or norm_query,
                     "vid_id": vid_id,
                     "source_url": stream_url,
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[music] Stream URL resolution failed: {e}", flush=True)
+
         return {
-            "title": title,
+            "title": title or norm_query,
             "vid_id": vid_id,
             "source_url": watch_url,
         }
 
-    # Step 2: yt-dlp search fallback
-    cmd = _low_priority_prefix() + [
-        "yt-dlp",
-        "--quiet",
-        "--no-warnings",
-        "--force-ipv4",
-        "--no-part",
-        "--socket-timeout", "10",
-        "--get-title",
-        "--get-id",
-        "-g",
-        "-f", "bestaudio/best",
-        f"ytsearch1:{norm_query}",
-    ]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if res.returncode == 0 and res.stdout.strip():
-            lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
-            if len(lines) >= 3:
-                return {
-                    "title": lines[0],
-                    "vid_id": lines[1],
-                    "source_url": lines[2],
-                }
-            elif len(lines) >= 2:
-                return {
-                    "title": lines[0],
-                    "vid_id": lines[1],
-                    "source_url": f"https://www.youtube.com/watch?v={lines[1]}",
-                }
-    except Exception as e:
-        print(f"[music] ytsearch fallback failed: {e}", flush=True)
-
-    match = _search_youtube_match(norm_query)
-    if match:
-        return {
-            "title": match["title"],
-            "vid_id": match["vid_id"],
-            "source_url": f"https://www.youtube.com/watch?v={match['vid_id']}",
-        }
     return None
 
 
