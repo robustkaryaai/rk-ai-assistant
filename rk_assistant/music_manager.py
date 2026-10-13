@@ -619,16 +619,14 @@ def _resolve_track(norm_query: str, announce: bool = True) -> Optional[Dict[str,
         track["file_path"] = cached_file
         return track
 
-    # Start downloading in the background for next time, but return immediately with stream URL!
+    # Pure Direct Stream: Do NOT download or write to disk in the background.
+    # On Pi Zero, downloading in parallel eats all WiFi bandwidth and CPU, choking BLE audio & gTTS!
     if source_url:
-        threading.Thread(target=_download_track_bg, args=(track,), daemon=True).start()
         return track
 
-    # Fallback to synchronous download if stream URL wasn't available
-    downloaded = _download_track(track, first_song=announce, announce_status=announce)
-    if not downloaded:
-        _set_music_state("idle")
-    return downloaded
+    # If no direct stream url, return None
+    _set_music_state("idle")
+    return None
 
 
 def _music_done_watcher(proc, generation: int):
