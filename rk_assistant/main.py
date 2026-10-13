@@ -397,7 +397,6 @@ def handle_backend_reply(text, online, music_proc_holder, slug):
     # returns a full structured JSON: {intent, reply, parameters, ...}
     # We parse that and act locally so the user gets a real response.
     if not gemini_client.GEMINI_AVAILABLE:
-        print("[gemini] Library not available — delegating to backend for intent classification", flush=True)
         try:
             backend_resp = post_text_to_backend(text, slug)
         except Exception as e:
