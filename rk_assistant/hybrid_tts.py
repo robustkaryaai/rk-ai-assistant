@@ -383,20 +383,12 @@ def _speak_with_espeak(
 
 def _build_engine_chain(engine: str, text: str, allow_gtts: bool = True) -> list[str]:
     requested = _normalize_engine(engine)
-    hindi = contains_hindi(text)
-
-    if requested == "auto":
-        chain = ["gtts", "espeak"] if hindi else ["flite", "gtts", "espeak"]
-    elif requested == "flite":
-        chain = ["flite", "gtts", "espeak"]
-    elif requested == "gtts":
-        chain = ["gtts", "espeak"]
-    else:
-        chain = ["espeak"]
-
     if allow_gtts:
-        return chain
-    return [item for item in chain if item != "gtts"] or ["espeak"]
+        # User requested pure gTTS — keep voice natural and consistent
+        return ["gtts"]
+    if requested == "flite":
+        return ["flite", "espeak"]
+    return ["espeak"]
 
 
 def speak_with_options(
