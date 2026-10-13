@@ -177,7 +177,7 @@ def execute_command(cmd: dict, slug: str) -> None:
             success = True
             
         elif cmd_type == 'shutdown':
-            audio_utils_simple.speak("Shutting down RexyCore Assistant", allow_network_tts=False)
+            audio_utils_simple.speak("Shutting down RK AI Assistant", allow_network_tts=False)
             result = "Shutdown initiated"
             success = True
             # Note: Actual shutdown would be handled externally

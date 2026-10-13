@@ -93,10 +93,12 @@ def refresh_device_settings_now(slug=None):
         )
 
         if device.get('assistantName'):
-            device_settings['assistant_name'] = device['assistantName']
+            name = str(device['assistantName']).replace('RexyCore', 'RK AI').replace('rexycore', 'RK AI')
+            device_settings['assistant_name'] = name
 
         if device.get('greetingPhrase'):
-            device_settings['greeting_phrase'] = device['greetingPhrase']
+            phrase = str(device['greetingPhrase']).replace('RexyCore', 'RK AI').replace('rexycore', 'RK AI')
+            device_settings['greeting_phrase'] = phrase
 
         if device.get('wakeWords'):
             try:
