@@ -965,10 +965,16 @@ class SmartSTTEngine:
             r.pause_threshold = NIGHT_PAUSE_THRESHOLD
             r.energy_threshold = self._base_energy * NIGHT_ENERGY_BOOST
             r.dynamic_energy_threshold = False   # Keep fixed threshold at night
+            print(f"[stt-engine] Night tuning applied: pause={r.pause_threshold}s, energy={r.energy_threshold:.0f}", flush=True)
         else:
+            # Full hard-reset so nothing from night mode bleeds into normal operation
             r.pause_threshold = 1.2
+            r.non_speaking_duration = 0.8
+            r.phrase_threshold = 0.3
             r.energy_threshold = self._base_energy
             r.dynamic_energy_threshold = True
+            print(f"[stt-engine] Normal tuning restored: pause=1.2s, energy={r.energy_threshold:.0f}, dynamic=True", flush=True)
+
 
     def _launch_listener(self):
         """Start listen_in_background — must be called inside _lock."""

@@ -51,8 +51,19 @@ def set_mute(muted: bool) -> str:
         return "Device unmuted"
 
 def get_mute_state() -> bool:
-    """Get current mute state"""
-    return _muted
+    """Get current mute state.
+    Checks both the local command-driven flag AND the settings_sync value
+    so that app-triggered mute/unmute (which updates Appwrite) is respected
+    within the next settings poll cycle (~30s).
+    """
+    if _muted:
+        return True
+    # Fallback: check the Appwrite-synced value from settings_sync
+    try:
+        from . import settings_sync as _ss
+        return bool(_ss.is_device_muted())
+    except Exception:
+        return False
 
 # Callback function to handle voice commands (set by main.py)
 _voice_command_callback = None
