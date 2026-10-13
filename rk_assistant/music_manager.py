@@ -619,8 +619,15 @@ def _resolve_track(norm_query: str, announce: bool = True) -> Optional[Dict[str,
         track["file_path"] = cached_file
         return track
 
-    # Pure Direct Stream: Do NOT download or write to disk in the background.
-    # On Pi Zero, downloading in parallel eats all WiFi bandwidth and CPU, choking BLE audio & gTTS!
+    # Check user preference from mobile app: Default is pure direct stream (fastest & no stutter).
+    # If the user explicitly toggled "Download Songs" in the app, download in background.
+    try:
+        from .settings_sync import is_music_download_enabled  # noqa: PLC0415
+        if is_music_download_enabled() and source_url:
+            threading.Thread(target=_download_track_bg, args=(track,), daemon=True).start()
+    except Exception:
+        pass
+
     if source_url:
         return track
 

@@ -30,6 +30,7 @@ device_settings = {
     'wake_words': ['rk', 'arc', 'hey rk', 'okay rk'],
     'night_protocol_enabled': True,
     'smart_devices': [],
+    'music_download_enabled': False,
     'tts_config': {
         'engine': 'gtts',
         'voice': 'co.in',
@@ -148,6 +149,13 @@ def refresh_device_settings_now(slug=None):
                 flush=True
             )
 
+        if device.get('music_download_enabled') is not None:
+            device_settings['music_download_enabled'] = bool(device.get('music_download_enabled'))
+        elif device.get('musicDownloadEnabled') is not None:
+            device_settings['music_download_enabled'] = bool(device.get('musicDownloadEnabled'))
+        elif device.get('downloadMusic') is not None:
+            device_settings['music_download_enabled'] = bool(device.get('downloadMusic'))
+
         if device.get('smart_devices') is not None:
             try:
                 devs = device['smart_devices']
@@ -197,3 +205,8 @@ def get_smart_devices():
 def get_tts_config():
     """Get the currently synced TTS configuration."""
     return dict(device_settings['tts_config'])
+
+
+def is_music_download_enabled() -> bool:
+    """Return True if user explicitly opted in to download music locally."""
+    return bool(device_settings.get('music_download_enabled', False))
