@@ -58,6 +58,7 @@ from .audio_utils import (
 
 # Use Flite-first hybrid TTS with gTTS/espeak fallback
 from .audio_utils_simple import speak
+from .hybrid_tts import prefetch_phrases as _prefetch_tts_phrases
 
 from .config import (
     ERROR_LOG_FILE,
@@ -565,6 +566,34 @@ def main():
     command_poller.register_voice_callback(handle_backend_reply_sync)
     threading.Thread(target=music_manager.sync_music_index, daemon=True, name="music-index-sync").start()
     music_manager.start_music_housekeeping()
+
+    # Pre-warm gTTS cache for common fixed phrases so first-use is instant.
+    def _warm_tts_cache():
+        try:
+            greeting_phrase = settings_sync.get_greeting_phrase()
+            _prefetch_tts_phrases(
+                [
+                    "Radhe Radhe! RK AI assistant is starting up.",
+                    "Radhe Radhe! RK AI Assistant is ready to rock.",
+                    f"{greeting_phrase}! RK AI assistant is starting up.",
+                    f"{greeting_phrase}! I have connected to the internet now let me setup my things",
+                    f"{greeting_phrase}! RK AI is waking up and getting ready.",
+                    "Good morning. Night mode ended, I'm fully active again.",
+                    "Device unmuted. I'm listening again.",
+                    "I'm having trouble reaching my backend right now.",
+                    "I couldn't reach my brain. Please check the connection.",
+                    "I am having trouble connecting to my brain.",
+                    "Alarm stopped.",
+                    "Checking for updates and restarting.",
+                    "Shutting down the system.",
+                    "Rebooting the system.",
+                ],
+                language="en",
+            )
+        except Exception as exc:
+            print(f"[tts-cache] warm-up error: {exc}", flush=True)
+
+    threading.Thread(target=_warm_tts_cache, daemon=True, name="tts-cache-warmup").start()
 
     # Startup TTS off for --quiet or night handoff flag
     suppress_startup_tts = "--quiet" in sys.argv

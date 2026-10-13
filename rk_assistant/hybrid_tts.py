@@ -10,10 +10,115 @@ Priority:
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
+import queue
 import re
 import shlex
 import tempfile
+import threading
+
+_log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Persistent HTTP session for gTTS — avoids TLS handshake on every call.
+# The Pi Zero W's slow ARMv6 CPU makes TLS very expensive (~1-3s per call).
+# By reusing one session, we pay the handshake cost only once per process.
+# ---------------------------------------------------------------------------
+try:
+    import requests as _requests
+
+    _gtts_session = _requests.Session()
+    _gtts_session.headers.update({"Connection": "keep-alive"})
+
+    # Monkey-patch gTTS to use our persistent session so keep-alive works.
+    try:
+        import gtts.tts as _gtts_mod  # noqa: PLC0415
+        _gtts_mod.requests = _gtts_session  # type: ignore[attr-defined]
+    except Exception:
+        pass  # non-critical; gTTS will still work, just without keep-alive
+except Exception:
+    _gtts_session = None  # type: ignore[assignment]
+
+
+def _warm_dns() -> None:
+    """Pre-resolve Google TTS hostname so the first speak() call skips DNS."""
+    import socket  # noqa: PLC0415
+    try:
+        socket.getaddrinfo("translate.google.com", 443)
+        socket.getaddrinfo("translate.google.co.in", 443)
+        _log.debug("[tts] DNS pre-warm done")
+    except Exception:
+        pass
+
+
+threading.Thread(target=_warm_dns, daemon=True, name="gtts-dns-warm").start()
+
+# ---------------------------------------------------------------------------
+# Background gTTS prefetch worker
+# ---------------------------------------------------------------------------
+_prefetch_queue: queue.Queue = queue.Queue()
+_prefetch_lock = threading.Lock()          # prevents duplicate in-flight fetches
+_prefetch_in_flight: set[str] = set()     # tracks mp3 paths currently being fetched
+
+
+def _gtts_prefetch_worker() -> None:
+    """Long-lived daemon thread that fetches gTTS MP3s in the background."""
+    while True:
+        try:
+            mp3_path, text, language_name, tld = _prefetch_queue.get(timeout=60)
+        except queue.Empty:
+            continue
+        try:
+            if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
+                continue  # already cached by the time we got here
+            from gtts import gTTS  # noqa: PLC0415
+            tts = gTTS(text=text, lang=language_name, tld=tld, slow=False)
+            tmp = mp3_path + ".tmp"
+            tts.save(tmp)
+            os.replace(tmp, mp3_path)   # atomic rename
+            _log.debug("[tts-cache] cached '%s' → %s", text[:60], mp3_path)
+        except Exception as exc:
+            _log.debug("[tts-cache] prefetch failed for '%s': %s", text[:60], exc)
+        finally:
+            with _prefetch_lock:
+                _prefetch_in_flight.discard(mp3_path)
+            _prefetch_queue.task_done()
+
+
+_prefetch_thread = threading.Thread(
+    target=_gtts_prefetch_worker, daemon=True, name="gtts-prefetch"
+)
+_prefetch_thread.start()
+
+
+def _enqueue_gtts_prefetch(mp3_path: str, text: str, language_name: str, tld: str) -> None:
+    """Add a gTTS fetch job to the background queue (skips duplicates)."""
+    with _prefetch_lock:
+        if mp3_path in _prefetch_in_flight:
+            return
+        if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
+            return  # already cached
+        _prefetch_in_flight.add(mp3_path)
+    _prefetch_queue.put_nowait((mp3_path, text, language_name, tld))
+
+
+def prefetch_phrases(
+    phrases: list[str],
+    language: str = "en",
+    voice: str | None = None,
+) -> None:
+    """
+    Warm the gTTS cache for a list of phrases in the background.
+    Call this at startup with common fixed phrases so first-use is instant.
+    """
+    tld = _normalize_gtts_tld(voice)
+    for phrase in phrases:
+        if not phrase:
+            continue
+        lang = _normalize_language(language, phrase, engine="gtts")
+        mp3_path = _gtts_mp3_path(phrase, lang, tld)
+        _enqueue_gtts_prefetch(mp3_path, phrase, lang, tld)
 
 
 _HINDI_RE = re.compile(r"[\u0900-\u097F]")
@@ -144,17 +249,81 @@ def _speak_with_flite(text: str, gender: str, voice: str | None = None) -> bool:
     return _run_command(cmd)
 
 
+def _get_mpg123_args() -> str:
+    """Return volume-scaled mpg123 flags as a string fragment."""
+    try:
+        from .audio_utils import get_current_volume  # noqa: PLC0415
+        vol_pct = get_current_volume()
+    except Exception:
+        vol_pct = 50
+    gain = int(32768 * max(0, min(100, vol_pct)) / 100)
+    return f"-f {gain} -b 8192 --no-resync -q"
+
+
 def _play_mp3(mp3_path: str) -> bool:
-    """Try playing mp3 via mpg123 (pulse, alsa, or default output)."""
+    """Play a cached MP3 via mpg123, volume-synced to the app's current level."""
     quoted = shlex.quote(mp3_path)
+    flags = _get_mpg123_args()
     # 1. Try pulse output
-    if _run_command(f"mpg123 -o pulse -b 8192 --no-resync -q {quoted}"):
+    if _run_command(f"mpg123 -o pulse {flags} {quoted}"):
         return True
     # 2. Try alsa output
-    if _run_command(f"mpg123 -o alsa -b 8192 --no-resync -q {quoted}"):
+    if _run_command(f"mpg123 -o alsa {flags} {quoted}"):
         return True
     # 3. Default mpg123
-    return _run_command(f"mpg123 -q {quoted}")
+    return _run_command(f"mpg123 {flags} {quoted}")
+
+
+def _stream_gtts_to_mpg123(
+    tts,  # gTTS instance
+    mp3_path: str,
+) -> bool:
+    """
+    Stream gTTS bytes directly into mpg123 stdin — playback starts on the
+    first chunk, no full download wait.  Simultaneously writes to mp3_path
+    so the next call hits the cache.
+    """
+    import subprocess as _sp  # noqa: PLC0415
+    import io  # noqa: PLC0415
+
+    flags = _get_mpg123_args().split()
+
+    for output_flags in (["-o", "pulse"], ["-o", "alsa"], []):
+        try:
+            cmd = ["mpg123"] + output_flags + flags + ["-"]
+            proc = _sp.Popen(cmd, stdin=_sp.PIPE, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+            buf = io.BytesIO()
+
+            class _Tee:
+                """Tee: feeds mpg123 stdin and accumulates cache bytes."""
+                def __init__(self, _p, _b):
+                    self._p = _p
+                    self._b = _b
+
+                def write(self, data: bytes) -> None:
+                    self._p.stdin.write(data)
+                    self._b.write(data)
+
+            tts.write_to_fp(_Tee(proc, buf))
+            proc.stdin.close()
+            proc.wait()
+
+            # Atomically cache the full MP3 for instant playback next time
+            mp3_data = buf.getvalue()
+            if mp3_data:
+                tmp = mp3_path + ".tmp"
+                try:
+                    with open(tmp, "wb") as f:
+                        f.write(mp3_data)
+                    os.replace(tmp, mp3_path)
+                    _log.debug("[tts-cache] saved '%s'", mp3_path)
+                except Exception:
+                    pass  # cache write failure is non-fatal
+
+            return proc.returncode == 0
+        except Exception:
+            continue
+    return False
 
 
 def _speak_with_gtts(
@@ -162,9 +331,18 @@ def _speak_with_gtts(
     language: str | None = None,
     voice: str | None = None,
     allow_network: bool = True,
+    gender: str = "female",
 ) -> bool:
+    """
+    Play speech via gTTS (Google TTS) — always.
+
+    Cache HIT  → play the cached MP3 instantly (zero network wait).
+    Cache MISS → STREAM from Google → mpg123 stdin so playback begins on
+                 the first arriving chunk — no full download wait.
+                 The MP3 is also cached to disk for the next call.
+    """
     try:
-        from gtts import gTTS
+        from gtts import gTTS  # noqa: PLC0415
     except Exception:
         return False
 
@@ -172,18 +350,21 @@ def _speak_with_gtts(
     tld = _normalize_gtts_tld(voice)
     mp3_path = _gtts_mp3_path(text, language_name, tld)
 
-    try:
-        if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
-            return _play_mp3(mp3_path)
-        if not allow_network:
-            return False
-        if not os.path.exists(mp3_path) or os.path.getsize(mp3_path) == 0:
-            tts = gTTS(text=text, lang=language_name, tld=tld, slow=False)
-            tts.save(mp3_path)
-    except Exception:
+    # ── Cache HIT: play instantly ────────────────────────────────────────────
+    if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
+        return _play_mp3(mp3_path)
+
+    # ── Cache MISS: stream to mpg123 directly ──────────────────────────────
+    if not allow_network:
         return False
 
-    return _play_mp3(mp3_path)
+    try:
+        tts = gTTS(text=text, lang=language_name, tld=tld, slow=False)
+        return _stream_gtts_to_mpg123(tts, mp3_path)
+    except Exception as exc:
+        _log.debug("[tts] gTTS stream failed for '%s': %s", text[:60], exc)
+        return False
+
 
 
 def _speak_with_espeak(
@@ -245,6 +426,7 @@ def speak_with_options(
                 language=language,
                 voice=voice,
                 allow_network=allow_network_gtts,
+                gender=gender_name,
             ):
                 return
             if engine_name == "espeak" and _speak_with_espeak(

@@ -481,7 +481,8 @@ def _search_and_stream(norm_query: str) -> Optional[Dict[str, Any]]:
         "--no-warnings",
         "--force-ipv4",
         "--no-part",
-        "--socket-timeout", "10",
+        "--socket-timeout", "15",
+        "--retries", "3",
         "--get-title",
         "--get-id",
         "-g",
@@ -489,7 +490,7 @@ def _search_and_stream(norm_query: str) -> Optional[Dict[str, Any]]:
         f"ytsearch1:{norm_query}",
     ]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=50)
         if res.returncode == 0 and res.stdout.strip():
             lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
             if len(lines) >= 3:

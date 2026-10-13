@@ -756,12 +756,31 @@ def wait_for_wake_word(use_offline: bool = True, recognizer=None, mic=None) -> b
     return False
 def stop_process(*args, **kwargs): pass
 
+# ---------------------------------------------------------------------------
+# Volume state tracker — updated by set_volume(), read by TTS player
+# ---------------------------------------------------------------------------
+_current_volume: int = 50  # default 50% until the app sets something
+
+
+def get_current_volume() -> int:
+    """Return the last volume level set via set_volume(), 0-100."""
+    return _current_volume
+
+
 def set_volume(change=0, is_absolute=False):
     """
     Adjust system volume.
     change: int — positive = up, negative = down (if relative), or exact 0-100% (if is_absolute).
     """
+    global _current_volume
     try:
+        # Always update the in-process tracker first so TTS volume syncs
+        # even if pactl is unavailable or the call is relative.
+        if is_absolute:
+            _current_volume = max(0, min(100, int(change)))
+        elif abs(change) > 30 and abs(change) not in (50,):  # Legacy fallback
+            _current_volume = max(0, min(100, int(abs(change))))
+
         if not shutil.which("pactl"):
             return
 
@@ -784,8 +803,10 @@ def set_volume(change=0, is_absolute=False):
         subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", vol_str],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"[audio] Volume → {vol_str}")
+
     except Exception as e:
         print(f"[audio] Error setting volume: {e}")
+
 
 
 def ensure_bluetooth_audio_route() -> str:
