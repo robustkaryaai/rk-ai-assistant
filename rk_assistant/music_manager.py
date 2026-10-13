@@ -472,17 +472,73 @@ def _download_track(track: Dict[str, Any], first_song: bool = False, announce_st
     return track
 
 
+def _http_fast_search(norm_query: str) -> Optional[Dict[str, str]]:
+    """Ultra-fast (<1s) lightweight search without spawning full yt-dlp search extractor."""
+    try:
+        import requests as _rq  # noqa: PLC0415
+        resp = _rq.get(
+            "https://www.youtube.com/results",
+            params={"search_query": norm_query},
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"},
+            timeout=6,
+        )
+        if resp.status_code == 200:
+            vids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', resp.text)
+            titles = re.findall(r'"title":\{"runs":\[\{"text":"(.*?)"\}\]', resp.text)
+            if vids:
+                title = titles[0] if titles else norm_query
+                return {"vid_id": vids[0], "title": title}
+    except Exception as e:
+        print(f"[music] Fast HTTP search failed: {e}", flush=True)
+    return None
+
+
 def _search_and_stream(norm_query: str) -> Optional[Dict[str, Any]]:
-    """Fast 1-shot search returning title, vid_id, and direct streaming URL."""
-    # We ask yt-dlp to get the title, video id, and streaming audio url in one single request
+    """Fast search returning title, vid_id, and streaming URL."""
+    # Step 1: Lightning fast HTTP search (~0.5 - 1s on Pi)
+    fast_match = _http_fast_search(norm_query)
+    if fast_match:
+        vid_id = fast_match["vid_id"]
+        title = fast_match["title"]
+        watch_url = f"https://www.youtube.com/watch?v={vid_id}"
+
+        # Resolve direct stream URL quickly for known video ID
+        cmd = _low_priority_prefix() + [
+            "yt-dlp",
+            "--quiet",
+            "--no-warnings",
+            "--force-ipv4",
+            "--no-part",
+            "--socket-timeout", "10",
+            "-g",
+            "-f", "bestaudio/best",
+            watch_url,
+        ]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            if res.returncode == 0 and res.stdout.strip():
+                stream_url = res.stdout.strip().splitlines()[0]
+                return {
+                    "title": title,
+                    "vid_id": vid_id,
+                    "source_url": stream_url,
+                }
+        except Exception:
+            pass
+        return {
+            "title": title,
+            "vid_id": vid_id,
+            "source_url": watch_url,
+        }
+
+    # Step 2: yt-dlp search fallback
     cmd = _low_priority_prefix() + [
         "yt-dlp",
         "--quiet",
         "--no-warnings",
         "--force-ipv4",
         "--no-part",
-        "--socket-timeout", "15",
-        "--retries", "3",
+        "--socket-timeout", "10",
         "--get-title",
         "--get-id",
         "-g",
@@ -490,7 +546,7 @@ def _search_and_stream(norm_query: str) -> Optional[Dict[str, Any]]:
         f"ytsearch1:{norm_query}",
     ]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=50)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if res.returncode == 0 and res.stdout.strip():
             lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
             if len(lines) >= 3:
@@ -506,9 +562,8 @@ def _search_and_stream(norm_query: str) -> Optional[Dict[str, Any]]:
                     "source_url": f"https://www.youtube.com/watch?v={lines[1]}",
                 }
     except Exception as e:
-        print(f"[music] Fast search/stream failed: {e}", flush=True)
+        print(f"[music] ytsearch fallback failed: {e}", flush=True)
 
-    # Fallback search if combined extraction timed out
     match = _search_youtube_match(norm_query)
     if match:
         return {
