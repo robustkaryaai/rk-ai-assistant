@@ -182,26 +182,51 @@ def _resolve_local_track(norm_query: str) -> Optional[Dict[str, Any]]:
     best: Optional[Dict[str, Any]] = None
     best_score = 0.0
 
+    query_words = set(norm_query.split())
+
     for vid_id, meta in index.items():
-        title = str(meta.get("title", "")).strip()
-        queries = [str(q).strip() for q in meta.get("queries", []) if str(q).strip()]
-        score = _score_text_match(norm_query, title.lower(), [q.lower() for q in queries])
+        title = str(meta.get("title", "")).strip().lower()
+        queries = [str(q).strip().lower() for q in meta.get("queries", []) if str(q).strip()]
 
         cached_file = _find_cached_file(vid_id)
-        if cached_file and os.path.exists(cached_file):
-            score += 0.2
+        if not cached_file or not os.path.exists(cached_file):
+            continue
 
-        if score > best_score:
-            best_score = score
-            best = {
+        # Check if query matches known query exactly
+        if norm_query in queries:
+            return {
                 "vid_id": vid_id,
-                "title": title or vid_id,
+                "title": meta.get("title") or vid_id,
                 "file_path": cached_file,
                 "query": norm_query,
                 "source": "local",
             }
 
-    if best and best.get("file_path") and best_score >= 0.45:
+        # Check title word overlap strictly
+        title_clean = re.sub(r"[\[\(].*?[\]\)]", "", title).strip()
+        title_words = set(title_clean.split())
+        overlap = len(query_words & title_words) / max(len(query_words), 1)
+
+        ratio = max(
+            SequenceMatcher(None, norm_query, title_clean).ratio(),
+            max([SequenceMatcher(None, norm_query, q).ratio() for q in queries], default=0.0)
+        )
+
+        # STRICT MATCH REQUIRED: Must share at least 60% of query words AND have high similarity
+        if overlap >= 0.6 and ratio >= 0.55:
+            score = (overlap * 0.5) + (ratio * 0.5)
+            if score > best_score:
+                best_score = score
+                best = {
+                    "vid_id": vid_id,
+                    "title": meta.get("title") or vid_id,
+                    "file_path": cached_file,
+                    "query": norm_query,
+                    "source": "local",
+                }
+
+    if best and best_score >= 0.6:
+        print(f"[music] 🎯 Local cache matched: {best.get('title')} (score: {best_score:.2f})", flush=True)
         return best
 
     return None
@@ -595,15 +620,15 @@ def play_music(query: str, announce_status: bool = True):
     print(f"[music] ▶️  Now playing {track.get('title')}", flush=True)
 
     play_ref = track.get("file_path") or track.get("source_url")
+    # Announce cleanly before spawning music player to avoid Bluetooth audio channel choking
+    if announce_status and current_track_info is None:
+        speak(f"Now playing {speak_title}")
+
     proc = _spawn_player(str(play_ref or ""))
     if not proc:
         if announce_status:
             speak("I couldn't play that song.")
         return None
-
-    # Announce in background thread so playback starts immediately without waiting for speech
-    if announce_status and current_track_info is None:
-        threading.Thread(target=speak, args=(f"Now playing {speak_title}",), daemon=True).start()
 
     current_player = proc
     current_track_info = dict(track)
