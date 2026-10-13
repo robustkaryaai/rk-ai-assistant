@@ -160,6 +160,14 @@ def refresh_device_settings_now(slug=None):
             device_settings['music_download_enabled'] = bool(device.get('musicDownloadEnabled'))
         elif device.get('downloadMusic') is not None:
             device_settings['music_download_enabled'] = bool(device.get('downloadMusic'))
+        elif isinstance(device.get('wakeWords'), str):
+            try:
+                ww_data = json.loads(device['wakeWords'])
+                if isinstance(ww_data, dict) and isinstance(ww_data.get('meta'), dict):
+                    if 'musicDownloadEnabled' in ww_data['meta']:
+                        device_settings['music_download_enabled'] = bool(ww_data['meta']['musicDownloadEnabled'])
+            except Exception:
+                pass
 
         if device.get('smart_devices') is not None:
             try:
