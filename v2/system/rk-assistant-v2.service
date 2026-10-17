@@ -1,0 +1,18 @@
+[Unit]
+Description=RK AI Assistant V2 Service (Pi Zero W)
+After=network.target sound.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/rk-ai-assistant-v2
+ExecStartPre=/home/pi/rk-ai-assistant-v2/system/optimize_pi.sh
+ExecStart=/home/pi/rk-ai-assistant-v2/system/startup.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

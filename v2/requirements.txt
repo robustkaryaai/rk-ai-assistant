@@ -1,0 +1,12 @@
+# Core Networking & Backend
+requests>=2.31.0
+
+# Audio Capture & Playback (Low CPU / Low Memory for ARMv6)
+sounddevice>=0.4.6
+PyAudio>=0.2.14
+
+# Offline Wake Word (C-extension, lightweight)
+pocketsphinx>=5.0.0
+
+# Bluetooth Provisioning (Uses system dbus and bluez)
+# Run `sudo apt-get install -y python3-dbus python3-gi` on the Pi
