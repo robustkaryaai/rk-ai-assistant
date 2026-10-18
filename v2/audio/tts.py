@@ -1,15 +1,16 @@
 import os
 import hashlib
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Optional
 
 class TTSManager:
     """
-    gTTS-First Natural Voice Engine with Local Pre-Caching.
-    - Generates crisp, natural, human-sounding speech via gTTS (lang='en', tld='co.in').
-    - Caches all speech files locally in audio_cache so subsequent responses are INSTANT.
-    - Eliminates robotic eSpeak output.
+    High-Quality Voice Engine (gTTS + Flite).
+    Zero pyttsx3, Zero robotic raw eSpeak.
+    - Priority 1: gTTS (Google natural neural speech, cached to MP3)
+    - Priority 2: Flite (Fast, natural C-based speech engine, voice 'slt' / 'rms')
     """
 
     def __init__(self, cache_dir: Path):
@@ -20,7 +21,6 @@ class TTSManager:
         if not text:
             return None
 
-        # Clean text and hash for cache key
         clean_text = text.strip()
         text_hash = hashlib.md5(clean_text.lower().encode("utf-8")).hexdigest()
         cache_file = self.cache_dir / f"{text_hash}.mp3"
@@ -29,29 +29,30 @@ class TTSManager:
         if cache_file.exists() and cache_file.stat().st_size > 500:
             return str(cache_file)
 
-        # 2. Generate natural speech via gTTS (Google Text-to-Speech)
+        # 2. Try online gTTS (natural Google Voice)
         try:
             from gtts import gTTS
-            # Using tld='co.in' gives a crisp natural Indian English voice (perfect for 'Radhe Radhe')
             tts = gTTS(text=clean_text, lang="en", tld="co.in", slow=False)
             tts.save(str(cache_file))
             if cache_file.exists() and cache_file.stat().st_size > 500:
                 return str(cache_file)
-        except Exception as e:
-            print(f"[tts] gTTS generation warning: {e}")
-
-        # 3. Only if internet is completely down and gTTS fails: fallback wav
-        wav_file = self.cache_dir / f"{text_hash}.wav"
-        try:
-            subprocess.run(
-                ["espeak", "-w", str(wav_file), clean_text],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5
-            )
-            if wav_file.exists():
-                return str(wav_file)
         except Exception:
             pass
+
+        # 3. Flite Offline Fallback (Natural, high quality human sound)
+        wav_file = self.cache_dir / f"{text_hash}.wav"
+        if shutil.which("flite"):
+            try:
+                # Using 'slt' (natural female voice) or 'rms'
+                subprocess.run(
+                    ["flite", "-voice", "slt", "-t", clean_text, "-o", str(wav_file)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5
+                )
+                if wav_file.exists() and wav_file.stat().st_size > 500:
+                    return str(wav_file)
+            except Exception:
+                pass
 
         return None
