@@ -1,6 +1,6 @@
 import subprocess
 import time
-from ..config import BLUETOOTH_HCI
+from config import BLUETOOTH_HCI
 
 class BluetoothAdapterManager:
     """
