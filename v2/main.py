@@ -31,6 +31,9 @@ from core.remote_sync import RemoteSyncManager
 from core.error_monitor import get_error_monitor
 from core.weather import WeatherService
 from core.automation import AutomationEngine
+from core.sound_monitor import SoundEventMonitor
+from audio.spotify import SpotifyManager
+from hardware.mic import HardwareMicManager
 from llm.offline_llm import OfflineLLM
 
 class RKV2Assistant:
@@ -53,6 +56,7 @@ class RKV2Assistant:
         self.player = AudioPlayer()
         self.tts = TTSManager(AUDIO_CACHE_DIR)
         self.client = RKHomeClient(BACKEND_BASE_URL, DEVICE_SLUG)
+        self.spotify = SpotifyManager()
 
         # 3. Core Engines
         self.data_dir = BASE_DIR / "data"
@@ -63,6 +67,7 @@ class RKV2Assistant:
         self.conversation = ConversationEngine(client=self.client, tts=self, player=self.player)
         self.remote_sync = RemoteSyncManager(client=self.client, assistant=self, player=self.player, tts=self)
         self.automation = AutomationEngine(assistant=self)
+        self.sound_monitor = SoundEventMonitor(client=self.client, tts=self)
 
         # 4. Offline LLM fallback (Qwen2.5-0.5B Q4_K_M — activates when internet is down)
         self.offline_llm = OfflineLLM()
@@ -73,14 +78,23 @@ class RKV2Assistant:
 
         self._last_maintenance = 0.0
 
+    def play_ready_sound(self):
+        """Instant startup greeting from pre-rendered local audio file."""
+        ready_file = BASE_DIR / "data" / "sounds" / "ready.mp3"
+        if ready_file.exists():
+            print(f"⚡ [INSTANT] Playing pre-generated startup greeting...")
+            self.player.play_url_or_file(str(ready_file), is_speech=True)
+        else:
+            self.speak("Radhe Radhe! RK AI Assistant is ready.")
+
     def speak(self, text: str):
         """Play TTS audio with automatic whisper/night mode adjustment."""
         if not text:
             return
 
         if self.conversation.is_whisper_mode_active():
-            print("🌙 [NIGHT MODE] Volume lowered to 25% for gentle playback.")
-            self.player.set_system_volume("set", 25)
+            print("🌙 [NIGHT PROTOCOL] Volume lowered to 30% for gentle playback.")
+            self.player.set_system_volume("set", 30)
 
         print(f"🗣️ [TTS] {text}")
         audio_file = self.tts.get_speech_file(text)
@@ -96,12 +110,15 @@ class RKV2Assistant:
         self.player.play_chime("wake")
         print("\n🎤 [LISTENING] Speak your command...")
 
-        wav_path = self.recorder.record_command(duration=5)
+        wav_path = self.recorder.record_command(duration=6, silence_duration=1.0)
         self.player.unduck_audio()
 
         if not wav_path:
-            print("⚠️ [MIC] No audio captured or silence.")
+            print("⚠️ [MIC] No audio captured, muted, or silence.")
             return
+
+        # Check for background sound events (baby crying / shouting)
+        self.sound_monitor.check_audio_file(wav_path)
 
         print("🔍 [STT] Verifying and transcribing speech...")
         self.player.play_chime("thinking")
@@ -264,25 +281,45 @@ class RKV2Assistant:
         elif tool == "note":
             self.conversation.save_voice_note(args.get("content", ""))
 
+        elif tool == "hardware_mic":
+            act = args.get("action")
+            if act == "mute":
+                HardwareMicManager.mute()
+                self.recorder.is_hardware_muted = True
+            elif act == "unmute":
+                HardwareMicManager.unmute()
+                self.recorder.is_hardware_muted = False
+
+        elif tool == "night_mode_toggle":
+            enabled = args.get("enabled", True)
+            self.conversation.set_night_mode(enabled)
+
         elif tool == "music":
             song_url = args.get("song_url")
             q = args.get("query", "")
             
-            # 1. If we already have a stream URL, play it
+            # 1. Spotify Check (If connected, stream via Spotify)
+            if self.spotify.is_connected:
+                print(f"🎵 [Music] Routing '{q}' through Spotify...")
+                ok = self.spotify.play_track_or_query(q, streamer=LocalMusicStreamer, player=self.player)
+                if ok:
+                    return
+
+            # 2. If we already have a stream URL, play it
             if song_url:
                 print(f"🎵 [Music] Streaming direct: {song_url}")
                 self.player.play_url_or_file(song_url)
                 return
 
-            # 2. LOCAL RESOLUTION FIRST (Instant, doesn't need backend!)
+            # 3. LOCAL RESOLUTION FIRST (Instant, doesn't need backend!)
             print(f"🎵 [Music] Resolving locally via yt-dlp: '{q}'...")
             local_stream = LocalMusicStreamer.get_audio_stream_url(q)
             if local_stream:
-                print(f"🎵 [Music] Streaming local yt-dlp URL...")
+                print(f"🎵 [Music] Streaming local audio...")
                 self.player.play_url_or_file(local_stream)
                 return
 
-            # 3. Fallback to backend if yt-dlp local resolution fails
+            # 4. Fallback to backend if yt-dlp local resolution fails
             print(f"🎵 [Music] Fallback to backend for: {q}")
             res = self.client.send_text(f"play {q}")
             local_action = res.get("local_action") or {}
@@ -312,7 +349,8 @@ class RKV2Assistant:
 
 if __name__ == "__main__":
     assistant = RKV2Assistant()
-    assistant.speak("Radhe Radhe! RK AI Assistant V2 is ready.")
+    # Instant startup greeting using pre-rendered audio (zero lag)
+    assistant.play_ready_sound()
 
     print("\n[READY] Options:")
     print("  • Press [ENTER] to record voice from microphone")

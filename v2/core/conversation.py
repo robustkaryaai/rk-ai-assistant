@@ -19,6 +19,19 @@ class ConversationEngine:
         self.history: List[Dict[str, str]] = [] # Stack of {'role': 'user'|'assistant', 'text': '...'}
         self.last_entity: Optional[str] = None # e.g. "Mumbai", "Arijit Singh"
         self.last_intent: Optional[str] = None
+        self.night_mode_enabled: bool = True  # Can be toggled on/off via app or voice
+
+    def set_night_mode(self, enabled: bool):
+        self.night_mode_enabled = enabled
+        status = "ENABLED" if enabled else "DISABLED"
+        print(f"🌙 [NIGHT PROTOCOL] Night mode {status}")
+
+    def is_whisper_mode_active(self) -> bool:
+        """4.4 Adaptive Whisper Mode: Drops volume to 30% between 11 PM and 6 AM if enabled."""
+        if not self.night_mode_enabled:
+            return False
+        hour = datetime.datetime.now().hour
+        return hour >= 23 or hour < 6
 
     def add_interaction(self, user_text: str, assistant_reply: str, intent: Optional[str] = None):
         """Append to 3-turn sliding memory stack."""
@@ -56,11 +69,6 @@ class ConversationEngine:
             "Have a productive day ahead!"
         )
         return briefing
-
-    def is_whisper_mode_active(self) -> bool:
-        """4.4 Adaptive Whisper Mode: Drops volume between 11 PM and 6 AM."""
-        hour = datetime.datetime.now().hour
-        return hour >= 23 or hour < 6
 
     def save_voice_note(self, note_text: str) -> str:
         """4.3 Quick voice note sent to cloud dashboard."""

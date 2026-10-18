@@ -1,15 +1,34 @@
-import subprocess
-import shutil
-import requests
+import os
 import re
-from typing import Optional
+import shutil
+import subprocess
+import requests
+from pathlib import Path
+from typing import Optional, Dict, Any
+
+from config import BASE_DIR
+
+MUSIC_DOWNLOAD_DIR = BASE_DIR / "data" / "downloaded_music"
+MUSIC_DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 
 class LocalMusicStreamer:
     """
-    Direct Audio Streamer for Pi Zero W.
-    - Resolves YouTube video ID via fast HTTP scraping (<0.4s).
-    - Calls yt-dlp to extract the live audio URL or pipes directly into mpg123.
+    Direct Audio Streamer & Downloader for Pi Zero W.
+    Features:
+    - Streaming by default (zero storage footprint, immediate playback)
+    - Optional download mode toggled via app command / config
+    - Spotify integration routing
+    - Fast YouTube search & resolution
     """
+
+    DOWNLOAD_MODE: bool = False
+
+    @classmethod
+    def set_download_mode(cls, enabled: bool):
+        cls.DOWNLOAD_MODE = enabled
+        status = "ENABLED (Offline Cache)" if enabled else "DISABLED (Direct Stream)"
+        print(f"🎵 [MUSIC MODE] Download mode {status}")
 
     @staticmethod
     def _fast_http_search(query: str) -> Optional[str]:
@@ -24,23 +43,53 @@ class LocalMusicStreamer:
                 if vids:
                     return vids[0]
         except Exception as e:
-            print(f"[music-search] Fast HTTP search warning: {e}")
+            print(f"[music-search] Fast search error: {e}")
         return None
 
     @classmethod
-    def get_audio_stream_url(cls, query: str) -> Optional[str]:
+    def get_audio_stream_url(cls, query: str, prefer_download: Optional[bool] = None) -> Optional[str]:
         if not query:
             return None
 
         clean_q = re.sub(r"\b(on youtube|on spotify|from youtube|from spotify)\b", "", query, flags=re.I).strip()
-        print(f"🔍 [MUSIC-RESOLVE] Ultra-fast searching for: '{clean_q}'...")
+        do_download = cls.DOWNLOAD_MODE if prefer_download is None else prefer_download
 
+        # Check local cache first if download mode is enabled
+        safe_filename = "".join(c for c in clean_q if c.isalnum() or c in (" ", "_", "-")).rstrip()
+        cached_file = MUSIC_DOWNLOAD_DIR / f"{safe_filename}.mp3"
+        if cached_file.exists() and cached_file.stat().st_size > 10000:
+            print(f"🎵 [MUSIC-RESOLVE] Found cached downloaded file: {cached_file}")
+            return str(cached_file)
+
+        print(f"🔍 [MUSIC-RESOLVE] Searching for: '{clean_q}'...")
         vid_id = cls._fast_http_search(clean_q)
         target_url = f"https://www.youtube.com/watch?v={vid_id}" if vid_id else f"ytsearch1:{clean_q}"
         print(f"🎵 [MUSIC-RESOLVE] Target: {target_url}")
 
         if shutil.which("yt-dlp"):
-            # Minimalist extraction flags: skip web-page parsing, grab direct audio link
+            if do_download:
+                # Download mode (save to MP3 for offline playback)
+                out_tmpl = str(MUSIC_DOWNLOAD_DIR / f"{safe_filename}.%(ext)s")
+                cmd = [
+                    "yt-dlp",
+                    "-x",
+                    "--audio-format", "mp3",
+                    "--audio-quality", "0",
+                    "-o", out_tmpl,
+                    "--no-playlist",
+                    "--force-ipv4",
+                    "--no-warnings",
+                    target_url
+                ]
+                try:
+                    print(f"📥 [MUSIC-DOWNLOAD] Downloading '{clean_q}' for offline playback...")
+                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+                    if cached_file.exists() and cached_file.stat().st_size > 10000:
+                        return str(cached_file)
+                except Exception as e:
+                    print(f"[music-download] yt-dlp download error: {e}")
+
+            # Stream mode (default)
             cmd = [
                 "yt-dlp",
                 "-f", "ba/b",
@@ -53,11 +102,10 @@ class LocalMusicStreamer:
                 target_url
             ]
             try:
-                # 45 second timeout for Pi Zero W single-core CPU
-                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=45)
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=30)
                 url = res.stdout.strip()
                 if url.startswith("http"):
-                    print("✅ [MUSIC-RESOLVE] Stream URL extracted successfully!")
+                    print("✅ [MUSIC-RESOLVE] Live stream URL resolved!")
                     return url
             except Exception as e:
                 print(f"[music-resolve] yt-dlp error: {e}")

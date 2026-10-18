@@ -111,6 +111,28 @@ class AlarmScheduleManager:
     def _trigger_alarm(self, alarm: Dict[str, Any]):
         print(f"⏰ [ALARM TRIGGERED] {alarm.get('label')} at {alarm.get('time')}")
         self.active_ringing_alarm = alarm
+
+        # 1. Play real alarm tone from assets/alarms
+        sound_name = alarm.get("sound", "default")
+        alarms_dir = Path(__file__).resolve().parent.parent / "assets" / "alarms"
+        chosen_file = None
+        if alarms_dir.exists():
+            candidates = list(alarms_dir.glob("*.mp3"))
+            if candidates:
+                # Find matching or pick first default alarm tone
+                for f in candidates:
+                    if sound_name.lower() in f.name.lower():
+                        chosen_file = str(f)
+                        break
+                if not chosen_file:
+                    chosen_file = str(candidates[0])
+
+        if chosen_file and self.player:
+            print(f"🔔 [ALARM] Playing alarm tone: {chosen_file}")
+            self.player.play_url_or_file(chosen_file)
+            time.sleep(4)  # Ring tone for 4s before speaking
+
+        # 2. Speak personalized wake-up message
         msg = alarm.get("wakeUpMessage", f"Wake up! Alarm for {alarm.get('time')}")
         if self.tts:
             self.tts.speak(msg)

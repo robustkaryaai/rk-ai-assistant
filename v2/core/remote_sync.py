@@ -73,6 +73,39 @@ class RemoteSyncManager:
             if action == "speak":
                 text = payload.get("text", "")
                 self.tts.speak(text)
+            elif action == "set_custom_greeting":
+                greeting_text = payload.get("greeting", "Radhe Radhe! RK AI Assistant is ready.")
+                print(f"🎙️ [REMOTE] Updating custom startup greeting: '{greeting_text}'")
+                try:
+                    from gtts import gTTS
+                    from config import BASE_DIR
+                    ready_path = BASE_DIR / "data" / "sounds" / "ready.mp3"
+                    ready_path.parent.mkdir(parents=True, exist_ok=True)
+                    tts_inst = gTTS(text=greeting_text, lang="en", tld="co.in")
+                    tts_inst.save(str(ready_path))
+                    result = "Custom greeting generated and saved"
+                except Exception as ge:
+                    result = f"Failed to pre-render greeting: {ge}"
+            elif action == "toggle_download_mode":
+                enable = payload.get("enabled", False)
+                from audio.streamer import LocalMusicStreamer
+                LocalMusicStreamer.set_download_mode(enable)
+                result = f"Download mode set to {enable}"
+            elif action == "set_spotify_token":
+                token = payload.get("token", "")
+                if hasattr(self.assistant, "spotify"):
+                    self.assistant.spotify.set_token(token)
+                result = "Spotify token configured"
+            elif action == "mute_mic":
+                mute_state = payload.get("mute", True)
+                from hardware.mic import HardwareMicManager
+                HardwareMicManager.set_mute(mute_state)
+                self.assistant.recorder.is_hardware_muted = mute_state
+                result = f"Hardware mic mute set to {mute_state}"
+            elif action == "toggle_night_protocol":
+                night_state = payload.get("enabled", True)
+                self.assistant.conversation.set_night_mode(night_state)
+                result = f"Night protocol set to {night_state}"
             elif action == "play_music":
                 url = payload.get("url")
                 if url:

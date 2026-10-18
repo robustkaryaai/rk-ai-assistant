@@ -58,18 +58,48 @@ class FastCommandRouter:
                 "args": {"action": "set", "level": level}
             }
 
-        if cleaned in ("mute", "go mute"):
+        if cleaned in ("mute", "go mute", "mute speaker"):
             return True, {
-                "reply": "Muted.",
+                "reply": "Muted speaker.",
                 "tool": "volume",
                 "args": {"action": "mute"}
             }
 
-        if cleaned in ("unmute", "turn on sound"):
+        if cleaned in ("unmute", "turn on sound", "unmute speaker"):
             return True, {
-                "reply": "Unmuted.",
+                "reply": "Unmuted speaker.",
                 "tool": "volume",
                 "args": {"action": "unmute"}
+            }
+
+        # ─── HARDWARE MIC MUTE / UNMUTE ──────────────────────
+        if cleaned in ("mute mic", "mute microphone", "mic off", "turn off mic", "disable mic"):
+            return True, {
+                "reply": "Microphone muted at hardware level.",
+                "tool": "hardware_mic",
+                "args": {"action": "mute"}
+            }
+
+        if cleaned in ("unmute mic", "unmute microphone", "mic on", "turn on mic", "enable mic"):
+            return True, {
+                "reply": "Microphone unmuted.",
+                "tool": "hardware_mic",
+                "args": {"action": "unmute"}
+            }
+
+        # ─── TOGGLE NIGHT PROTOCOL ───────────────────────────
+        if cleaned in ("disable night protocol", "turn off night protocol", "night mode off", "disable night mode"):
+            return True, {
+                "reply": "Night protocol disabled.",
+                "tool": "night_mode_toggle",
+                "args": {"enabled": False}
+            }
+
+        if cleaned in ("enable night protocol", "turn on night protocol", "night mode on", "enable night mode"):
+            return True, {
+                "reply": "Night protocol enabled.",
+                "tool": "night_mode_toggle",
+                "args": {"enabled": True}
             }
 
         # ─── SECTION 2.4: OFFLINE VOICE DIAGNOSTICS ──────────
