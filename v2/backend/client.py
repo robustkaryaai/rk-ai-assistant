@@ -15,6 +15,17 @@ class RKHomeClient:
         self.slug = slug
         self.timeout = timeout
         self.session = requests.Session()
+        self._ensure_device_registered()
+
+    def _ensure_device_registered(self):
+        """Auto-registers device slug with backend on boot if not already present."""
+        if not self.slug or self.slug == "000000000":
+            return
+        try:
+            url = f"{self.base_url}/device/ensure/{self.slug}"
+            self.session.post(url, timeout=5)
+        except Exception:
+            pass
 
     def send_text(self, text: str) -> Dict[str, Any]:
         """
@@ -25,7 +36,7 @@ class RKHomeClient:
             "local_action": {"tool": "music"|"alarm"|"bell"|None, "args": {...}}
           }
         """
-        url = f"{self.slug and f'{self.base_url}/text/{self.slug}' or f'{self.base_url}/text'}"
+        url = f"{self.base_url}/text/{self.slug}"
         payload = {"text": text}
         try:
             resp = self.session.post(url, json=payload, timeout=self.timeout)
@@ -91,8 +102,6 @@ class RKHomeClient:
                 }
                 break
 
-        # Cloud tools (image, video, docx, ppt, exam_paper, grading_sheet, class_planner, note)
-        # are executed entirely in the backend. Pi only needs to speak the confirmation `reply`!
         return {
             "reply": reply,
             "local_action": local_action
@@ -122,3 +131,10 @@ class RKHomeClient:
             return resp.json()
         except Exception:
             return {}
+
+    def sync_alarms_to_cloud(self, alarms: list):
+        url = f"{self.base_url}/device/{self.slug}/sync_alarms"
+        try:
+            self.session.post(url, json={"alarms": alarms}, timeout=5)
+        except Exception:
+            pass
