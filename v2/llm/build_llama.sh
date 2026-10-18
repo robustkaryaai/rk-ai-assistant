@@ -33,19 +33,22 @@ fi
 echo ""
 echo "🔨 Building... (single thread, -j1 for Pi Zero W stability)"
 cd "$LLAMA_DIR"
-mkdir -p build && cd build
+rm -rf build && mkdir -p build && cd build
 cmake .. \
     -DLLAMA_BUILD_SERVER=OFF \
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=ON \
+    -DLLAMA_BUILD_TOOLS=ON \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_OPENBLAS=ON 2>/dev/null || \
 cmake .. \
     -DLLAMA_BUILD_SERVER=OFF \
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=ON \
+    -DLLAMA_BUILD_TOOLS=ON \
     -DCMAKE_BUILD_TYPE=Release
-make -j1 llama-cli 2>&1
+
+cmake --build . --config Release --target llama-cli -j1
 
 # 4. Install to ~/.local/bin
 echo ""
