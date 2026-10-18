@@ -55,9 +55,35 @@ class RKHomeClient:
         """
         Strips cloud generation tasks (already executed on backend)
         and extracts only local hardware actions for the Pi.
+        Supports both modern {reply, intents} and legacy {message, intent, text} formats.
         """
-        reply = data.get("reply", "")
-        intents: List[Dict[str, Any]] = data.get("intents", [])
+        print(f"[backend] Raw response received: {data}")
+
+        # Extract reply text from various possible fields
+        reply = data.get("reply") or data.get("message") or data.get("response") or data.get("text") or ""
+        
+        # Normalize intents
+        intents: List[Dict[str, Any]] = []
+        if "intents" in data and isinstance(data["intents"], list):
+            intents = data["intents"]
+        elif "intent" in data:
+            if isinstance(data["intent"], str):
+                intents = [{"intent": data["intent"], "parameters": data.get("parameters", {})}]
+            elif isinstance(data["intent"], list):
+                intents = data["intent"]
+            elif isinstance(data["intent"], dict):
+                intents = [data["intent"]]
+
+        # If reply is empty, check if intent itself contains the reply
+        if not reply:
+            for item in intents:
+                p = item.get("parameters", {})
+                if isinstance(p, dict):
+                    possible_reply = p.get("reply") or p.get("message") or p.get("response")
+                    if possible_reply:
+                        reply = possible_reply
+                        break
+
         song_url = data.get("song_url") or data.get("link")
         
         local_action = None
