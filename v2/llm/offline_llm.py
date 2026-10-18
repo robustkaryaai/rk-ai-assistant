@@ -75,6 +75,21 @@ class OfflineLLM:
             logger.warning(f"[OfflineLLM] Model not found at {self.model_path}")
             logger.warning("[OfflineLLM] Run: python3 v2/llm/download_model.py")
             return
+        # Quick execution test to detect SIGILL / Illegal instruction on ARMv6
+        try:
+            test_run = subprocess.run(
+                [self.llama_cli, "--version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3
+            )
+            if test_run.returncode != 0:
+                logger.warning(f"[OfflineLLM] llama-cli binary exited with status {test_run.returncode}. Offline LLM disabled.")
+                return
+        except Exception as e:
+            logger.warning(f"[OfflineLLM] llama-cli hardware test failed: {e}. Offline LLM disabled.")
+            return
+
         size_mb = os.path.getsize(self.model_path) / 1024 / 1024
         logger.info(f"[OfflineLLM] ✅ Ready — {self.llama_cli} | model {size_mb:.0f}MB")
         self._ready = True
