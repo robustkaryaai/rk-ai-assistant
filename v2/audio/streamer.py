@@ -65,42 +65,54 @@ class LocalMusicStreamer:
         target_url = f"ytsearch1:{clean_q}"
         print(f"🎵 [MUSIC-RESOLVE] Target: {target_url}")
 
-        if shutil.which("yt-dlp"):
+        # Method 1: In-process yt_dlp Python API (Fastest & most reliable)
+        try:
+            from yt_dlp import YoutubeDL
+            ydl_opts = {
+                "format": "bestaudio/best",
+                "noplaylist": True,
+                "quiet": True,
+                "no_warnings": True,
+                "socket_timeout": 5,
+            }
             if do_download:
-                # Download mode (save to MP3 for offline playback)
                 out_tmpl = str(MUSIC_DOWNLOAD_DIR / f"{safe_filename}.%(ext)s")
-                cmd = [
-                    "yt-dlp",
-                    "-x",
-                    "--audio-format", "mp3",
-                    "--audio-quality", "0",
-                    "-o", out_tmpl,
-                    "--no-playlist",
-                    "--force-ipv4",
-                    "--no-warnings",
-                    target_url
-                ]
-                try:
-                    print(f"📥 [MUSIC-DOWNLOAD] Downloading '{clean_q}' for offline playback...")
-                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
-                    if cached_file.exists() and cached_file.stat().st_size > 10000:
-                        return str(cached_file)
-                except Exception as e:
-                    print(f"[music-download] yt-dlp download error: {e}")
+                ydl_opts["outtmpl"] = out_tmpl
+                ydl_opts["postprocessors"] = [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }]
+                with YoutubeDL(ydl_opts) as ydl:
+                    print(f"📥 [MUSIC-DOWNLOAD] In-process downloading '{clean_q}'...")
+                    ydl.download([target_url])
+                if cached_file.exists() and cached_file.stat().st_size > 10000:
+                    return str(cached_file)
+            else:
+                with YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(target_url, download=False)
+                    if info:
+                        entries = info.get("entries")
+                        first = entries[0] if entries else info
+                        stream_url = first.get("url")
+                        if stream_url:
+                            print("✅ [MUSIC-RESOLVE] In-process live stream URL resolved!")
+                            return stream_url
+        except Exception as e:
+            print(f"[music-resolve] In-process yt_dlp error: {e}")
 
-            # Stream mode (default)
-            # Use shell execution with quoted search term so ytsearch1: parses exactly as it does in bash
+        # Method 2: CLI subprocess fallback
+        if shutil.which("yt-dlp"):
             escaped_q = clean_q.replace('"', '\\"')
             cmd_str = f'yt-dlp -f ba -g --no-playlist --socket-timeout 5 "ytsearch1:{escaped_q}"'
-
             try:
                 res = subprocess.run(cmd_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=30)
                 for line in res.stdout.strip().splitlines():
                     line = line.strip()
                     if line.startswith("http"):
-                        print("✅ [MUSIC-RESOLVE] Live stream URL resolved!")
+                        print("✅ [MUSIC-RESOLVE] CLI live stream URL resolved!")
                         return line
             except Exception as e:
-                print(f"[music-resolve] yt-dlp error: {e}")
+                print(f"[music-resolve] CLI yt-dlp error: {e}")
 
         return None
