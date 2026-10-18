@@ -93,12 +93,8 @@ class LocalMusicStreamer:
                 "yt-dlp",
                 "-f", "ba",
                 "-g",
-                "--no-check-certificates",
-                "--prefer-free-formats",
                 "--no-playlist",
-                "--force-ipv4",
-                "--no-warnings",
-                "--socket-timeout", "8",
+                "--socket-timeout", "5",
                 target_url
             ]
 
