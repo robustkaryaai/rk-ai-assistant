@@ -36,12 +36,10 @@ cmake .. \
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=ON \
     -DCMAKE_BUILD_TYPE=Release \
-    -DGGML_OPENBLAS=ON 2>/dev/null || \
-cmake .. \
-    -DLLAMA_BUILD_SERVER=OFF \
-    -DLLAMA_BUILD_TESTS=OFF \
-    -DLLAMA_BUILD_EXAMPLES=ON \
-    -DCMAKE_BUILD_TYPE=Release
+    -DGGML_NATIVE=OFF \
+    -DGGML_BACKEND_DL=OFF \
+    -DCMAKE_C_FLAGS="-march=armv6zk -mcpu=arm1176jzf-s -mfpu=vfp -mfloat-abi=hard" \
+    -DCMAKE_CXX_FLAGS="-march=armv6zk -mcpu=arm1176jzf-s -mfpu=vfp -mfloat-abi=hard"
 
 cmake --build . --config Release --target llama-cli -j1
 
