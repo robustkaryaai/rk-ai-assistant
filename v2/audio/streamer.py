@@ -89,17 +89,12 @@ class LocalMusicStreamer:
                     print(f"[music-download] yt-dlp download error: {e}")
 
             # Stream mode (default)
-            cmd = [
-                "yt-dlp",
-                "-f", "ba",
-                "-g",
-                "--no-playlist",
-                "--socket-timeout", "5",
-                target_url
-            ]
+            # Use shell execution with quoted search term so ytsearch1: parses exactly as it does in bash
+            escaped_q = clean_q.replace('"', '\\"')
+            cmd_str = f'yt-dlp -f ba -g --no-playlist --socket-timeout 5 "ytsearch1:{escaped_q}"'
 
             try:
-                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=35)
+                res = subprocess.run(cmd_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=30)
                 for line in res.stdout.strip().splitlines():
                     line = line.strip()
                     if line.startswith("http"):
