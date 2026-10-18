@@ -243,7 +243,8 @@ class RKV2Assistant:
             # 3. Fallback to backend if yt-dlp local resolution fails
             print(f"🎵 [Music] Fallback to backend for: {q}")
             res = self.client.send_text(f"play {q}")
-            b_url = res.get("local_action", {}).get("args", {}).get("song_url")
+            local_action = res.get("local_action") or {}
+            b_url = local_action.get("args", {}).get("song_url") if isinstance(local_action, dict) else None
             if b_url:
                 self.player.play_url_or_file(b_url)
 
