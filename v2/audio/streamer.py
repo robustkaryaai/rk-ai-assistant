@@ -6,7 +6,10 @@ import requests
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from config import BASE_DIR
+try:
+    from config import BASE_DIR
+except ImportError:
+    from v2.config import BASE_DIR
 
 MUSIC_DOWNLOAD_DIR = BASE_DIR / "data" / "downloaded_music"
 MUSIC_DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
