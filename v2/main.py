@@ -169,6 +169,14 @@ class RKV2Assistant:
                 self.conversation.add_interaction(resolved_query, report, tool)
                 return
 
+            elif tool == "benchmark":
+                self.speak("Running developer benchmark now.")
+                from core.developer_mode import BenchmarkSuite
+                suite = BenchmarkSuite()
+                suite.run_all()
+                self.conversation.add_interaction(resolved_query, "Benchmark complete", tool)
+                return
+
             elif tool == "morning_routine":
                 briefing = self.conversation.execute_morning_routine()
                 self.speak(briefing)

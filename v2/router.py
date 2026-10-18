@@ -102,11 +102,18 @@ class FastCommandRouter:
                 "args": {"enabled": True}
             }
 
-        # ─── SECTION 2.4: OFFLINE VOICE DIAGNOSTICS ──────────
+        # ─── SECTION 2.4: OFFLINE VOICE DIAGNOSTICS & BENCHMARK ──
         if re.search(r"\b(run diagnostics|check system|system status|health check)\b", cleaned):
             return True, {
                 "reply": None,
                 "tool": "diagnostics",
+                "args": {}
+            }
+
+        if re.search(r"\b(run benchmark|developer mode|benchmark system|run developer mode)\b", cleaned):
+            return True, {
+                "reply": "Starting developer benchmark mode now. Check your terminal for live metrics.",
+                "tool": "benchmark",
                 "args": {}
             }
 
