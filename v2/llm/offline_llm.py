@@ -106,10 +106,8 @@ class OfflineLLM:
             "-n", str(MAX_TOKENS),
             "-c", str(CTX_SIZE),
             "--temp", str(TEMPERATURE),
-            "--top-p", str(TOP_P),
             "--repeat-penalty", str(REPEAT_PEN),
-            "--single-turn",
-            "--log-disable",
+            "--no-display-prompt",
         ]
 
         logger.info(f"[OfflineLLM] 🧠 Thinking locally: '{user_text[:50]}...'")
@@ -118,13 +116,13 @@ class OfflineLLM:
         try:
             result = subprocess.run(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 timeout=TIMEOUT_SEC
             )
             elapsed = time.time() - start
 
-            # Extract just the assistant's reply from stdout
             output = result.stdout or ""
             # Strip the echoed prompt — find text after last <|im_start|>assistant
             if "<|im_start|>assistant" in output:
@@ -133,6 +131,9 @@ class OfflineLLM:
             for stop in ["<|im_end|>", "<|im_start|>", "[end of text]", "Exiting..."]:
                 output = output.split(stop)[0]
             output = output.strip()
+
+            if not output and result.stderr:
+                logger.warning(f"[OfflineLLM] Empty stdout. stderr: {result.stderr[-300:]}")
 
             logger.info(f"[OfflineLLM] ✅ Done in {elapsed:.1f}s — '{output[:60]}...'")
             return output if output else None
