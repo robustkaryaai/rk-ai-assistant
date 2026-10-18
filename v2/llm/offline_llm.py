@@ -24,9 +24,10 @@ MODEL_PATH = os.environ.get(
 )
 
 LLAMA_CLI_CANDIDATES = [
-    "/usr/local/bin/llama-cli",       # Pi (compiled from source)
-    "/opt/homebrew/bin/llama-cli",    # Mac (brew)
-    shutil.which("llama-cli") or "",
+    os.path.expanduser("~/.local/bin/llama-cli"),  # Pi (built via build_llama.sh)
+    "/usr/local/bin/llama-cli",                    # Pi (system-wide install)
+    "/opt/homebrew/bin/llama-cli",                 # Mac (brew)
+    shutil.which("llama-cli") or "",               # PATH fallback
 ]
 
 CTX_SIZE    = 512    # Keep low for Pi Zero W RAM
