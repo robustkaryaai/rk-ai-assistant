@@ -2,15 +2,10 @@
 # ==============================================================================
 # RK AI Assistant V2 — Master Controller Script (All-in-One)
 # Target: Raspberry Pi Zero W (512MB RAM, ARMv6)
-# Responsibilities:
-#   1. System performance tuning (CPU governor, swappiness, audio buffers)
-#   2. Strict Bluetooth Hardware Pinning (hci1 ONLY — reboots if missing)
-#   3. Speaker connection & audio sink locking (D0:78:1D:4F:F4:1E)
-#   4. Background Watchdog (monitors hci1 and speaker health in real-time)
-#   5. Launches and auto-restarts V2 Python Assistant
 # ==============================================================================
 
-set -eo pipefail
+# Do NOT use set -e because bluetoothctl or amixer/pactl warnings can exit the script prematurely!
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -19,7 +14,7 @@ cd "$SCRIPT_DIR"
 ENV_FILE="$SCRIPT_DIR/.env"
 if [ -f "$ENV_FILE" ]; then
     set -a
-    source "$ENV_FILE"
+    source "$ENV_FILE" 2>/dev/null || true
     set +a
 fi
 
@@ -82,8 +77,14 @@ echo "[bluetooth] Pairing and connecting to $SPEAKER_MAC..."
 bluetoothctl trust "$SPEAKER_MAC" &>/dev/null || true
 
 if ! bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
-    echo "[bluetooth] Connecting..."
-    timeout 10 bluetoothctl connect "$SPEAKER_MAC" &>/dev/null || true
+    echo "[bluetooth] Attempting connection..."
+    timeout 10 bluetoothctl connect "$SPEAKER_MAC" || true
+fi
+
+if bluetoothctl info "$SPEAKER_MAC" 2>/dev/null | grep -q "Connected: yes"; then
+    echo "[bluetooth] ✅ Speaker connected."
+else
+    echo "[bluetooth] ⚠️ Speaker not connected yet. Background watchdog will keep retrying."
 fi
 
 lock_speaker_audio
@@ -130,7 +131,7 @@ WATCHDOG_PID=$!
 
 # Trap clean exit on shutdown
 cleanup() {
-    echo "\n[RK-MASTER] Shutting down..."
+    echo -e "\n[RK-MASTER] Shutting down..."
     kill "$WATCHDOG_PID" 2>/dev/null || true
     exit 0
 }
@@ -142,7 +143,8 @@ echo "🎉 [RK-MASTER] System healthy. Launching Python Assistant..."
 echo "=========================================================="
 
 while true; do
-    python3 "$SCRIPT_DIR/main.py" || true
-    echo "[RK-MASTER] Assistant process exited. Restarting in 3 seconds..."
+    python3 "$SCRIPT_DIR/main.py"
+    EXIT_CODE=$?
+    echo "[RK-MASTER] Assistant process exited with code $EXIT_CODE. Restarting in 3 seconds..."
     sleep 3
 done
