@@ -37,8 +37,21 @@ class AudioPlayer:
         if is_url:
             stream_cmds = []
             if shutil.which("mpv"):
-                stream_cmds.append(["mpv", "--really-quiet", "--no-video", "--ao=pulse", target])
-                stream_cmds.append(["mpv", "--really-quiet", "--no-video", target])
+                # Ultra-light flags for single-core Pi Zero W:
+                # --no-video, --vo=null, audio-only buffer, and lower CPU footprint
+                mpv_light = [
+                    "mpv",
+                    "--really-quiet",
+                    "--no-video",
+                    "--vo=null",
+                    "--ao=pulse",
+                    "--audio-buffer=0.2",
+                    "--demuxer-max-bytes=8M",
+                    "--demuxer-readahead-secs=5",
+                    target
+                ]
+                stream_cmds.append(mpv_light)
+                stream_cmds.append(["mpv", "--really-quiet", "--no-video", "--vo=null", target])
             if shutil.which("cvlc"):
                 stream_cmds.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", target])
             if shutil.which("ffplay"):
