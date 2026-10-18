@@ -28,6 +28,7 @@ from core.quiz_engine import VoiceQuizEngine
 from core.diagnostics import SystemDiagnostics
 from core.conversation import ConversationEngine
 from core.remote_sync import RemoteSyncManager
+from llm.offline_llm import OfflineLLM
 
 class RKV2Assistant:
     def __init__(self):
@@ -55,6 +56,13 @@ class RKV2Assistant:
         self.quiz = VoiceQuizEngine(tts=self)
         self.conversation = ConversationEngine(client=self.client, tts=self, player=self.player)
         self.remote_sync = RemoteSyncManager(client=self.client, assistant=self, player=self.player, tts=self)
+
+        # 4. Offline LLM fallback (Qwen2.5-0.5B Q4_K_M — activates when internet is down)
+        self.offline_llm = OfflineLLM()
+        if self.offline_llm.is_ready:
+            print("🧠 [OfflineLLM] Qwen2.5-0.5B Q4_K_M ready — offline fallback active")
+        else:
+            print("⚠️  [OfflineLLM] Not available — run: python3 v2/llm/download_model.py")
 
         self._last_maintenance = 0.0
 
@@ -165,17 +173,31 @@ class RKV2Assistant:
         print(f"☁️ [Backend] Forwarding to RK_AI_HOME...")
         backend_res = self.client.send_text(resolved_query)
 
-        reply = backend_res.get("reply")
+        reply = backend_res.get("reply") if backend_res else None
+
+        # ─── STEP 3: OFFLINE LLM FALLBACK ───────────────
+        # Kicks in automatically when backend is unreachable or returns nothing
+        if not reply and self.offline_llm.is_ready:
+            print("📡 [Offline] No internet / backend down — using local Qwen2.5 LLM...")
+            self.speak("I'm offline right now, let me think locally.")
+            reply = self.offline_llm.ask(resolved_query)
+            if reply:
+                self.speak(reply)
+            else:
+                self.speak("Sorry, I couldn't answer that offline either.")
+            self.conversation.add_interaction(resolved_query, reply or "", "offline_llm")
+            return
+
         if reply:
             self.speak(reply)
 
-        local_action = backend_res.get("local_action")
+        local_action = backend_res.get("local_action") if backend_res else None
         if local_action:
             tool = local_action.get("tool")
             args = local_action.get("args", {})
             self._execute_local_action(tool, args)
 
-        self.conversation.add_interaction(resolved_query, reply, local_action.get("tool") if local_action else "chat")
+        self.conversation.add_interaction(resolved_query, reply or "", local_action.get("tool") if local_action else "chat")
 
     def _execute_local_action(self, tool: str, args: dict):
         """Dispatches actual local actions on Pi hardware."""
