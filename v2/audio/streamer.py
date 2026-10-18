@@ -90,31 +90,26 @@ class LocalMusicStreamer:
                     print(f"[music-download] yt-dlp download error: {e}")
 
             # Stream mode (default)
-            cookies_file = BASE_DIR / "youtube-cookies.txt"
             cmd = [
                 "yt-dlp",
-                "-f", "ba/b",
+                "-f", "ba",
                 "-g",
                 "--no-check-certificates",
                 "--prefer-free-formats",
                 "--no-playlist",
                 "--force-ipv4",
                 "--no-warnings",
-                "--socket-timeout", "10",
-                "--extractor-args", "youtube:player_client=android,web",
+                "--socket-timeout", "8",
+                target_url
             ]
-            if cookies_file.exists() and cookies_file.stat().st_size > 0:
-                cmd.extend(["--cookies", str(cookies_file)])
-            cmd.append(target_url)
 
             try:
-                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)
-                url = res.stdout.strip().split("\n")[0]
-                if url.startswith("http"):
-                    print("✅ [MUSIC-RESOLVE] Live stream URL resolved!")
-                    return url
-                elif res.stderr:
-                    print(f"[music-resolve] yt-dlp stderr: {res.stderr[:200]}")
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=15)
+                for line in res.stdout.strip().splitlines():
+                    line = line.strip()
+                    if line.startswith("http"):
+                        print("✅ [MUSIC-RESOLVE] Live stream URL resolved!")
+                        return line
             except Exception as e:
                 print(f"[music-resolve] yt-dlp error: {e}")
 
