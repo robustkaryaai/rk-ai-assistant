@@ -31,7 +31,32 @@ class AudioPlayer:
         self._current_url = target
         self._last_audio_activity = time.time()
 
-        # If it's a WAV file, play via aplay directly
+        is_url = target.startswith(("http://", "https://"))
+
+        # 1. Web stream playback (WebM, Opus, MP4, MP3 via mpv / cvlc / ffplay)
+        if is_url:
+            stream_cmds = []
+            if shutil.which("mpv"):
+                stream_cmds.append(["mpv", "--really-quiet", "--no-video", "--ao=pulse", target])
+                stream_cmds.append(["mpv", "--really-quiet", "--no-video", target])
+            if shutil.which("cvlc"):
+                stream_cmds.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", target])
+            if shutil.which("ffplay"):
+                stream_cmds.append(["ffplay", "-autoexit", "-nodisp", "-loglevel", "quiet", target])
+
+            for cmd in stream_cmds:
+                try:
+                    self._current_proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        preexec_fn=os.setsid
+                    )
+                    return True
+                except Exception:
+                    continue
+
+        # 2. Local WAV file playback via aplay
         if target.lower().endswith(".wav") and shutil.which("aplay"):
             try:
                 self._current_proc = subprocess.Popen(
@@ -44,8 +69,7 @@ class AudioPlayer:
             except Exception as e:
                 print(f"[player] aplay error: {e}")
 
-        # Otherwise play via mpg123 with PulseAudio output (-o pulse)
-        # Trying pulse first (Bluetooth speaker default), then alsa
+        # 3. Local MP3 / generic playback via mpg123 with PulseAudio / ALSA
         for out_driver in ("pulse", "alsa"):
             cmd = [
                 "mpg123",
@@ -74,7 +98,7 @@ class AudioPlayer:
             )
             return True
         except Exception as e:
-            print(f"[player] mpg123 playback error: {e}")
+            print(f"[player] playback error: {e}")
             return False
 
     def is_playing(self) -> bool:
