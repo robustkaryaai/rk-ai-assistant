@@ -347,50 +347,7 @@ def parse_smart_home_command(
     api_key: Optional[str] = None,
     backup_key: Optional[str] = None,
 ) -> Optional[Tuple[bool, str, Optional[str]]]:
-    """
-    Small LLM pass for natural smart-home phrasing when rules miss the device target.
-    Returns (on?, device_phrase_or_ALL, color_or_None) or None.
-    """
-    if not GEMINI_AVAILABLE or not text or not str(text).strip():
-        return None
-    keys = [k for k in (api_key, backup_key) if k]
-    if not keys:
-        return None
-    prompt = (
-        "You parse smart-home voice commands. Reply with ONLY valid JSON, no markdown:\n"
-        '{"action":"on"|"off","target":"short English device name or ALL for whole home",'
-        '"color":null|"red"|"blue"|"green"|"yellow"|"purple"|"white"|"warm"|"cool"}\n'
-        f'Utterance: {json.dumps(text.strip())}'
-    )
-    for key in keys:
-        try:
-            client = genai.Client(api_key=key, http_options={"timeout": 10000})
-            response = client.models.generate_content(
-                model=GEMINI_MODEL_PRIMARY,
-                contents=prompt,
-            )
-            raw = (response.text or "").strip()
-            if raw.startswith("```"):
-                raw = raw.split("```", 2)[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-            raw = raw.strip()
-            data = json.loads(raw)
-            act = str(data.get("action", "")).lower()
-            if act not in ("on", "off"):
-                continue
-            tgt = data.get("target") or ""
-            tgt = str(tgt).strip()
-            if not tgt:
-                continue
-            col = data.get("color")
-            col = str(col).lower().strip() if col else None
-            if col in ("none", "null", ""):
-                col = None
-            return (act == "on", tgt, col)
-        except Exception as e:
-            print(f"[gemini] smart_home parse: {e}", flush=True)
-            continue
+    """Deprecated: smart home removed."""
     return None
 
 

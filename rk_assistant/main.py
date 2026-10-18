@@ -95,7 +95,7 @@ from .weather_news import fetch_news, fetch_weather
 from .intent_classifier import guess_fallback_intent, start_pending_request_msg
 from .reset_monitor import start_reset_monitor, update_activity
 from . import settings_sync
-from . import smart_home
+# smart_home removed
 from . import music_manager
 from . import command_poller
 from . import schedule_manager
@@ -370,9 +370,7 @@ def _act_on_intents(intents, text, music_proc_holder, slug, reply_text=""):
             speak_reply(intent_reply or reply_text, text, slug)
             trigger_desktop_action(intent, params, slug=slug)
         elif intent == "lumina_coding":
-            from . import smart_home
             from .desktop_link import trigger_desktop_action
-            smart_home.run_coding_ambience()
             speak_reply(intent_reply or reply_text, text, slug)
             trigger_desktop_action("lumina_coding_session", params, slug=slug)
         elif intent == "shutdown/exit":
@@ -812,12 +810,6 @@ def main():
             #  but the speak() calls below will fire for this single response)
             # ── This is intentional: user explicitly spoke → they want TTS
 
-            # ── Smart Home Fast Intercept ─────────────────────────────────
-            if smart_home.is_smart_home_intent(text):
-                print("[main] Smart Home Intent detected (Local Intercept)")
-                resp = smart_home.execute_smart_command(text)
-                speak(resp)
-                continue
 
             # ── Instant Alarm Stop Intercept ─────────────────────────────
             lowered_text = text.lower()

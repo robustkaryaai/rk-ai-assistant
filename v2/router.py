@@ -153,6 +153,45 @@ class FastCommandRouter:
                 "args": {}
             }
 
+        # ─── SECTION: WEATHER COMMANDS ───────────────────────
+        weather_match = re.search(r"\b(?:weather|temperature|forecast)(?:\s+(?:in|for|at)\s+([a-zA-Z\s]+))?\b", cleaned)
+        if weather_match or "what's the weather" in cleaned or "how is the weather" in cleaned:
+            target_city = weather_match.group(1).strip() if (weather_match and weather_match.group(1)) else "Delhi"
+            return True, {
+                "reply": None,
+                "tool": "weather",
+                "args": {"city": target_city}
+            }
+
+        # ─── SECTION: AUTOMATION ROUTINES ─────────────────────
+        if re.search(r"\b(night protocol|good night|bedtime routine|goodnight protocol)\b", cleaned):
+            return True, {
+                "reply": None,
+                "tool": "routine",
+                "args": {"routine": "night_protocol"}
+            }
+
+        if re.search(r"\b(study mode|start study session|study protocol)\b", cleaned):
+            return True, {
+                "reply": None,
+                "tool": "routine",
+                "args": {"routine": "study_mode"}
+            }
+
+        if re.search(r"\b(work mode|focus mode|start work mode)\b", cleaned):
+            return True, {
+                "reply": None,
+                "tool": "routine",
+                "args": {"routine": "work_mode"}
+            }
+
+        if re.search(r"\b(relax mode|chill mode|calm down)\b", cleaned):
+            return True, {
+                "reply": None,
+                "tool": "routine",
+                "args": {"routine": "relax_mode"}
+            }
+
         # ─── SECTION 4.3: VOICE BRAIN-DUMP / NOTES ───────────
         note_match = re.search(r"\b(?:note this down|take a note|save note)\s*:\s*(.+)$", cleaned)
         if note_match:

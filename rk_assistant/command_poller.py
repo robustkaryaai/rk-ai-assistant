@@ -227,10 +227,7 @@ def execute_command(cmd: dict, slug: str) -> None:
         elif cmd_type == 'ecosystem_routine':
             routine = payload.get('routine', 'lumina_coding')
             from .desktop_link import trigger_desktop_action
-            from . import smart_home
             if routine == 'lumina_coding':
-                amb = smart_home.run_coding_ambience()
-                audio_utils_simple.speak(amb, allow_network_tts=False)
                 ok = trigger_desktop_action(
                     'lumina_coding_session',
                     {

@@ -28,6 +28,9 @@ from core.quiz_engine import VoiceQuizEngine
 from core.diagnostics import SystemDiagnostics
 from core.conversation import ConversationEngine
 from core.remote_sync import RemoteSyncManager
+from core.error_monitor import get_error_monitor
+from core.weather import WeatherService
+from core.automation import AutomationEngine
 from llm.offline_llm import OfflineLLM
 
 class RKV2Assistant:
@@ -39,6 +42,9 @@ class RKV2Assistant:
         print(f"🔊 Speaker MAC:  {BLUETOOTH_SPEAKER_MAC}")
         print(f"🌐 Backend Host: {BACKEND_BASE_URL}")
         print("==================================================")
+
+        # 0. Error Monitor & Self-Diagnosis
+        self.error_monitor = get_error_monitor()
 
         # 1. Hardware Pinning & Watchdog (Strict hci1)
         BluetoothAdapterManager.verify_or_reboot()
@@ -56,6 +62,7 @@ class RKV2Assistant:
         self.quiz = VoiceQuizEngine(tts=self)
         self.conversation = ConversationEngine(client=self.client, tts=self, player=self.player)
         self.remote_sync = RemoteSyncManager(client=self.client, assistant=self, player=self.player, tts=self)
+        self.automation = AutomationEngine(assistant=self)
 
         # 4. Offline LLM fallback (Qwen2.5-0.5B Q4_K_M — activates when internet is down)
         self.offline_llm = OfflineLLM()
@@ -159,6 +166,19 @@ class RKV2Assistant:
             elif tool == "emergency_sos":
                 self.remote_sync.trigger_sos_alarm()
                 self.conversation.add_interaction(resolved_query, "Emergency SOS triggered", tool)
+                return
+
+            elif tool == "weather":
+                city = args.get("city", "Delhi")
+                weather_text = WeatherService.get_spoken_weather(city)
+                self.speak(weather_text)
+                self.conversation.add_interaction(resolved_query, weather_text, tool)
+                return
+
+            elif tool == "routine":
+                routine_name = args.get("routine", "")
+                self.automation.execute_routine(routine_name)
+                self.conversation.add_interaction(resolved_query, f"Started {routine_name}", tool)
                 return
 
             reply = local_res.get("reply", "")
