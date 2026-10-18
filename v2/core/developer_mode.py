@@ -243,9 +243,21 @@ class BenchmarkSuite:
 
     def bench_offline_llm(self):
         print("\n🧠 [9/9] Benchmarking Offline LLM (Qwen2.5-0.5B / llama-cli)...")
+        import os
+        model_exists = os.path.isfile(self.offline_llm.model_path)
+        cli_exists = bool(self.offline_llm.llama_cli and os.path.isfile(self.offline_llm.llama_cli))
+
         if not self.offline_llm.is_ready:
-            print("   ⚠️ Offline LLM not ready (llama-cli or qwen.gguf missing).")
-            self.results["Offline LLM Inference"] = {"Latency": "Not Installed", "Rating": "⚪ Skipped"}
+            if not model_exists:
+                print(f"   ⚠️ Model file missing at: {self.offline_llm.model_path}")
+                reason = "Model Missing"
+            elif not cli_exists:
+                print("   ⚠️ llama-cli binary not installed.")
+                reason = "Binary Missing"
+            else:
+                print(f"   ⚠️ llama-cli installed & model present, but CPU architecture incompatible (ARMv6 Illegal instruction).")
+                reason = "CPU Incompatible (ARMv6)"
+            self.results["Offline LLM Inference"] = {"Latency": reason, "Rating": "⚪ Skipped"}
             return
 
         test_prompt = "What is the capital of India? One word only."
