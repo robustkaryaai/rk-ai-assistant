@@ -12,7 +12,8 @@ else:
     DEVICE_SLUG = os.getenv("DEVICE_SLUG", DEFAULT_SLUG)
 
 # Backend (RK_AI_HOME) Configuration
-BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "https://api.rexycore.com").rstrip("/")
+# Default backend URL on Render
+BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "https://rk-ai-backend.onrender.com").rstrip("/")
 APPWRITE_ENDPOINT = os.getenv("APPWRITE_ENDPOINT", "")
 APPWRITE_PROJECT_ID = os.getenv("APPWRITE_PROJECT_ID", "")
 APPWRITE_API_KEY = os.getenv("APPWRITE_API_KEY", "")
