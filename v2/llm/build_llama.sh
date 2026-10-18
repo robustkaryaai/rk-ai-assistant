@@ -20,17 +20,22 @@ sudo apt update -qq
 sudo apt install -y git cmake make g++ libopenblas-dev 2>/dev/null || \
 sudo apt install -y git cmake make g++ 2>/dev/null
 
-# 2. Clone
-# 2. Clone or update to stable release (b3900 is proven stable with llama-cli)
+# 2. Clone stable release tag (b3900 is proven stable with llama-cli)
 STABLE_TAG="b3900"
-if [ -d "$LLAMA_DIR" ]; then
-    echo "📁 llama.cpp already cloned, checking out stable tag $STABLE_TAG..."
-    cd "$LLAMA_DIR"
-    git fetch --tags --depth=1 origin tag "$STABLE_TAG" 2>/dev/null || git fetch --tags origin
-    git checkout -f "$STABLE_TAG"
+if [ ! -f "$LLAMA_DIR/CMakeLists.txt" ] || [ ! -d "$LLAMA_DIR/.git" ]; then
+    echo "📥 Fresh cloning llama.cpp ($STABLE_TAG)..."
+    rm -rf "$LLAMA_DIR"
+    git clone --depth 1 --branch "$STABLE_TAG" https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
 else
-    echo "📥 Cloning llama.cpp ($STABLE_TAG)..."
-    git clone --depth=1 --branch "$STABLE_TAG" https://github.com/ggerganov/llama.cpp "$LLAMA_DIR"
+    echo "📁 Updating existing llama.cpp checkout to $STABLE_TAG..."
+    cd "$LLAMA_DIR"
+    git fetch origin tag "$STABLE_TAG" --no-tags --depth 1 2>/dev/null || {
+        echo "🔄 Re-cloning fresh $STABLE_TAG..."
+        cd "$HOME"
+        rm -rf "$LLAMA_DIR"
+        git clone --depth 1 --branch "$STABLE_TAG" https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
+    }
+    cd "$LLAMA_DIR" && git checkout -f "$STABLE_TAG" 2>/dev/null || true
 fi
 
 # 3. Build — single thread on Pi Zero W (single core)
