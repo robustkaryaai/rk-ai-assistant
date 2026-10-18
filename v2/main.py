@@ -19,6 +19,7 @@ from router import FastCommandRouter
 from backend.client import RKHomeClient
 from audio.player import AudioPlayer
 from audio.tts import TTSManager
+from audio.recorder import AudioRecorder
 from hardware.adapter import BluetoothAdapterManager
 from core.alarm_manager import AlarmScheduleManager
 from core.pomodoro import PomodoroTimer
@@ -47,6 +48,7 @@ class RKV2Assistant:
 
         # 3. Core Engines
         self.data_dir = BASE_DIR / "data"
+        self.recorder = AudioRecorder(self.data_dir)
         self.alarm_mgr = AlarmScheduleManager(self.data_dir, client=self.client, player=self.player, tts=self)
         self.pomodoro = PomodoroTimer(self.alarm_mgr, tts=self)
         self.quiz = VoiceQuizEngine(tts=self)
@@ -69,6 +71,33 @@ class RKV2Assistant:
         if audio_file:
             self.player.play_url_or_file(audio_file, is_speech=True)
 
+    def listen_and_process_voice(self):
+        """
+        Record voice input from microphone, verify transcribed text,
+        and execute command through the single-turn loop.
+        """
+        self.player.duck_for_voice()
+        self.player.play_chime("wake")
+        print("\n🎤 [LISTENING] Speak your command...")
+
+        wav_path = self.recorder.record_command(duration=5)
+        self.player.unduck_audio()
+
+        if not wav_path:
+            print("⚠️ [MIC] No audio captured or silence.")
+            return
+
+        print("🔍 [STT] Verifying and transcribing speech...")
+        self.player.play_chime("thinking")
+        text = self.recorder.transcribe(client=self.client)
+
+        if not text:
+            print("⚠️ [STT] Could not recognize speech.")
+            return
+
+        print(f"✅ [VERIFIED INPUT] '{text}'")
+        self.handle_command(text)
+
     def handle_command(self, query: str):
         """
         Alexa-Grade Single-Turn Execution Loop:
@@ -83,7 +112,7 @@ class RKV2Assistant:
 
         # 4.1 Resolve Contextual Pronouns
         resolved_query = self.conversation.resolve_contextual_query(query)
-        print(f"\n🎤 [Input] '{resolved_query}'")
+        print(f"\n⚡ [EXECUTING] '{resolved_query}'")
 
         # ─── ACTIVE MODE: QUIZ ANSWERING ───────────────
         if self.quiz.is_active:
@@ -101,7 +130,6 @@ class RKV2Assistant:
             tool = local_res.get("tool")
             args = local_res.get("args", {})
 
-            # Special dynamic voice responses
             if tool == "diagnostics":
                 report = SystemDiagnostics.get_spoken_report()
                 self.speak(report)
@@ -211,20 +239,12 @@ class RKV2Assistant:
                 os.system("sudo poweroff")
 
     def run_tick(self):
-        """Cooperative single-loop tick (Alarms, Pomodoro, Keep-Alive, Remote Commands, Maintenance)."""
-        # 1. Evaluate alarms every tick
+        """Cooperative single-loop tick."""
         self.alarm_mgr.check_alarms_tick()
-
-        # 2. Evaluate Pomodoro study/break transitions
         self.pomodoro.tick()
-
-        # 3. Ultrasonic Speaker Keep-Alive (Feature 1.4)
         self.player.send_speaker_keepalive()
-
-        # 4. Mobile App Remote Commands Poller (Feature 5.2)
         self.remote_sync.poll_remote_commands()
 
-        # 5. Periodic cloud heartbeat & adapter check
         now = time.time()
         if now - self._last_maintenance > MAINTENANCE_POLL_INTERVAL:
             self._last_maintenance = now
@@ -235,13 +255,20 @@ if __name__ == "__main__":
     assistant = RKV2Assistant()
     assistant.speak("Radhe Radhe! RK AI Assistant V2 is ready.")
 
-    print("\n[READY] Enter test commands (or press Ctrl+C to exit):")
+    print("\n[READY] Options:")
+    print("  • Press [ENTER] to record voice from microphone")
+    print("  • Or type text command directly")
+    print("  • Press Ctrl+C to exit")
+
     try:
         while True:
             assistant.run_tick()
             try:
-                cmd = input("Command > ")
-                if cmd:
+                cmd = input("\n[Mic: ENTER / Text: Type] > ")
+                if not cmd.strip():
+                    # User pressed ENTER -> Speak to take command
+                    assistant.listen_and_process_voice()
+                else:
                     assistant.handle_command(cmd)
             except EOFError:
                 break
