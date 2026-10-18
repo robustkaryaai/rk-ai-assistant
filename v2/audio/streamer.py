@@ -103,7 +103,7 @@ class LocalMusicStreamer:
             ]
 
             try:
-                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=15)
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=35)
                 for line in res.stdout.strip().splitlines():
                     line = line.strip()
                     if line.startswith("http"):
