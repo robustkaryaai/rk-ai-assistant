@@ -62,8 +62,7 @@ class LocalMusicStreamer:
             return str(cached_file)
 
         print(f"🔍 [MUSIC-RESOLVE] Searching for: '{clean_q}'...")
-        vid_id = cls._fast_http_search(clean_q)
-        target_url = f"https://www.youtube.com/watch?v={vid_id}" if vid_id else f"ytsearch1:{clean_q}"
+        target_url = f"ytsearch1:{clean_q}"
         print(f"🎵 [MUSIC-RESOLVE] Target: {target_url}")
 
         if shutil.which("yt-dlp"):
