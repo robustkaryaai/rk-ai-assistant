@@ -20,6 +20,7 @@ from backend.client import RKHomeClient
 from audio.player import AudioPlayer
 from audio.tts import TTSManager
 from audio.recorder import AudioRecorder
+from audio.streamer import LocalMusicStreamer
 from hardware.adapter import BluetoothAdapterManager
 from core.alarm_manager import AlarmScheduleManager
 from core.pomodoro import PomodoroTimer
@@ -223,13 +224,28 @@ class RKV2Assistant:
 
         elif tool == "music":
             song_url = args.get("song_url")
+            q = args.get("query", "")
+            
+            # 1. If we already have a stream URL, play it
             if song_url:
-                print(f"🎵 [Music] Streaming: {song_url}")
+                print(f"🎵 [Music] Streaming direct: {song_url}")
                 self.player.play_url_or_file(song_url)
-            else:
-                q = args.get("query", "")
-                print(f"🎵 [Music] Requesting backend resolve for: {q}")
-                self.client.send_text(f"play {q}")
+                return
+
+            # 2. LOCAL RESOLUTION FIRST (Instant, doesn't need backend!)
+            print(f"🎵 [Music] Resolving locally via yt-dlp: '{q}'...")
+            local_stream = LocalMusicStreamer.get_audio_stream_url(q)
+            if local_stream:
+                print(f"🎵 [Music] Streaming local yt-dlp URL...")
+                self.player.play_url_or_file(local_stream)
+                return
+
+            # 3. Fallback to backend if yt-dlp local resolution fails
+            print(f"🎵 [Music] Fallback to backend for: {q}")
+            res = self.client.send_text(f"play {q}")
+            b_url = res.get("local_action", {}).get("args", {}).get("song_url")
+            if b_url:
+                self.player.play_url_or_file(b_url)
 
         elif tool == "system":
             act = args.get("action")
@@ -266,7 +282,6 @@ if __name__ == "__main__":
             try:
                 cmd = input("\n[Mic: ENTER / Text: Type] > ")
                 if not cmd.strip():
-                    # User pressed ENTER -> Speak to take command
                     assistant.listen_and_process_voice()
                 else:
                     assistant.handle_command(cmd)
