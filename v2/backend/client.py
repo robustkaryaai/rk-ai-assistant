@@ -10,7 +10,7 @@ class RKHomeClient:
     - Returns clean spoken text + only local Pi tasks (music audio streams, alarms, period bell).
     """
 
-    def __init__(self, base_url: str, slug: str, timeout: int = 15):
+    def __init__(self, base_url: str, slug: str, timeout: int = 30):
         self.base_url = base_url.rstrip("/")
         self.slug = slug
         self.timeout = timeout
@@ -44,8 +44,9 @@ class RKHomeClient:
             data = resp.json()
             return self._parse_backend_response(data)
         except Exception as e:
+            print(f"[backend] Connection error: {e}")
             return {
-                "reply": "I'm having trouble connecting to my cloud backend.",
+                "reply": None,
                 "local_action": None,
                 "error": str(e)
             }
