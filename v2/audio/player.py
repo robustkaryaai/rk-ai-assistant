@@ -207,16 +207,19 @@ class AudioPlayer:
 
     # ─── 1.4 BLUETOOTH SPEAKER ULTRASONIC KEEP-ALIVE ────────
     def send_speaker_keepalive(self):
-        """Send imperceptible 1ms pulse every 3 min to prevent speaker standby."""
+        """Send a non-blocking 0.1s silent buffer to keep BT speaker audio sink active."""
         now = time.time()
         if not self.is_playing() and (now - self._last_audio_activity > 180):
             self._last_audio_activity = now
-            subprocess.run(
-                ["aplay", "-q", "-d", "1", "/dev/zero"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=2
-            )
+            try:
+                # Play tiny 500-byte silence non-blocking so it never times out
+                subprocess.Popen(
+                    ["aplay", "-q", "-d", "1", "/dev/zero"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception:
+                pass
 
     # ─── 1.5 LOCAL EARCON SOUNDBOARD ─────────────────────────
     def play_chime(self, chime_type: str, sync: bool = False):
