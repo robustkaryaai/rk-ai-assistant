@@ -156,7 +156,8 @@ echo "🎉 [RK-MASTER] System healthy. Launching Python Assistant..."
 echo "=========================================================="
 
 while true; do
-    python3 -u "$SCRIPT_DIR/main.py"
+    # Filter out low-level C-library ALSA jack/pcm warnings so logs only show RK AI output
+    python3 -u "$SCRIPT_DIR/main.py" 2> >(grep -v -E "ALSA lib|Cannot connect to server|jack server|JackShm" >&2)
     EXIT_CODE=$?
     echo "[RK-MASTER] Assistant process exited with code $EXIT_CODE. Restarting in 3 seconds..."
     sleep 3
