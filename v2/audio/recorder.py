@@ -13,17 +13,23 @@ except ImportError:
 
 
 def setup_microphone_volume():
-    """Force hardware capture gain to 100% via amixer (exact v1 implementation)."""
-    try:
-        controls = ["Capture", "Mic", "Internal Mic", "Digital"]
-        for control in controls:
+    """Force hardware capture gain to 100% across all ALSA controls."""
+    controls = ["Capture", "Mic", "Internal Mic", "Digital", "Input", "Boost"]
+    for control in controls:
+        try:
             subprocess.run(["amixer", "sset", control, "100%"], capture_output=True)
-    except Exception as e:
+            subprocess.run(["amixer", "sset", control, "cap"], capture_output=True)
+        except Exception:
+            pass
+    try:
+        # Also maximize PulseAudio source volume
+        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "100%"], capture_output=True)
+    except Exception:
         pass
 
 
-def _normalize_audio(audio_data, target_level=25000):
-    """Normalize and boost soft microphone input (exact v1 implementation)."""
+def _normalize_audio(audio_data, target_level=30000):
+    """Normalize and boost soft microphone input up to 30000 peak (near 32767 max)."""
     if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
         return audio_data
     try:
@@ -33,7 +39,7 @@ def _normalize_audio(audio_data, target_level=25000):
         if max_val == 0:
             return audio_data
         factor = target_level / max_val
-        factor = min(factor, 15.0)  # Boost quiet microphones up to 15x
+        factor = min(factor, 20.0)  # Boost quiet microphones up to 20x
         if factor > 1.05:
             boosted_raw = audioop.mul(raw_data, 2, factor)
             return sr.AudioData(boosted_raw, audio_data.sample_rate, audio_data.sample_width)

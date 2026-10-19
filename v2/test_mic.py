@@ -42,6 +42,14 @@ print("\n[Step 3/5] Testing SpeechRecognition library & Microphones...")
 try:
     import speech_recognition as sr
     print(f"  ✅ speech_recognition installed (version {sr.__version__})")
+    
+    # Force PulseAudio / ALSA capture gain
+    for c in ["Capture", "Mic", "Internal Mic", "Digital", "Input", "Boost"]:
+        subprocess.run(["amixer", "sset", c, "100%"], capture_output=True)
+    subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "100%"], capture_output=True)
+    subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"], capture_output=True)
+    subprocess.run(["amixer", "sset", "Master", "100%"], capture_output=True)
+
     mics = sr.Microphone.list_microphone_names()
     print(f"  🎙️ Detected {len(mics)} microphone device(s):")
     for i, name in enumerate(mics):
@@ -64,12 +72,16 @@ print("   🔴 RECORDING NOW! Say: 'Hello RK, what is the weather today?'", flus
 
 try:
     r = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("   (Measuring baseline ambient noise 0.5s...)")
-        r.adjust_for_ambient_noise(source, duration=0.5)
+    r.energy_threshold = 200
+    r.dynamic_energy_threshold = True
+    r.dynamic_energy_ratio = 1.5
+
+    # 16000 Hz is Google's optimal acoustic model sample rate
+    with sr.Microphone(sample_rate=16000) as source:
+        r.adjust_for_ambient_noise(source, duration=0.6)
         print(f"   Ambient Energy Threshold: {r.energy_threshold:.0f}")
         print("   Listening for 5 seconds...")
-        audio = r.listen(source, phrase_time_limit=5)
+        audio = r.listen(source, timeout=6, phrase_time_limit=5)
     
     # Save audio
     with open(test_wav, "wb") as f:
@@ -85,10 +97,6 @@ try:
         rms = audioop.rms(raw, 2)
         peak = audioop.max(raw, 2)
         print(f"  📊 Audio metrics: Peak={peak}/32767 | RMS Energy={rms}")
-        if peak < 1000:
-            print("  ⚠️ Audio level is very low! Speak closer or check mic physical switch.")
-        else:
-            print("  ✅ Audio level is healthy and clear.")
     except Exception:
         pass
 
@@ -108,11 +116,11 @@ try:
         raw = audio_file.get_raw_data()
         peak = audioop.max(raw, 2)
         if peak > 0:
-            boost = min(25000 / peak, 15.0)
+            boost = min(30000 / peak, 20.0)
             if boost > 1.05:
                 raw_boosted = audioop.mul(raw, 2, boost)
                 audio_file = sr.AudioData(raw_boosted, audio_file.sample_rate, audio_file.sample_width)
-                print(f"  ⚡ Applied {boost:.1f}x audio boost")
+                print(f"  ⚡ Applied {boost:.1f}x audio boost (peak raised to ~30000)")
     except Exception:
         pass
 

@@ -73,6 +73,7 @@ lock_speaker_audio() {
     if command -v pacmd &>/dev/null; then
         pacmd set-card-profile "$CARD_NAME" a2dp_sink &>/dev/null || true
         pacmd set-default-sink "$SINK_NAME" &>/dev/null || true
+        pacmd set-sink-volume "$SINK_NAME" 65536 &>/dev/null || true
         
         # Silence all non-speaker cards to prevent audio hijacking
         pacmd list-cards 2>/dev/null | grep 'bluez_card' | awk '{print $NF}' | while read -r card; do
@@ -81,6 +82,10 @@ lock_speaker_audio() {
             fi
         done
     fi
+    # Force 100% volume on Master and Bluetooth sink
+    pactl set-sink-volume @DEFAULT_SINK@ 100% &>/dev/null || true
+    pactl set-source-volume @DEFAULT_SOURCE@ 100% &>/dev/null || true
+    amixer sset Master 100% &>/dev/null || true
 }
 
 # ─── 4. Initial Speaker Connection ───────────────────────────
