@@ -221,10 +221,10 @@ class RKV2Assistant:
         reply = backend_res.get("reply") if backend_res else None
 
         # ─── STEP 3: OFFLINE LLM FALLBACK ───────────────
-        # Kicks in automatically when backend is unreachable or returns nothing
+        # Kicks in automatically when cloud backend is asleep, slow, or unreachable
         if not reply and self.offline_llm.is_ready:
-            print("📡 [Offline] No internet / backend down — using local Qwen2.5 LLM...")
-            self.speak("I'm offline right now, let me think locally.")
+            print("📡 [Fallback] Cloud backend timed out or unreachable — answering via local Qwen2.5 LLM...")
+            self.speak("Cloud backend is taking a moment, let me think locally.")
             reply = self.offline_llm.ask(resolved_query)
             if reply:
                 self.speak(reply)

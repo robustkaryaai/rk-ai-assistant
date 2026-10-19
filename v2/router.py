@@ -359,7 +359,7 @@ class FastCommandRouter:
             }
 
         # ─── LOCAL INSTANT GREETINGS (<0.5ms) ────────────────
-        if cleaned in ("hi", "hello", "hey", "hey rk", "hi rk", "hello rk", "namaste", "radhe radhe"):
+        if re.search(r"\b(hi|hello|hey|greetings|namaste|radhe radhe|sup|what'?s up|wassup)\b", cleaned):
             return True, {
                 "reply": "Radhe Radhe! How can I help you today?",
                 "tool": "chat_local",
