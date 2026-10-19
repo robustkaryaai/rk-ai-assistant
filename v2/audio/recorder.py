@@ -135,11 +135,13 @@ class AudioRecorder:
 
         if self._recognizer and self._mic:
             try:
-                self._recognizer.pause_threshold = silence_duration
+                # Keep pause threshold generous (1.8s) so natural mid-sentence pauses aren't cut short
+                self._recognizer.pause_threshold = max(silence_duration, 1.8)
+                self._recognizer.non_speaking_duration = 1.0
                 with no_alsa_err():
                     with self._mic as source:
-                        # timeout=5s so it gives you plenty of time to start speaking
-                        audio = self._recognizer.listen(source, timeout=5, phrase_time_limit=duration)
+                        # phrase_time_limit allows speaking full long sentences (12s)
+                        audio = self._recognizer.listen(source, timeout=6, phrase_time_limit=max(duration, 12))
 
                 # Boost audio (v1 secret for high capture rate on Pi Zero)
                 audio = _normalize_audio(audio)
