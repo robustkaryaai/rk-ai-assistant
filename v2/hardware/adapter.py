@@ -19,8 +19,27 @@ class BluetoothAdapterManager:
             return False
 
     @classmethod
+    def ensure_adapter_up(cls) -> bool:
+        """Unblocks rfkill and brings hci1 UP."""
+        try:
+            subprocess.run(["sudo", "rfkill", "unblock", "bluetooth"], stderr=subprocess.DEVNULL)
+            subprocess.run(["sudo", "hciconfig", BLUETOOTH_HCI, "up"], stderr=subprocess.DEVNULL)
+            time.sleep(0.5)
+            out = subprocess.check_output(["hciconfig", BLUETOOTH_HCI], text=True)
+            is_up = "UP RUNNING" in out or "UP" in out
+            if is_up:
+                print(f"📶 [BLUETOOTH] Adapter '{BLUETOOTH_HCI}' is UP and RUNNING.")
+            return is_up
+        except Exception as e:
+            print(f"[bluetooth] Error bringing {BLUETOOTH_HCI} up: {e}")
+            return False
+
+    @classmethod
     def verify_or_reboot(cls):
         if not cls.is_adapter_present():
             print(f"🚨 [WATCHDOG] Fatal: Adapter '{BLUETOOTH_HCI}' is missing! Re-initializing system...")
             subprocess.run(["sudo", "reboot"])
             exit(1)
+        
+        # Ensure it's brought UP
+        cls.ensure_adapter_up()
