@@ -36,10 +36,12 @@ class BluetoothAdapterManager:
 
     @classmethod
     def verify_or_reboot(cls):
-        if not cls.is_adapter_present():
-            print(f"🚨 [WATCHDOG] Fatal: Adapter '{BLUETOOTH_HCI}' is missing! Re-initializing system...")
-            subprocess.run(["sudo", "reboot"])
-            exit(1)
-        
-        # Ensure it's brought UP
-        cls.ensure_adapter_up()
+        """Checks for hci1 with a multi-second retry loop so USB dongles have time to enumerate."""
+        for attempt in range(5):
+            if cls.is_adapter_present():
+                cls.ensure_adapter_up()
+                return
+            print(f"⏳ [BLUETOOTH] Waiting for '{BLUETOOTH_HCI}' to enumerate (attempt {attempt+1}/5)...")
+            time.sleep(1.0)
+
+        print(f"⚠️ [BLUETOOTH] Warning: Adapter '{BLUETOOTH_HCI}' not detected in hciconfig. Continuing without reboot.")
