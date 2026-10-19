@@ -186,14 +186,21 @@ class AudioRecorder:
         if not self.record_path.exists():
             return ""
 
-        # 1. Primary: Direct Google STT with language hint (just like v1)
+        # 1. Primary: Direct Google STT with dual language fallback (en-IN -> en-US)
         if SPEECH_RECOGNITION_AVAILABLE:
             try:
                 r = sr.Recognizer()
                 with sr.AudioFile(str(self.record_path)) as source:
                     audio = r.record(source)
                     audio = _normalize_audio(audio)
-                    text = r.recognize_google(audio, language="en-IN").strip()
+                    text = ""
+                    for lang in ["en-IN", "en-US"]:
+                        try:
+                            text = r.recognize_google(audio, language=lang).strip()
+                            if text:
+                                break
+                        except sr.UnknownValueError:
+                            continue
                     if text:
                         print(f"🔤 [STT] Recognized: '{text}'", flush=True)
                         return text
