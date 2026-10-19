@@ -106,6 +106,12 @@ class RKV2Assistant:
         Record voice input from microphone, verify transcribed text,
         and execute command through the single-turn loop.
         """
+        # If mic is hardware-muted, skip the entire listen cycle and wait
+        if self.recorder.is_hardware_muted:
+            print("🔇 [MIC] Muted — sleeping until unmuted.")
+            time.sleep(2)
+            return
+
         self.player.duck_for_voice()
         self.player.play_chime("wake")
         print("\n🎤 [LISTENING] Speak your command...")
@@ -114,7 +120,7 @@ class RKV2Assistant:
         self.player.unduck_audio()
 
         if not wav_path:
-            print("⚠️ [MIC] No audio captured, muted, or silence.")
+            print("⚠️ [MIC] No audio captured or silence detected.")
             return
 
         # Play command captured confirmation chime
