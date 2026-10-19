@@ -142,19 +142,55 @@ class AudioPlayer:
         self._current_url = None
 
     # ─── 1.1 DYNAMIC AUDIO DUCKING & BARGE-IN ────────────────
+    def _get_current_volume(self) -> int:
+        """Read actual current volume level from pactl or amixer."""
+        try:
+            # Try pactl first (PulseAudio / Bluetooth default)
+            out = subprocess.check_output(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], text=True, stderr=subprocess.DEVNULL)
+            for part in out.split():
+                if part.endswith("%"):
+                    return int(part.rstrip("%"))
+        except Exception:
+            pass
+        try:
+            out = subprocess.check_output(["amixer", "sget", "Master"], text=True, stderr=subprocess.DEVNULL)
+            import re
+            m = re.search(r"\[(\d+)%\]", out)
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
+        return self._pre_duck_volume or 70
+
+    def _set_hw_volume(self, percent: int):
+        """Set volume across pactl (PulseAudio) and amixer."""
+        percent = max(0, min(100, percent))
+        try:
+            subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{percent}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        try:
+            subprocess.run(["amixer", "sset", "Master", f"{percent}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
     def duck_for_voice(self):
-        """Immediately drop volume to 15% so user can speak commands naturally."""
+        """Drop volume to 20% so user can speak commands naturally."""
         if self.is_playing() and not self._is_ducked:
+            current = self._get_current_volume()
+            if current > 25:
+                self._pre_duck_volume = current
             self._is_ducked = True
-            subprocess.run(["amixer", "sset", "Master", "15%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("[player] 🦆 Audio ducked to 15% for voice input.")
+            self._set_hw_volume(20)
+            print(f"[player] 🦆 Audio ducked to 20% (saved original: {self._pre_duck_volume}%).")
 
     def unduck_audio(self):
         """Restore volume back to original level."""
         if self._is_ducked:
+            target_vol = self._pre_duck_volume or 70
             self._is_ducked = False
-            subprocess.run(["amixer", "sset", "Master", f"{self._pre_duck_volume}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print(f"[player] 🔊 Audio restored to {self._pre_duck_volume}%.")
+            self._set_hw_volume(target_vol)
+            print(f"[player] 🔊 Audio restored to {target_vol}%.")
 
     # ─── 1.4 BLUETOOTH SPEAKER ULTRASONIC KEEP-ALIVE ────────
     def send_speaker_keepalive(self):
