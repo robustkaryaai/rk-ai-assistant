@@ -1,5 +1,72 @@
 import re
+import math
 from typing import Optional, Dict, Any, Tuple
+
+def _solve_math_expression(text: str) -> Optional[str]:
+    """
+    Safely calculates math queries like:
+    - 'what is 25 * 4', 'calculate 150 + 350', '50 / 2'
+    - '15 percent of 400', 'square root of 144'
+    - '5 plus 3 times 2'
+    """
+    t = text.lower().strip()
+    t = re.sub(r"^(what is|calculate|solve|evaluate|tell me|what's)\s+", "", t).strip()
+
+    # Percentage: 'X percent of Y'
+    pct_match = re.match(r"^(\d+(?:\.\d+)?)\s*(?:percent|%)\s+of\s+(\d+(?:\.\d+)?)$", t)
+    if pct_match:
+        pct = float(pct_match.group(1))
+        val = float(pct_match.group(2))
+        res = (pct / 100.0) * val
+        res_str = f"{res:.2f}".rstrip("0").rstrip(".") if "." in f"{res:.2f}" else str(int(res))
+        return f"{pct:g} percent of {val:g} is {res_str}."
+
+    # Square root: 'square root of X' or 'sqrt of X'
+    sqrt_match = re.match(r"^(?:square root|sqrt)\s+(?:of\s+)?(\d+(?:\.\d+)?)$", t)
+    if sqrt_match:
+        val = float(sqrt_match.group(1))
+        if val < 0:
+            return "Square root of a negative number is not a real number."
+        res = math.sqrt(val)
+        res_str = f"{res:.4f}".rstrip("0").rstrip(".") if "." in f"{res:.4f}" else str(int(res))
+        return f"The square root of {val:g} is {res_str}."
+
+    # Convert spoken operators to Python symbols
+    substitutions = [
+        (r"\bmultiplied by\b", "*"),
+        (r"\btimes\b", "*"),
+        (r"\bdivided by\b", "/"),
+        (r"\bplus\b", "+"),
+        (r"\bminus\b", "-"),
+        (r"\bto the power of\b", "**"),
+        (r"\bpower of\b", "**"),
+        (r"\bx\b", "*"),
+        (r"\binto\b", "*"),
+    ]
+    expr = t
+    for pat, rep in substitutions:
+        expr = re.sub(pat, rep, expr)
+
+    # Clean whitespace and strip question marks
+    expr = expr.rstrip("?").strip()
+
+    # Safety check: allow ONLY numbers, basic math operators, parentheses, and dots
+    if re.match(r"^[\d\s\+\-\*\/\(\)\.\%\^]+$", expr):
+        # Must contain at least one math operator and one number
+        if any(op in expr for op in ("+", "-", "*", "/", "**", "%")) and re.search(r"\d", expr):
+            try:
+                # Safe evaluation without builtins
+                res = eval(expr, {"__builtins__": None}, {})
+                if isinstance(res, (int, float)):
+                    if math.isnan(res) or math.isinf(res):
+                        return "Result is undefined."
+                    res_str = f"{res:.4f}".rstrip("0").rstrip(".") if "." in f"{res:.4f}" else str(int(res))
+                    return f"The answer is {res_str}."
+            except ZeroDivisionError:
+                return "Cannot divide by zero."
+            except Exception:
+                pass
+    return None
 
 class FastCommandRouter:
     """
@@ -18,6 +85,15 @@ class FastCommandRouter:
             return False, None
         
         cleaned = text.strip().lower()
+        
+        # ─── SECTION 0: INSTANT OFFLINE MATH CALCULATOR (<0.2ms) ───
+        math_reply = _solve_math_expression(cleaned)
+        if math_reply:
+            return True, {
+                "reply": math_reply,
+                "tool": "math",
+                "args": {"query": cleaned}
+            }
 
         # ─── SECTION 1 & 2: PLAYBACK CONTROLS ───────────────
         if cleaned in ("stop", "pause", "shut up", "quiet", "silence", "halt", "cancel"):
