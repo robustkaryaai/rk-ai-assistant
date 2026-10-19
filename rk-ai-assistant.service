@@ -1,0 +1,32 @@
+[Unit]
+Description=RK AI Assistant V2 (RexyCore)
+Documentation=https://github.com/robustkaryaai/rk-ai-assistant
+After=network-online.target bluetooth.target pulseaudio.service sound.target
+Wants=network-online.target bluetooth.target pulseaudio.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=raspberrypi
+Group=raspberrypi
+
+WorkingDirectory=/home/raspberrypi/Documents/rk-ai-assistant
+
+# run.sh handles: rfkill unblock, hciconfig up, speaker connect, watchdog, python restart loop
+ExecStart=/bin/bash /home/raspberrypi/Documents/rk-ai-assistant/v2/run.sh
+
+Restart=on-failure
+RestartSec=5s
+
+# PulseAudio routing for user session (UID 1000 = raspberrypi)
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rk-ai
+
+[Install]
+WantedBy=multi-user.target
