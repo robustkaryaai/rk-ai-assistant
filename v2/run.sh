@@ -29,7 +29,18 @@ echo "📶 [RK-MASTER] Target Bluetooth Adapter: $REQUIRED_HCI (Strict)"
 echo "🔊 [RK-MASTER] Target Speaker MAC:      $SPEAKER_MAC"
 echo "=========================================================="
 
-# ─── 1. System & Audio Optimization ───────────────────────────
+# ─── 1. Bluetooth Pre-Flight ───────────────────────────────────
+# Restart bluetoothd cleanly so hci1 gets a fresh slate on every boot/restart
+echo "[bluetooth] Restarting bluetooth daemon..."
+sudo systemctl restart bluetooth 2>/dev/null || true
+sleep 2
+
+# Unblock any rfkill soft-block (survives reboots on some kernels)
+echo "[bluetooth] Unblocking rfkill..."
+sudo rfkill unblock bluetooth 2>/dev/null || true
+sleep 0.5
+
+# ─── 2. System & Audio Optimization ───────────────────────────
 echo "[optimize] Applying low-latency kernel & memory tuning..."
 sudo sysctl -w vm.swappiness=10 >/dev/null 2>&1 || true
 sudo sysctl -w vm.vfs_cache_pressure=50 >/dev/null 2>&1 || true
