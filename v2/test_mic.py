@@ -72,16 +72,18 @@ print("   🔴 RECORDING NOW! Say: 'Hello RK, what is the weather today?'", flus
 
 try:
     r = sr.Recognizer()
-    r.energy_threshold = 200
+    r.energy_threshold = 50
     r.dynamic_energy_threshold = True
-    r.dynamic_energy_ratio = 1.5
+    r.dynamic_energy_ratio = 1.3
+    r.phrase_threshold = 0.1
 
     # 16000 Hz is Google's optimal acoustic model sample rate
     with sr.Microphone(sample_rate=16000) as source:
-        r.adjust_for_ambient_noise(source, duration=0.6)
-        print(f"   Ambient Energy Threshold: {r.energy_threshold:.0f}")
+        r.adjust_for_ambient_noise(source, duration=0.8)
+        r.energy_threshold = max(r.energy_threshold, 50)
+        print(f"   Calibrated Energy Threshold: {r.energy_threshold:.0f}")
         print("   Listening for 5 seconds...")
-        audio = r.listen(source, timeout=6, phrase_time_limit=5)
+        audio = r.listen(source, timeout=8, phrase_time_limit=6)
     
     # Save audio
     with open(test_wav, "wb") as f:
@@ -90,13 +92,13 @@ try:
     file_size = test_wav.stat().st_size
     print(f"  ✅ Audio captured successfully! File size: {file_size:,} bytes")
 
-    # Measure RMS energy
+    # Measure RMS energy & peak
     try:
         import audioop
         raw = audio.get_raw_data()
         rms = audioop.rms(raw, 2)
         peak = audioop.max(raw, 2)
-        print(f"  📊 Audio metrics: Peak={peak}/32767 | RMS Energy={rms}")
+        print(f"  📊 Raw Audio metrics: Peak={peak}/32767 | RMS Energy={rms}")
     except Exception:
         pass
 
@@ -116,11 +118,13 @@ try:
         raw = audio_file.get_raw_data()
         peak = audioop.max(raw, 2)
         if peak > 0:
-            boost = min(30000 / peak, 20.0)
+            boost = min(31000 / peak, 35.0)
             if boost > 1.05:
                 raw_boosted = audioop.mul(raw, 2, boost)
                 audio_file = sr.AudioData(raw_boosted, audio_file.sample_rate, audio_file.sample_width)
-                print(f"  ⚡ Applied {boost:.1f}x audio boost (peak raised to ~30000)")
+                boosted_peak = audioop.max(raw_boosted, 2)
+                boosted_rms = audioop.rms(raw_boosted, 2)
+                print(f"  ⚡ Applied {boost:.1f}x boost (Peak: {peak} -> {boosted_peak} | RMS: {rms} -> {boosted_rms})")
     except Exception:
         pass
 
