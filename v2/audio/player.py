@@ -211,17 +211,19 @@ class AudioPlayer:
             )
 
     # ─── 1.5 LOCAL EARCON SOUNDBOARD ─────────────────────────
-    def play_chime(self, chime_type: str):
+    def play_chime(self, chime_type: str, sync: bool = False):
         """Plays immediate auditory earcons (wake, captured, thinking, answer)."""
         self._last_audio_activity = time.time()
         sound_file = BASE_DIR / "data" / "sounds" / f"{chime_type}.wav"
         if sound_file.exists():
             try:
-                subprocess.Popen(
+                proc = subprocess.Popen(
                     ["aplay", "-q", str(sound_file)],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
+                if sync:
+                    proc.wait(timeout=1.5)
             except Exception:
                 pass
 

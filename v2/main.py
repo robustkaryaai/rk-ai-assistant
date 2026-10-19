@@ -92,8 +92,8 @@ class RKV2Assistant:
         if not text:
             return
 
-        # Play answer ready transition chime before speech
-        self.player.play_chime("answer")
+        # Play answer transition earcon cleanly before speech starts
+        self.player.play_chime("answer", sync=True)
 
         if self.conversation.is_whisper_mode_active():
             print("🌙 [NIGHT PROTOCOL] Volume lowered to 30% for gentle playback.")
@@ -225,6 +225,7 @@ class RKV2Assistant:
 
         # ─── STEP 2: RK_AI_HOME BACKEND CALL ───────────
         print(f"☁️ [Backend] Forwarding to RK_AI_HOME...")
+        self.player.play_chime("thinking")
         backend_res = self.client.send_text(resolved_query)
 
         reply = backend_res.get("reply") if backend_res else None
@@ -233,6 +234,7 @@ class RKV2Assistant:
         # Kicks in automatically when cloud backend is asleep, slow, or unreachable
         if not reply and self.offline_llm.is_ready:
             print("📡 [Fallback] Cloud backend timed out or unreachable — answering via local Qwen2.5 LLM...")
+            self.player.play_chime("thinking")
             self.speak("Cloud backend is taking a moment, let me think locally.")
             reply = self.offline_llm.ask(resolved_query)
             if reply:
