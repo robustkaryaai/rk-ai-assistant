@@ -30,12 +30,12 @@ LLAMA_CLI_CANDIDATES = [
     shutil.which("llama-cli") or "",               # PATH fallback
 ]
 
-CTX_SIZE    = 512    # Keep low for Pi Zero W RAM
-MAX_TOKENS  = 150    # Short focused answers
-TEMPERATURE = 0.6
+CTX_SIZE    = 256    # Ultra-lean KV buffer (<15MB RAM on Pi Zero)
+MAX_TOKENS  = 40     # Fast concise spoken replies
+TEMPERATURE = 0.5
 TOP_P       = 0.9
 REPEAT_PEN  = 1.1
-TIMEOUT_SEC = 90     # Pi Zero W is slow — give it time
+TIMEOUT_SEC = 120    # Generous timeout for single-core ARMv6 inference
 
 # System prompt: keep it short and punchy for the Pi's tiny context
 SYSTEM_PROMPT = (
@@ -120,6 +120,8 @@ class OfflineLLM:
             "-p", prompt,
             "-n", str(MAX_TOKENS),
             "-c", str(CTX_SIZE),
+            "-t", "1",
+            "--no-warmup",
             "--temp", str(TEMPERATURE),
             "--repeat-penalty", str(REPEAT_PEN),
             "--no-display-prompt",
