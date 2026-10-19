@@ -37,11 +37,10 @@ class RemoteSyncManager:
     def poll_remote_commands(self):
         """
         5.2 Polls pending commands sent from the mobile/web dashboard.
-        Endpoints: GET /device/:slug/commands/pending
-                   POST /device/:slug/commands/:command_id/complete
+        Called from the background worker thread every ~5 seconds.
         """
         now = time.time()
-        if now - self._last_cmd_poll < 5: # Poll every 5s
+        if now - self._last_cmd_poll < 5:
             return
         self._last_cmd_poll = now
 
@@ -49,13 +48,9 @@ class RemoteSyncManager:
             return
 
         try:
-            url = f"{self.client.base_url}/device/{self.client.slug}/commands/pending"
-            resp = self.client.session.get(url, timeout=3)
-            if resp.status_code == 200:
-                data = resp.json()
-                commands = data.get("commands", [])
-                for cmd in commands:
-                    self._execute_remote_command(cmd)
+            commands = self.client.fetch_pending_commands()
+            for cmd in commands:
+                self._execute_remote_command(cmd)
         except Exception:
             pass
 
@@ -123,8 +118,4 @@ class RemoteSyncManager:
 
         # Acknowledge command completion to backend
         if cmd_id and self.client:
-            try:
-                complete_url = f"{self.client.base_url}/device/{self.client.slug}/commands/{cmd_id}/complete"
-                self.client.session.post(complete_url, json={"success": success, "result": result}, timeout=3)
-            except Exception:
-                pass
+            self.client.ack_command(cmd_id, success, result)

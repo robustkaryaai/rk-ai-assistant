@@ -148,9 +148,26 @@ class RKHomeClient:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def ping_alive(self) -> bool:
+        """
+        Lightweight heartbeat — lets the backend know the device is online.
+        POST /device/:slug/ping  →  {"ok": true}
+        Called every ~30 seconds from the background worker thread.
+        """
+        url = f"{self.base_url}/device/{self.slug}/ping"
+        try:
+            resp = self.session.post(url, timeout=5)
+            ok = resp.status_code == 200
+            if ok:
+                print(f"💓 [Heartbeat] ping OK")
+            return ok
+        except Exception as e:
+            print(f"💔 [Heartbeat] ping failed: {e}")
+            return False
+
     def poll_maintenance(self) -> Dict[str, Any]:
         """
-        60s heartbeat poller for device limits and status.
+        60s maintenance poll — checks device limits / config from backend.
         """
         url = f"{self.base_url}/device/{self.slug}/maintenance"
         try:
@@ -158,6 +175,28 @@ class RKHomeClient:
             return resp.json()
         except Exception:
             return {}
+
+    def fetch_pending_commands(self) -> list:
+        """
+        Fetch pending remote commands sent from the mobile/web dashboard.
+        GET /device/:slug/commands/pending
+        """
+        url = f"{self.base_url}/device/{self.slug}/commands/pending"
+        try:
+            resp = self.session.get(url, timeout=4)
+            if resp.status_code == 200:
+                return resp.json().get("commands", [])
+        except Exception:
+            pass
+        return []
+
+    def ack_command(self, cmd_id: str, success: bool, result: str):
+        """Acknowledge command completion."""
+        url = f"{self.base_url}/device/{self.slug}/commands/{cmd_id}/complete"
+        try:
+            self.session.post(url, json={"success": success, "result": result}, timeout=4)
+        except Exception:
+            pass
 
     def sync_alarms_to_cloud(self, alarms: list):
         url = f"{self.base_url}/device/{self.slug}/sync_alarms"

@@ -13,7 +13,6 @@ from config import (
     BLUETOOTH_HCI,
     BLUETOOTH_SPEAKER_MAC,
     AUDIO_CACHE_DIR,
-    MAINTENANCE_POLL_INTERVAL
 )
 from router import FastCommandRouter
 from backend.client import RKHomeClient
@@ -75,8 +74,6 @@ class RKV2Assistant:
             print("🧠 [OfflineLLM] Qwen2.5-0.5B Q4_K_M ready — offline fallback active")
         else:
             print("⚠️  [OfflineLLM] Not available — run: python3 v2/llm/download_model.py")
-
-        self._last_maintenance = 0.0
 
     def play_ready_sound(self):
         """Instant startup greeting from pre-rendered local audio file."""
@@ -148,9 +145,6 @@ class RKV2Assistant:
         query = query.strip()
         if not query:
             return
-
-        # Acknowledge typed/submitted text input immediately
-        self.player.play_chime("captured")
 
         # 4.1 Resolve Contextual Pronouns
         resolved_query = self.conversation.resolve_contextual_query(query)
@@ -353,39 +347,71 @@ class RKV2Assistant:
             elif act == "shutdown":
                 os.system("sudo poweroff")
 
-    def run_tick(self):
-        """Cooperative single-loop tick."""
-        self.alarm_mgr.check_alarms_tick()
-        self.pomodoro.tick()
-        self.player.send_speaker_keepalive()
-        self.remote_sync.poll_remote_commands()
+    def _background_worker(self):
+        """
+        Dedicated daemon thread — runs every second, never blocks the voice loop.
+        Responsibilities:
+          • 5s  — Alarm/Pomodoro ticks
+          • 5s  — Remote command polling (mobile app / web dashboard → Pi)
+          • 5s  — Speaker keepalive (prevents BT audio from sleeping)
+          • 30s — Heartbeat ping (backend knows device is online)
+          • 60s — Maintenance poll (device limits / config sync)
+          • 60s — Bluetooth adapter health check
+        """
+        import threading
+        last_heartbeat   = 0.0
+        last_maintenance = 0.0
 
-        now = time.time()
-        if now - self._last_maintenance > MAINTENANCE_POLL_INTERVAL:
-            self._last_maintenance = now
-            BluetoothAdapterManager.verify_or_reboot()
-            self.client.poll_maintenance()
+        print("🔁 [Worker] Background thread started.")
+        while not self._stop_worker.is_set():
+            now = time.time()
+            try:
+                # Fast ticks (every loop iteration, internal rate-limiting inside each)
+                self.alarm_mgr.check_alarms_tick()
+                self.pomodoro.tick()
+                self.player.send_speaker_keepalive()
+                self.remote_sync.poll_remote_commands()
+
+                # 30s heartbeat — lets backend know Pi is alive
+                if now - last_heartbeat > 30:
+                    last_heartbeat = now
+                    self.client.ping_alive()
+
+                # 60s maintenance + BT check
+                if now - last_maintenance > 60:
+                    last_maintenance = now
+                    BluetoothAdapterManager.verify_or_reboot()
+                    self.client.poll_maintenance()
+
+            except Exception as e:
+                print(f"⚠️ [Worker] Error: {e}")
+
+            self._stop_worker.wait(timeout=1.0)
+
+        print("🛑 [Worker] Background thread stopped.")
+
+    def run_voice_loop(self):
+        """
+        Continuous hands-free voice loop — the only way to talk to RK AI.
+        Listens immediately after each response finishes.
+        """
+        import threading
+        self._stop_worker = threading.Event()
+        worker = threading.Thread(target=self._background_worker, daemon=True)
+        worker.start()
+
+        print("\n🎙️ [VOICE MODE] Listening continuously — just speak!")
+        try:
+            while True:
+                self.listen_and_process_voice()
+        except KeyboardInterrupt:
+            print("\n👋 Shutting down RK AI Assistant.")
+        finally:
+            self._stop_worker.set()
+            worker.join(timeout=3)
 
 if __name__ == "__main__":
     assistant = RKV2Assistant()
-    # Instant startup greeting using pre-rendered audio (zero lag)
     assistant.play_ready_sound()
+    assistant.run_voice_loop()
 
-    print("\n[READY] Options:")
-    print("  • Press [ENTER] to record voice from microphone")
-    print("  • Or type text command directly")
-    print("  • Press Ctrl+C to exit")
-
-    try:
-        while True:
-            assistant.run_tick()
-            try:
-                cmd = input("\n[Mic: ENTER / Text: Type] > ")
-                if not cmd.strip():
-                    assistant.listen_and_process_voice()
-                else:
-                    assistant.handle_command(cmd)
-            except EOFError:
-                break
-    except KeyboardInterrupt:
-        print("\nShutting down V2 Assistant.")
