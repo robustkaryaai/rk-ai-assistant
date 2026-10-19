@@ -124,6 +124,14 @@ class AudioPlayer:
     def is_playing(self) -> bool:
         return self._current_proc is not None and self._current_proc.poll() is None
 
+    def wait_playback(self, timeout: float = 15.0):
+        """Block until the current audio finishes playing or timeout expires."""
+        if self._current_proc:
+            try:
+                self._current_proc.wait(timeout=timeout)
+            except Exception:
+                pass
+
     def stop(self):
         """Immediately stop all audio playback, killing any orphaned players."""
         if self._current_proc:

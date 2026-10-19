@@ -402,14 +402,19 @@ class RKV2Assistant:
         Listens immediately after each response finishes.
         """
         import threading
+        # 1. Background worker for heartbeat, alarms & commands
         self._stop_worker = threading.Event()
         worker = threading.Thread(target=self._background_worker, daemon=True)
         worker.start()
 
-        # One-time mic calibration with speaker silent (before play_ready_sound)
+        # 2. One-time mic calibration while system is completely silent
         self.recorder.calibrate_once()
 
-        print("\n🎙️ [VOICE MODE] Listening continuously — just speak!")
+        # 3. Startup greeting (AFTER calibration & background setup)
+        self.play_ready_sound()
+        self.player.wait_playback(timeout=8.0)
+
+        print("\n🎙️ [VOICE MODE] System fully initialized — listening continuously!", flush=True)
         try:
             while True:
                 self.listen_and_process_voice()
@@ -421,6 +426,6 @@ class RKV2Assistant:
 
 if __name__ == "__main__":
     assistant = RKV2Assistant()
-    assistant.play_ready_sound()
     assistant.run_voice_loop()
+
 
