@@ -37,17 +37,19 @@ class AudioPlayer:
         if is_url:
             stream_cmds = []
             if shutil.which("mpv"):
-                # Ultra-light flags for single-core Pi Zero W:
-                # --no-video, --vo=null, audio-only buffer, and lower CPU footprint
+                # Robust continuous streaming flags for Pi Zero W:
+                # Never pause playback for caching, auto-reconnects on stream jitter
                 mpv_light = [
                     "mpv",
                     "--really-quiet",
                     "--no-video",
                     "--vo=null",
                     "--ao=pulse",
-                    "--audio-buffer=0.2",
-                    "--demuxer-max-bytes=8M",
-                    "--demuxer-readahead-secs=5",
+                    "--cache-pause=no",
+                    "--cache-pause-wait=0",
+                    "--demuxer-max-bytes=16M",
+                    "--demuxer-readahead-secs=20",
+                    "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=2",
                     target
                 ]
                 stream_cmds.append(mpv_light)
