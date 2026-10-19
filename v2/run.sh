@@ -137,9 +137,6 @@ lock_speaker_audio
                     FAIL_COUNT=0
                 fi
             fi
-        else
-            # Keep audio locked to speaker
-            lock_speaker_audio
         fi
     done
 ) &

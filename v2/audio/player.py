@@ -207,21 +207,10 @@ class AudioPlayer:
             self._set_hw_volume(target_vol)
             print(f"[player] 🔊 Audio restored to {target_vol}%.")
 
-    # ─── 1.4 BLUETOOTH SPEAKER ULTRASONIC KEEP-ALIVE ────────
+    # ─── 1.4 BLUETOOTH SPEAKER KEEP-ALIVE ────────
     def send_speaker_keepalive(self):
-        """Send a non-blocking 0.1s silent buffer to keep BT speaker audio sink active."""
-        now = time.time()
-        if not self.is_playing() and (now - self._last_audio_activity > 180):
-            self._last_audio_activity = now
-            try:
-                # Play tiny 500-byte silence non-blocking so it never times out
-                subprocess.Popen(
-                    ["aplay", "-q", "-d", "1", "/dev/zero"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-            except Exception:
-                pass
+        """Keepalive is handled by PulseAudio sink suspension flags; no noisy raw zero-byte pulses."""
+        pass
 
     # ─── 1.5 LOCAL EARCON SOUNDBOARD ─────────────────────────
     def play_chime(self, chime_type: str, sync: bool = False):
