@@ -4,15 +4,49 @@ import time
 from pathlib import Path
 from typing import Optional
 
+try:
+    import speech_recognition as sr
+    SPEECH_RECOGNITION_AVAILABLE = True
+except ImportError:
+    sr = None
+    SPEECH_RECOGNITION_AVAILABLE = False
+
+
+def setup_microphone_volume():
+    """Force hardware capture gain to 100% via amixer (exact v1 implementation)."""
+    try:
+        controls = ["Capture", "Mic", "Internal Mic", "Digital"]
+        for control in controls:
+            subprocess.run(["amixer", "sset", control, "100%"], capture_output=True)
+    except Exception as e:
+        pass
+
+
+def _normalize_audio(audio_data, target_level=25000):
+    """Normalize and boost soft microphone input (exact v1 implementation)."""
+    if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return audio_data
+    try:
+        import audioop
+        raw_data = audio_data.get_raw_data()
+        max_val = audioop.max(raw_data, 2)
+        if max_val == 0:
+            return audio_data
+        factor = target_level / max_val
+        factor = min(factor, 15.0)  # Boost quiet microphones up to 15x
+        if factor > 1.05:
+            boosted_raw = audioop.mul(raw_data, 2, factor)
+            return sr.AudioData(boosted_raw, audio_data.sample_rate, audio_data.sample_width)
+    except Exception:
+        pass
+    return audio_data
+
+
 class AudioRecorder:
     """
-    Smart Audio Capture & STT for Pi Zero W (512MB RAM).
-    Features:
-    - Smart VAD silence detection (via speech_recognition energy thresholding)
-    - One-time ambient noise calibration (not repeated every loop)
-    - Automatically stops recording as soon as user finishes speaking
-    - Fallback to native ALSA arecord if speech_recognition isn't installed
-    - Hardware mute check
+    Robust Audio Capture & STT for Pi Zero W.
+    Combines v1's proven hardware gain + audio normalization + Google STT
+    with v2's clean architecture and cloud fallback.
     """
 
     def __init__(self, data_dir: Path):
@@ -21,82 +55,75 @@ class AudioRecorder:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.is_hardware_muted = False
 
-        # Cached VAD energy threshold — calibrated once at startup, not every loop.
-        # This prevents the threshold from sky-rocketing when music is playing.
-        self._energy_threshold: float = 350.0
-        self._threshold_calibrated: bool = False
+        # Set hardware mic volume on startup
+        setup_microphone_volume()
+
+        self._recognizer: Optional[sr.Recognizer] = None
+        self._mic: Optional[sr.Microphone] = None
+        if SPEECH_RECOGNITION_AVAILABLE:
+            try:
+                self._recognizer = sr.Recognizer()
+                self._recognizer.energy_threshold = 300
+                self._recognizer.dynamic_energy_threshold = True
+                self._recognizer.dynamic_energy_ratio = 1.5
+                self._recognizer.pause_threshold = 1.0
+                self._recognizer.phrase_threshold = 0.3
+                self._recognizer.non_speaking_duration = 0.8
+                self._mic = sr.Microphone()
+            except Exception as e:
+                print(f"[recorder] Error initializing SpeechRecognition: {e}", flush=True)
 
     def calibrate_once(self):
-        """
-        Calibrate ambient noise energy threshold once (call at startup, with speaker silent).
-        Saves the result so record_command() doesn't re-calibrate every loop.
-        """
-        try:
-            import speech_recognition as sr
-            r = sr.Recognizer()
-            r.energy_threshold = 350
-            r.dynamic_energy_threshold = True
-            with sr.Microphone() as source:
-                print("🎙️ [VAD] Calibrating mic threshold (1s)...")
-                r.adjust_for_ambient_noise(source, duration=1.0)
-            self._energy_threshold = max(r.energy_threshold, 300)
-            self._threshold_calibrated = True
-            print(f"🎙️ [VAD] Threshold set to {self._energy_threshold:.0f}")
-        except Exception as e:
-            print(f"[VAD] Calibration failed, using default 350: {e}")
-            self._energy_threshold = 350.0
+        """Calibrate ambient noise with 100% hardware gain set."""
+        setup_microphone_volume()
+        if self._recognizer and self._mic:
+            try:
+                print("🎙️ [STT] Calibrating microphone for room noise (1s)...", flush=True)
+                with self._mic as source:
+                    self._recognizer.adjust_for_ambient_noise(source, duration=1.0)
+                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 150)
+                print(f"🎙️ [STT] Baseline energy threshold: {self._recognizer.energy_threshold:.0f}", flush=True)
+            except Exception as e:
+                print(f"[STT] Calibration notice: {e}", flush=True)
 
-    def record_command(self, duration: int = 7, silence_duration: float = 1.2) -> Optional[Path]:
+    def record_command(self, duration: int = 7, silence_duration: float = 1.0) -> Optional[Path]:
         """
-        Smart VAD Recording:
-        - Uses pre-calibrated energy threshold so music doesn't throw it off.
-        - Listens with automatic silence cutoff (fast response).
-        - Falls back to arecord if speech_recognition isn't available.
+        Record user speech using speech_recognition (v1 method) with audio boost.
+        Returns Path to WAV if speech captured, None if silence.
         """
         if self.is_hardware_muted:
             return None
 
-        # Delete previous recording
         if self.record_path.exists():
             try:
                 self.record_path.unlink()
             except Exception:
                 pass
 
-        # 1. Smart VAD Recording using speech_recognition
-        try:
-            import speech_recognition as sr
-            r = sr.Recognizer()
+        if self._recognizer and self._mic:
+            try:
+                self._recognizer.pause_threshold = silence_duration
+                with self._mic as source:
+                    # timeout=4s so it returns quickly on silence and loops
+                    audio = self._recognizer.listen(source, timeout=4, phrase_time_limit=duration)
 
-            # Use pre-calibrated threshold — never re-calibrate mid-session
-            r.energy_threshold = self._energy_threshold
-            r.dynamic_energy_threshold = False   # Don't let music raise the bar
-            r.pause_threshold = silence_duration
-            r.phrase_threshold = 0.2             # Start capturing speech quickly
-            r.non_speaking_duration = silence_duration
+                # Boost audio (v1 secret for high capture rate on Pi Zero)
+                audio = _normalize_audio(audio)
 
-            with sr.Microphone() as source:
-                try:
-                    # listen() blocks until phrase_time_limit or pause_threshold
-                    audio = r.listen(
-                        source,
-                        timeout=None,           # No timeout — wait forever for speech
-                        phrase_time_limit=duration
-                    )
-                    with open(self.record_path, "wb") as f:
-                        f.write(audio.get_wav_data())
+                with open(self.record_path, "wb") as f:
+                    f.write(audio.get_wav_data())
 
-                    if self.record_path.exists() and self.record_path.stat().st_size > 1500:
-                        return self.record_path
+                if self.record_path.exists() and self.record_path.stat().st_size > 1500:
+                    return self.record_path
 
-                except Exception as listen_err:
-                    # WaitTimeoutError or other — just return None silently
-                    pass
+            except sr.WaitTimeoutError:
+                # Normal silence — return None so loop continues
+                return None
+            except Exception as e:
+                # Other audio error — fall through to arecord
+                pass
 
-        except Exception as import_err:
-            pass  # speech_recognition not installed, fall through to arecord
-
-        # 2. Native ALSA arecord fallback (only if sr not available)
+        # Native ALSA arecord fallback
         cmd = [
             "arecord",
             "-D", "default",
@@ -108,52 +135,51 @@ class AudioRecorder:
             str(self.record_path)
         ]
         try:
-            print(f"🎙️ [RECORD] Listening via arecord ({duration}s)...")
             subprocess.run(cmd, check=True, timeout=duration + 3)
             if self.record_path.exists() and self.record_path.stat().st_size > 1500:
                 return self.record_path
-        except Exception as e:
-            print(f"[record] arecord error: {e}")
+        except Exception:
+            pass
 
         return None
 
     def transcribe(self, client=None) -> str:
         """
-        Transcribes the recorded command:
-        1. Fast cloud Whisper STT via backend (/audio/:slug).
-        2. Fallback to Google STT (speech_recognition) if cloud fails.
+        Transcribe captured audio:
+        1. Google STT with normalized audio (exact v1 engine that worked great).
+        2. Backend Cloud STT fallback.
         """
         if not self.record_path.exists():
             return ""
 
-        # Cloud transcription via RK_AI_HOME (Whisper on backend)
+        # 1. Primary: Direct Google STT with language hint (just like v1)
+        if SPEECH_RECOGNITION_AVAILABLE:
+            try:
+                r = sr.Recognizer()
+                with sr.AudioFile(str(self.record_path)) as source:
+                    audio = r.record(source)
+                    audio = _normalize_audio(audio)
+                    text = r.recognize_google(audio, language="en-IN").strip()
+                    if text:
+                        print(f"🔤 [STT] Recognized: '{text}'", flush=True)
+                        return text
+            except sr.UnknownValueError:
+                pass  # Audio was background noise / unintelligible
+            except sr.RequestError as e:
+                print(f"[STT] Google STT request error: {e}", flush=True)
+            except Exception as e:
+                print(f"[STT] Local STT error: {e}", flush=True)
+
+        # 2. Secondary fallback: Backend Cloud Whisper
         if client:
             try:
                 audio_bytes = self.record_path.read_bytes()
                 res = client.send_audio(audio_bytes)
                 text = res.get("text", "").strip()
                 if text:
-                    print(f"☁️ [STT] Cloud: '{text}'")
+                    print(f"☁️ [STT] Cloud: '{text}'", flush=True)
                     return text
             except Exception as e:
-                print(f"[stt] Cloud STT error: {e}")
-
-        # Local Google STT fallback (free, no API key, works offline via internet)
-        try:
-            import speech_recognition as sr
-            r = sr.Recognizer()
-            with sr.AudioFile(str(self.record_path)) as source:
-                audio = r.record(source)
-                try:
-                    text = r.recognize_google(audio, language="en-IN").strip()
-                    if text:
-                        print(f"🔤 [STT] Local: '{text}'")
-                        return text
-                except sr.UnknownValueError:
-                    pass  # Could not understand audio
-                except sr.RequestError as e:
-                    print(f"[stt] Google STT request failed: {e}")
-        except Exception:
-            pass
+                print(f"[STT] Cloud STT error: {e}", flush=True)
 
         return ""

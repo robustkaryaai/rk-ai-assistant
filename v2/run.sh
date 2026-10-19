@@ -154,7 +154,7 @@ echo "🎉 [RK-MASTER] System healthy. Launching Python Assistant..."
 echo "=========================================================="
 
 while true; do
-    python3 "$SCRIPT_DIR/main.py"
+    python3 -u "$SCRIPT_DIR/main.py"
     EXIT_CODE=$?
     echo "[RK-MASTER] Assistant process exited with code $EXIT_CODE. Restarting in 3 seconds..."
     sleep 3

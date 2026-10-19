@@ -112,10 +112,12 @@ class RKV2Assistant:
             time.sleep(2)
             return
 
-        # ── Silent ambient listen — duck audio first so speaker doesn't bleed in ─
-        self.player.duck_for_voice()
-        wav_path = self.recorder.record_command(duration=7, silence_duration=1.2)
-        self.player.unduck_audio()
+        # ── Ambient listen ───────────────────────────────────────────────────
+        if self.player.is_playing():
+            self.player.duck_for_voice()
+        wav_path = self.recorder.record_command(duration=7, silence_duration=1.0)
+        if self.player._is_ducked:
+            self.player.unduck_audio()
 
         if not wav_path:
             # Silence — loop continues silently
@@ -128,12 +130,11 @@ class RKV2Assistant:
         text = self.recorder.transcribe(client=self.client)
 
         if not text:
-            # Audio had no recognizable speech (cough, noise, etc.) — stay quiet
-            print("⚠️ [STT] No speech recognized.")
+            # Audio had no recognizable speech
             return
 
         # ── Real command detected — NOW play earcons ─────────────────────────
-        print(f"✅ [COMMAND] '{text}'")
+        print(f"✅ [COMMAND] '{text}'", flush=True)
         self.player.play_chime("captured", sync=True)
         self.player.play_chime("thinking")
 
