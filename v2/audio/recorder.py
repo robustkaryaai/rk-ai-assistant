@@ -4,12 +4,37 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from ctypes import CFUNCTYPE, c_char_p, c_int, cdll
+from contextlib import contextmanager
+
 try:
     import speech_recognition as sr
     SPEECH_RECOGNITION_AVAILABLE = True
 except ImportError:
     sr = None
     SPEECH_RECOGNITION_AVAILABLE = False
+
+# Silence ALSA C-library error dumps
+try:
+    ERROR_HANDLER_FUNC = CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int, c_char_p)
+    def _py_error_handler(filename, line, function, err, fmt):
+        pass
+    _c_error_handler = ERROR_HANDLER_FUNC(_py_error_handler)
+except Exception:
+    _c_error_handler = None
+
+@contextmanager
+def no_alsa_err():
+    if _c_error_handler:
+        try:
+            asound = cdll.LoadLibrary('libasound.so')
+            asound.snd_lib_error_set_handler(_c_error_handler)
+            yield
+            asound.snd_lib_error_set_handler(None)
+            return
+        except Exception:
+            pass
+    yield
 
 
 def setup_microphone_volume():
@@ -109,9 +134,10 @@ class AudioRecorder:
         if self._recognizer and self._mic:
             try:
                 self._recognizer.pause_threshold = silence_duration
-                with self._mic as source:
-                    # timeout=5s so it gives you plenty of time to start speaking
-                    audio = self._recognizer.listen(source, timeout=5, phrase_time_limit=duration)
+                with no_alsa_err():
+                    with self._mic as source:
+                        # timeout=5s so it gives you plenty of time to start speaking
+                        audio = self._recognizer.listen(source, timeout=5, phrase_time_limit=duration)
 
                 # Boost audio (v1 secret for high capture rate on Pi Zero)
                 audio = _normalize_audio(audio)
