@@ -282,6 +282,49 @@ class FastCommandRouter:
                 "args": {"action": "shutdown"}
             }
 
+        # ─── LOCAL INSTANT GREETINGS (<0.5ms) ────────────────
+        if cleaned in ("hi", "hello", "hey", "hey rk", "hi rk", "hello rk", "namaste", "radhe radhe"):
+            return True, {
+                "reply": "Radhe Radhe! How can I help you today?",
+                "tool": "chat_local",
+                "args": {}
+            }
+
+        # ─── IDENTITY & CREATOR ──────────────────────────────
+        if any(p in cleaned for p in ("who are you", "what is your name", "what's your name", "who made you", "who created you")):
+            return True, {
+                "reply": "I am RK AI Assistant, created and powered by RexyCore.",
+                "tool": "chat_local",
+                "args": {}
+            }
+
+        # ─── CAPABILITIES / HELP ─────────────────────────────
+        if cleaned in ("what can you do", "help", "commands", "features"):
+            return True, {
+                "reply": "I can play music, tell weather, set alarms and timers, answer questions, run focus routines, and assist you online or offline.",
+                "tool": "chat_local",
+                "args": {}
+            }
+
+        # ─── LOCAL TIME & DATE (Instant from RTC/OS clock) ────
+        if any(p in cleaned for p in ("what time is it", "what's the time", "tell me the time", "current time", "time now")):
+            from datetime import datetime
+            time_str = datetime.now().strftime("%I:%M %p")
+            return True, {
+                "reply": f"The time is {time_str}.",
+                "tool": "chat_local",
+                "args": {}
+            }
+
+        if any(p in cleaned for p in ("what is the date", "what's the date", "today's date", "what day is it")):
+            from datetime import datetime
+            date_str = datetime.now().strftime("%A, %B %d, %Y")
+            return True, {
+                "reply": f"Today is {date_str}.",
+                "tool": "chat_local",
+                "args": {}
+            }
+
         if cleaned in ("status", "how are you"):
             return True, {
                 "reply": "RK AI is active, connected to speaker, and running smoothly.",
