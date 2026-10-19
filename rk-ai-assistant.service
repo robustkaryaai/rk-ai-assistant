@@ -13,7 +13,26 @@ Group=raspberrypi
 
 WorkingDirectory=/home/raspberrypi/Documents/rk-ai-assistant
 
-# run.sh handles: rfkill unblock, hciconfig up, speaker connect, watchdog, python restart loop
+# ─── Bluetooth pre-flight (runs before assistant starts) ──────────────────────
+# Step 1: Restart the bluetooth daemon cleanly
+ExecStartPre=/bin/systemctl restart bluetooth.service
+ExecStartPre=/bin/sleep 2
+
+# Step 2: Unblock any rfkill soft-block on all BT adapters
+ExecStartPre=/usr/sbin/rfkill unblock bluetooth
+
+# Step 3: Bring hci1 (USB dongle) UP — hci0 is damaged, ignore errors on it
+ExecStartPre=-/usr/bin/hciconfig hci1 up
+ExecStartPre=-/usr/bin/hciconfig hci1 sspmode 1
+ExecStartPre=/bin/sleep 1
+
+# Step 4: Trust + connect the speaker so PulseAudio A2DP is ready
+ExecStartPre=-/usr/bin/bluetoothctl trust D0:78:1D:4F:F4:1E
+ExecStartPre=-/usr/bin/bluetoothctl connect D0:78:1D:4F:F4:1E
+ExecStartPre=/bin/sleep 3
+
+# ─── Main process ─────────────────────────────────────────────────────────────
+# run.sh handles: speaker watchdog loop + Python assistant with auto-restart
 ExecStart=/bin/bash /home/raspberrypi/Documents/rk-ai-assistant/v2/run.sh
 
 Restart=on-failure
