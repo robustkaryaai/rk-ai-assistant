@@ -112,32 +112,33 @@ class RKV2Assistant:
             time.sleep(2)
             return
 
-        self.player.duck_for_voice()
-        self.player.play_chime("wake")
-        print("\n🎤 [LISTENING] Speak your command...")
-
+        # ── Silent ambient listen — NO chimes, no duck ──────────────────────
+        # Chimes only play if we actually get a voice command.
+        print("\n👂 [LISTENING] Waiting for speech...")
         wav_path = self.recorder.record_command(duration=6, silence_duration=1.0)
-        self.player.unduck_audio()
 
         if not wav_path:
-            print("⚠️ [MIC] No audio captured or silence detected.")
+            # Silence or background noise — do nothing, loop continues silently
             return
 
-        # Play command captured confirmation chime
-        self.player.play_chime("captured")
-
-        # Check for background sound events (baby crying / shouting)
+        # ── Speech detected — check for background events first ─────────────
         self.sound_monitor.check_audio_file(wav_path)
 
-        print("🔍 [STT] Verifying and transcribing speech...")
-        self.player.play_chime("thinking")
+        # ── Transcribe ───────────────────────────────────────────────────────
         text = self.recorder.transcribe(client=self.client)
 
         if not text:
-            print("⚠️ [STT] Could not recognize speech.")
+            # Audio had no recognizable speech (cough, noise, etc.) — stay quiet
+            print("⚠️ [STT] No speech recognized.")
             return
 
-        print(f"✅ [VERIFIED INPUT] '{text}'")
+        # ── Real command detected — NOW play earcons ─────────────────────────
+        print(f"✅ [COMMAND] '{text}'")
+        self.player.duck_for_voice()
+        self.player.play_chime("captured", sync=True)
+        self.player.unduck_audio()
+        self.player.play_chime("thinking")
+
         self.handle_command(text)
 
     def handle_command(self, query: str):
