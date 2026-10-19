@@ -38,7 +38,7 @@ def no_alsa_err():
 
 
 def setup_microphone_volume():
-    """Force hardware capture gain to 100% across all ALSA controls."""
+    """Force hardware and software capture gain to maximum (far-field boost)."""
     controls = ["Capture", "Mic", "Internal Mic", "Digital", "Input", "Boost"]
     for control in controls:
         try:
@@ -47,14 +47,14 @@ def setup_microphone_volume():
         except Exception:
             pass
     try:
-        # Also maximize PulseAudio source volume
-        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "100%"], capture_output=True)
+        # Boost PulseAudio capture source to 150% (digital pre-amp boost for far-field listening)
+        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "150%"], capture_output=True)
     except Exception:
         pass
 
 
-def _normalize_audio(audio_data, target_level=30000):
-    """Normalize and boost soft microphone input up to 30000 peak (near 32767 max)."""
+def _normalize_audio(audio_data, target_level=31000):
+    """Normalize and boost soft microphone input up to 31000 peak (far-field amplification up to 35x)."""
     if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
         return audio_data
     try:
@@ -64,7 +64,7 @@ def _normalize_audio(audio_data, target_level=30000):
         if max_val == 0:
             return audio_data
         factor = target_level / max_val
-        factor = min(factor, 20.0)  # Boost quiet microphones up to 20x
+        factor = min(factor, 35.0)  # Far-field speech boost: allow up to 35x amplification
         if factor > 1.05:
             boosted_raw = audioop.mul(raw_data, 2, factor)
             return sr.AudioData(boosted_raw, audio_data.sample_rate, audio_data.sample_width)
@@ -94,11 +94,12 @@ class AudioRecorder:
         if SPEECH_RECOGNITION_AVAILABLE:
             try:
                 self._recognizer = sr.Recognizer()
-                self._recognizer.energy_threshold = 300
+                # 🚀 Far-Field Sensitivity: sensitive 50 base threshold + dynamic tracking
+                self._recognizer.energy_threshold = 50
                 self._recognizer.dynamic_energy_threshold = True
-                self._recognizer.dynamic_energy_ratio = 1.5
-                self._recognizer.pause_threshold = 1.0
-                self._recognizer.phrase_threshold = 0.2
+                self._recognizer.dynamic_energy_ratio = 1.3
+                self._recognizer.pause_threshold = 1.1
+                self._recognizer.phrase_threshold = 0.1   # Catch far away speech instantly
                 self._recognizer.non_speaking_duration = 0.8
                 self._mic = sr.Microphone(sample_rate=16000)
             except Exception as e:
@@ -112,7 +113,8 @@ class AudioRecorder:
                 print("🎙️ [STT] Calibrating microphone for room noise (1s)...", flush=True)
                 with self._mic as source:
                     self._recognizer.adjust_for_ambient_noise(source, duration=0.8)
-                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 100)
+                # Keep floor ultra-sensitive (50) for distant speech
+                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 50)
                 print(f"🎙️ [STT] Baseline energy threshold: {self._recognizer.energy_threshold:.0f}", flush=True)
             except Exception as e:
                 print(f"[STT] Calibration notice: {e}", flush=True)
