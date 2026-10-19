@@ -5,6 +5,11 @@ import time
 import shutil
 from typing import Optional
 
+try:
+    from config import BASE_DIR
+except ImportError:
+    from v2.config import BASE_DIR
+
 class AudioPlayer:
     """
     Alexa-Grade Audio Player for Pi Zero W (ARMv6, 512MB RAM).
