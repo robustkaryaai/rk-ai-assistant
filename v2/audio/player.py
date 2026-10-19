@@ -120,11 +120,24 @@ class AudioPlayer:
         return self._current_proc is not None and self._current_proc.poll() is None
 
     def stop(self):
-        if self._current_proc and self._current_proc.poll() is None:
+        """Immediately stop all audio playback, killing any orphaned players."""
+        if self._current_proc:
             try:
                 os.killpg(os.getpgid(self._current_proc.pid), signal.SIGTERM)
+                self._current_proc.wait(timeout=0.2)
+            except Exception:
+                try:
+                    os.killpg(os.getpgid(self._current_proc.pid), signal.SIGKILL)
+                except Exception:
+                    pass
+
+        # Clean fallback to ensure no background audio processes persist
+        for bin_name in ("mpv", "mpg123", "cvlc", "aplay"):
+            try:
+                subprocess.run(["pkill", "-9", bin_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
+
         self._current_proc = None
         self._current_url = None
 
