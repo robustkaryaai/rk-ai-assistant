@@ -92,6 +92,9 @@ class RKV2Assistant:
         if not text:
             return
 
+        # Play answer ready transition chime before speech
+        self.player.play_chime("answer")
+
         if self.conversation.is_whisper_mode_active():
             print("🌙 [NIGHT PROTOCOL] Volume lowered to 30% for gentle playback.")
             self.player.set_system_volume("set", 30)
@@ -116,6 +119,9 @@ class RKV2Assistant:
         if not wav_path:
             print("⚠️ [MIC] No audio captured, muted, or silence.")
             return
+
+        # Play command captured confirmation chime
+        self.player.play_chime("captured")
 
         # Check for background sound events (baby crying / shouting)
         self.sound_monitor.check_audio_file(wav_path)
@@ -142,6 +148,9 @@ class RKV2Assistant:
         query = query.strip()
         if not query:
             return
+
+        # Acknowledge typed/submitted text input immediately
+        self.player.play_chime("captured")
 
         # 4.1 Resolve Contextual Pronouns
         resolved_query = self.conversation.resolve_contextual_query(query)

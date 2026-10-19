@@ -207,7 +207,18 @@ class AudioPlayer:
 
     # ─── 1.5 LOCAL EARCON SOUNDBOARD ─────────────────────────
     def play_chime(self, chime_type: str):
+        """Plays immediate auditory earcons (wake, captured, thinking, answer)."""
         self._last_audio_activity = time.time()
+        sound_file = BASE_DIR / "data" / "sounds" / f"{chime_type}.wav"
+        if sound_file.exists():
+            try:
+                subprocess.Popen(
+                    ["aplay", "-q", str(sound_file)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception:
+                pass
 
     # ─── 2.1 HARDWARE VOLUME MIXER ───────────────────────────
     def set_system_volume(self, action: str, level: Optional[int] = None, step: int = 10):
