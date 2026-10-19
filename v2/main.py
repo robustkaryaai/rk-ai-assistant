@@ -112,13 +112,13 @@ class RKV2Assistant:
             time.sleep(2)
             return
 
-        # ── Silent ambient listen — NO chimes, no duck ──────────────────────
-        # Chimes only play if we actually get a voice command.
-        print("\n👂 [LISTENING] Waiting for speech...")
-        wav_path = self.recorder.record_command(duration=6, silence_duration=1.0)
+        # ── Silent ambient listen — duck audio first so speaker doesn't bleed in ─
+        self.player.duck_for_voice()
+        wav_path = self.recorder.record_command(duration=7, silence_duration=1.2)
+        self.player.unduck_audio()
 
         if not wav_path:
-            # Silence or background noise — do nothing, loop continues silently
+            # Silence — loop continues silently
             return
 
         # ── Speech detected — check for background events first ─────────────
@@ -134,9 +134,7 @@ class RKV2Assistant:
 
         # ── Real command detected — NOW play earcons ─────────────────────────
         print(f"✅ [COMMAND] '{text}'")
-        self.player.duck_for_voice()
         self.player.play_chime("captured", sync=True)
-        self.player.unduck_audio()
         self.player.play_chime("thinking")
 
         self.handle_command(text)
@@ -406,6 +404,9 @@ class RKV2Assistant:
         self._stop_worker = threading.Event()
         worker = threading.Thread(target=self._background_worker, daemon=True)
         worker.start()
+
+        # One-time mic calibration with speaker silent (before play_ready_sound)
+        self.recorder.calibrate_once()
 
         print("\n🎙️ [VOICE MODE] Listening continuously — just speak!")
         try:
