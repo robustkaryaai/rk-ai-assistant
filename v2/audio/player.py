@@ -90,10 +90,12 @@ class AudioPlayer:
                 print(f"[player] aplay error: {e}")
 
         # 3. Local MP3 / generic playback via mpg123 with PulseAudio / ALSA
+        # -f 32768 sets full digital headroom, -d 1 allows preamp boost
         for out_driver in ("pulse", "alsa"):
             cmd = [
                 "mpg123",
                 "-o", out_driver,
+                "-f", "40000",   # +20% extra software volume gain
                 "-q",
                 target
             ]

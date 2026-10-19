@@ -73,9 +73,9 @@ class AudioRecorder:
                 self._recognizer.dynamic_energy_threshold = True
                 self._recognizer.dynamic_energy_ratio = 1.5
                 self._recognizer.pause_threshold = 1.0
-                self._recognizer.phrase_threshold = 0.3
+                self._recognizer.phrase_threshold = 0.2
                 self._recognizer.non_speaking_duration = 0.8
-                self._mic = sr.Microphone()
+                self._mic = sr.Microphone(sample_rate=16000)
             except Exception as e:
                 print(f"[recorder] Error initializing SpeechRecognition: {e}", flush=True)
 
@@ -86,13 +86,13 @@ class AudioRecorder:
             try:
                 print("🎙️ [STT] Calibrating microphone for room noise (1s)...", flush=True)
                 with self._mic as source:
-                    self._recognizer.adjust_for_ambient_noise(source, duration=1.0)
-                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 150)
+                    self._recognizer.adjust_for_ambient_noise(source, duration=0.8)
+                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 100)
                 print(f"🎙️ [STT] Baseline energy threshold: {self._recognizer.energy_threshold:.0f}", flush=True)
             except Exception as e:
                 print(f"[STT] Calibration notice: {e}", flush=True)
 
-    def record_command(self, duration: int = 7, silence_duration: float = 1.0) -> Optional[Path]:
+    def record_command(self, duration: int = 10, silence_duration: float = 1.2) -> Optional[Path]:
         """
         Record user speech using speech_recognition (v1 method) with audio boost.
         Returns Path to WAV if speech captured, None if silence.
@@ -110,8 +110,8 @@ class AudioRecorder:
             try:
                 self._recognizer.pause_threshold = silence_duration
                 with self._mic as source:
-                    # timeout=4s so it returns quickly on silence and loops
-                    audio = self._recognizer.listen(source, timeout=4, phrase_time_limit=duration)
+                    # timeout=5s so it gives you plenty of time to start speaking
+                    audio = self._recognizer.listen(source, timeout=5, phrase_time_limit=duration)
 
                 # Boost audio (v1 secret for high capture rate on Pi Zero)
                 audio = _normalize_audio(audio)
