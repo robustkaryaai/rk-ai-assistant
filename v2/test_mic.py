@@ -108,35 +108,38 @@ except Exception as e:
 
 # 5. Live Google STT Transcription Test
 print("\n[Step 5/5] Testing Google STT transcription on captured audio...")
-try:
-    with sr.AudioFile(str(test_wav)) as source:
-        audio_file = r.record(source)
-    
-    # Apply audio boost
+for lang in ["en-US", "en-IN"]:
+    print(f"\n--- Testing language: {lang} ---")
+    # A. Test raw captured audio
+    try:
+        with sr.AudioFile(str(test_wav)) as source:
+            raw_audio = r.record(source)
+        res_raw = r.recognize_google(raw_audio, language=lang).strip()
+        print(f"  ✅ [Raw Audio ({lang})] -> \"{res_raw}\"")
+    except sr.UnknownValueError:
+        print(f"  ⚠️ [Raw Audio ({lang})] Unrecognized.")
+    except Exception as e:
+        print(f"  ❌ [Raw Audio ({lang})] Error: {e}")
+
+    # B. Test boosted audio
     try:
         import audioop
-        raw = audio_file.get_raw_data()
-        peak = audioop.max(raw, 2)
+        with sr.AudioFile(str(test_wav)) as source:
+            boosted_audio = r.record(source)
+        raw_bytes = boosted_audio.get_raw_data()
+        peak = audioop.max(raw_bytes, 2)
         if peak > 0:
             boost = min(31000 / peak, 35.0)
-            if boost > 1.05:
-                raw_boosted = audioop.mul(raw, 2, boost)
-                audio_file = sr.AudioData(raw_boosted, audio_file.sample_rate, audio_file.sample_width)
-                boosted_peak = audioop.max(raw_boosted, 2)
-                boosted_rms = audioop.rms(raw_boosted, 2)
-                print(f"  ⚡ Applied {boost:.1f}x boost (Peak: {peak} -> {boosted_peak} | RMS: {rms} -> {boosted_rms})")
-    except Exception:
-        pass
-
-    text = r.recognize_google(audio_file, language="en-IN").strip()
-    print(f"\n🎉 SUCCESS! Google STT Heard:")
-    print(f"👉 \"{text}\"")
-except sr.UnknownValueError:
-    print("  ⚠️ Google STT could not understand audio (noise, silence, or mumbled words).")
-except sr.RequestError as e:
-    print(f"  ❌ Google STT network error: {e}")
-except Exception as e:
-    print(f"  ❌ Transcription error: {e}")
+            boosted_bytes = audioop.mul(raw_bytes, 2, boost)
+            boosted_audio = sr.AudioData(boosted_bytes, boosted_audio.sample_rate, boosted_audio.sample_width)
+            res_boosted = r.recognize_google(boosted_audio, language=lang).strip()
+            print(f"  ✅ [Boosted Audio ({lang})] -> \"{res_boosted}\"")
+        else:
+            print(f"  ⚠️ [Boosted Audio] Peak was 0.")
+    except sr.UnknownValueError:
+        print(f"  ⚠️ [Boosted Audio ({lang})] Unrecognized.")
+    except Exception as e:
+        print(f"  ❌ [Boosted Audio ({lang})] Error: {e}")
 
 print("\n🔊 Would you like to play back what was recorded through your speaker? (y/n)")
 try:
