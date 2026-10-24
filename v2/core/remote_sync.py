@@ -49,10 +49,12 @@ class RemoteSyncManager:
 
         try:
             commands = self.client.fetch_pending_commands()
+            if commands:
+                print(f"📥 [REMOTE] {len(commands)} pending command(s) received.", flush=True)
             for cmd in commands:
                 self._execute_remote_command(cmd)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ [REMOTE] poll_remote_commands error: {e}", flush=True)
 
     def _execute_remote_command(self, cmd: Dict[str, Any]):
         cmd_id = cmd.get("id") or cmd.get("$id")

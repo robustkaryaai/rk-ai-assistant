@@ -136,12 +136,23 @@ class RKV2Assistant:
             print("⚠️ [STT] Audio was unclear or noise.", flush=True)
             return
 
+        # ── Wake-word gate: only act if "rk" appears anywhere in the sentence ──
+        import re
+        words = re.findall(r"\b\w+\b", text.lower())
+        if "rk" not in words:
+            print(f"🔕 [WAKE] Ignored (no wake-word 'RK'): '{text}'", flush=True)
+            return
+
+        # Strip the wake-word "rk" from command before sending to handler
+        clean_text = re.sub(r"\brk\b", "", text, flags=re.IGNORECASE).strip(" ,.-")
+        clean_text = re.sub(r"\s{2,}", " ", clean_text).strip()
+
         # ── Real command detected — NOW play earcons ─────────────────────────
-        print(f"✅ [COMMAND] '{text}'", flush=True)
+        print(f"✅ [COMMAND] '{clean_text}' (from: '{text}')", flush=True)
         self.player.play_chime("captured", sync=True)
         self.player.play_chime("thinking")
 
-        self.handle_command(text)
+        self.handle_command(clean_text if clean_text else text)
 
     def handle_command(self, query: str):
         """
