@@ -40,7 +40,7 @@ class RemoteSyncManager:
         Called from the background worker thread every ~5 seconds.
         """
         now = time.time()
-        if now - self._last_cmd_poll < 5:
+        if now - self._last_cmd_poll < 15:   # Pi Zero W: poll every 15s to save CPU
             return
         self._last_cmd_poll = now
 
