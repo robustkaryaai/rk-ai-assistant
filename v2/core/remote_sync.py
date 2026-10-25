@@ -58,10 +58,29 @@ class RemoteSyncManager:
 
     def _execute_remote_command(self, cmd: Dict[str, Any]):
         cmd_id = cmd.get("id") or cmd.get("$id")
-        action = cmd.get("action")
-        payload = cmd.get("payload", {})
+        # Log the full raw payload so we can see every field the backend sends
+        print(f"📥 [REMOTE COMMAND] Raw payload: {cmd}", flush=True)
 
-        print(f"📥 [REMOTE COMMAND] Received: {action} ({cmd_id})")
+        # Try multiple possible field names for action
+        action = (
+            cmd.get("action")
+            or cmd.get("type")
+            or cmd.get("command")
+            or cmd.get("intent")
+            or cmd.get("name")
+        )
+        # Try multiple possible field names for payload
+        payload = (
+            cmd.get("payload")
+            or cmd.get("data")
+            or cmd.get("params")
+            or cmd.get("parameters")
+            or {}
+        )
+        if not isinstance(payload, dict):
+            payload = {}
+
+        print(f"📥 [REMOTE COMMAND] action='{action}' id='{cmd_id}'", flush=True)
 
         success = True
         result = "Executed"

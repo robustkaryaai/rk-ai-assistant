@@ -186,12 +186,17 @@ class RKHomeClient:
             resp = self.session.get(url, timeout=4)
             if resp.status_code == 200:
                 data = resp.json()
+                print(f"📡 [POLL] Raw backend response: {data}", flush=True)
+                # Support both {"commands": [...]} and direct list [...]
+                if isinstance(data, list):
+                    return data
                 return data.get("commands", [])
             else:
                 print(f"⚠️ [POLL] Backend returned HTTP {resp.status_code} for {url}", flush=True)
         except Exception as e:
             print(f"⚠️ [POLL] fetch_pending_commands failed: {e}", flush=True)
         return []
+
 
     def ack_command(self, cmd_id: str, success: bool, result: str):
         """Acknowledge command completion."""
