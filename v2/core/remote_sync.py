@@ -57,30 +57,17 @@ class RemoteSyncManager:
             print(f"⚠️ [REMOTE] poll_remote_commands error: {e}", flush=True)
 
     def _execute_remote_command(self, cmd: Dict[str, Any]):
-        cmd_id = cmd.get("id") or cmd.get("$id")
-        # Log the full raw payload so we can see every field the backend sends
-        print(f"📥 [REMOTE COMMAND] Raw payload: {cmd}", flush=True)
+        cmd_id = cmd.get("$id") or cmd.get("id")
 
-        # Try multiple possible field names for action
-        action = (
-            cmd.get("action")
-            or cmd.get("type")
-            or cmd.get("command")
-            or cmd.get("intent")
-            or cmd.get("name")
-        )
-        # Try multiple possible field names for payload
-        payload = (
-            cmd.get("payload")
-            or cmd.get("data")
-            or cmd.get("params")
-            or cmd.get("parameters")
-            or {}
-        )
+        # Backend uses "commandType" — not "action"
+        action = cmd.get("commandType") or cmd.get("action") or cmd.get("type")
+
+        # Payload field is correct
+        payload = cmd.get("payload") or {}
         if not isinstance(payload, dict):
             payload = {}
 
-        print(f"📥 [REMOTE COMMAND] action='{action}' id='{cmd_id}'", flush=True)
+        print(f"📥 [REMOTE COMMAND] Received: '{action}' (id={cmd_id})", flush=True)
 
         success = True
         result = "Executed"
@@ -129,14 +116,24 @@ class RemoteSyncManager:
             elif action == "stop":
                 self.player.stop()
             elif action == "volume":
-                level = int(payload.get("level", 70))
+                # Backend sends {"volume": 40}, not {"level": 40}
+                level = int(payload.get("volume") or payload.get("level") or 70)
                 self.player.set_system_volume("set", level)
+                result = f"Volume set to {level}%"
+                print(f"🔊 [REMOTE] Volume set to {level}%", flush=True)
             elif action == "ring_alarm":
                 self.assistant.alarm_mgr.ring_period_bell("Remote Ring")
+            else:
+                result = f"Unknown commandType: '{action}'"
+                print(f"⚠️ [REMOTE] Unknown command: '{action}'", flush=True)
         except Exception as e:
             success = False
             result = str(e)
+            print(f"❌ [REMOTE COMMAND] Error executing '{action}': {e}", flush=True)
 
         # Acknowledge command completion to backend
         if cmd_id and self.client:
             self.client.ack_command(cmd_id, success, result)
+
+
+
