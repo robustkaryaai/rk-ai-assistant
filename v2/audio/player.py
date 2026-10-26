@@ -28,7 +28,7 @@ class AudioPlayer:
         self._pre_duck_volume: int = 70
         self._last_audio_activity: float = time.time()
 
-    def play_url_or_file(self, target: str, is_speech: bool = False) -> bool:
+    def play_url_or_file(self, target: str, is_speech: bool = False, sync: bool = False) -> bool:
         """Play stream URL or local audio file via mpg123 or aplay."""
         self.stop()
         if not target:
@@ -87,6 +87,8 @@ class AudioPlayer:
                     stderr=subprocess.DEVNULL,
                     preexec_fn=os.setsid
                 )
+                if sync and self._current_proc:
+                    self._current_proc.wait(timeout=15.0)
                 return True
             except Exception as e:
                 print(f"[player] aplay error: {e}")
@@ -120,6 +122,8 @@ class AudioPlayer:
                 stderr=subprocess.DEVNULL,
                 preexec_fn=os.setsid
             )
+            if sync and self._current_proc:
+                self._current_proc.wait(timeout=15.0)
             return True
         except Exception as e:
             print(f"[player] playback error: {e}")
