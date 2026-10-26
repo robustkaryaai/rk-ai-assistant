@@ -159,6 +159,11 @@ class RemoteSyncManager:
                     result = "text_command received but payload had no text"
             elif action == "ring_alarm":
                 self.assistant.alarm_mgr.ring_period_bell("Remote Ring")
+            elif action == "set_tts_config":
+                if hasattr(self.assistant, "tts") and hasattr(self.assistant.tts, "set_config"):
+                    self.assistant.tts.set_config(payload)
+                result = f"TTS Config updated: {payload}"
+                print(f"🗣️ [REMOTE] set_tts_config: {payload}", flush=True)
             elif action == "delete_alarm":
                 alarm_id = payload.get("alarm_id") or payload.get("id")
                 deleted = self.assistant.alarm_mgr.delete_alarm(str(alarm_id))

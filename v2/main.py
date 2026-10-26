@@ -436,11 +436,18 @@ class RKV2Assistant:
                     last_heartbeat = now
                     self.client.ping_alive()
 
-                # 60s maintenance + BT check
+                # 60s maintenance + BT check + settings sync
                 if now - last_maintenance > 60:
                     last_maintenance = now
                     BluetoothAdapterManager.verify_or_reboot()
-                    self.client.poll_maintenance()
+                    settings = self.client.poll_maintenance()
+                    if settings and isinstance(settings, dict):
+                        tts_conf = settings.get("ttsConfig")
+                        if tts_conf and hasattr(self.tts, "set_config"):
+                            self.tts.set_config(tts_conf)
+                        vol = settings.get("voiceVolume")
+                        if vol is not None and hasattr(self.player, "set_system_volume"):
+                            self.player.set_system_volume("set", int(vol))
 
             except Exception as e:
                 print(f"⚠️ [Worker] Error: {e}")

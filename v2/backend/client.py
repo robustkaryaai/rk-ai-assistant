@@ -175,13 +175,19 @@ class RKHomeClient:
     def poll_maintenance(self) -> Dict[str, Any]:
         """
         60s maintenance poll — checks device limits / config from backend.
+        Also syncs latest settings (TTS config, volume, etc).
         """
-        url = f"{self.base_url}/device/{self.slug}/maintenance"
+        url = f"{self.base_url}/device/{self.slug}/settings"
         try:
             resp = self.session.get(url, timeout=5)
-            return resp.json()
+            if resp.status_code == 200:
+                data = resp.json()
+                docs = data.get("documents", [])
+                if docs and isinstance(docs, list):
+                    return docs[0]
         except Exception:
-            return {}
+            pass
+        return {}
 
     def fetch_pending_commands(self) -> list:
         """

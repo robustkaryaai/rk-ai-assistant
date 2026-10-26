@@ -3,6 +3,8 @@ import subprocess
 import signal
 import time
 import shutil
+import json
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -16,18 +18,40 @@ class AudioPlayer:
     Features:
     - Automatically routes to PulseAudio / Bluetooth speaker sink (-o pulse)
     - Fallback to ALSA (-o alsa) and system aplay for WAV files
-    - Direct espeak speech generation if file playback isn't requested
+    - Persists volume level to disk so volume is remembered across reboots
     """
 
-    def __init__(self):
+    def __init__(self, data_dir: Optional[Path] = None):
         self._current_proc: Optional[subprocess.Popen] = None
         self._current_url: Optional[str] = None
         self._next_prebuffered_url: Optional[str] = None
         self._is_ducked: bool = False
         self._is_speech: bool = False
-        self._is_emergency: bool = False  # Critical: never duck or preempt an active emergency alarm
-        self._pre_duck_volume: int = 70
+        self._is_emergency: bool = False
+        self._data_dir = data_dir or (BASE_DIR / "data")
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._vol_file = self._data_dir / "volume.json"
+        self._pre_duck_volume: int = self._load_saved_volume()
         self._last_audio_activity: float = time.time()
+        
+        # Apply initial saved volume on startup
+        self._set_hw_volume(self._pre_duck_volume)
+
+    def _load_saved_volume(self) -> int:
+        if self._vol_file.exists():
+            try:
+                data = json.loads(self._vol_file.read_text())
+                vol = int(data.get("volume", 70))
+                return max(0, min(100, vol))
+            except Exception:
+                pass
+        return 70
+
+    def _save_volume(self, vol: int):
+        try:
+            self._vol_file.write_text(json.dumps({"volume": vol}))
+        except Exception:
+            pass
 
     def play_url_or_file(self, target: str, is_speech: bool = False, sync: bool = False) -> bool:
         """Play stream URL or local audio file via mpg123 or aplay."""
@@ -43,150 +67,88 @@ class AudioPlayer:
 
         # 1. Web stream playback (WebM, Opus, MP4, MP3 via mpv / cvlc / ffplay)
         if is_url:
-            stream_cmds = []
-            if shutil.which("mpv"):
-                # Robust continuous streaming flags for Pi Zero W:
-                # Never pause playback for caching, auto-reconnects on stream jitter
-                mpv_light = [
-                    "mpv",
-                    "--really-quiet",
-                    "--no-video",
-                    "--vo=null",
-                    "--ao=pulse",
-                    "--cache-pause=no",
-                    "--cache-pause-wait=0",
-                    "--demuxer-max-bytes=16M",
-                    "--demuxer-readahead-secs=20",
-                    "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=2",
-                    target
-                ]
-                stream_cmds.append(mpv_light)
-                stream_cmds.append(["mpv", "--really-quiet", "--no-video", "--vo=null", target])
-            if shutil.which("cvlc"):
-                stream_cmds.append(["cvlc", "--play-and-exit", "--no-video", "--quiet", target])
-            if shutil.which("ffplay"):
-                stream_cmds.append(["ffplay", "-autoexit", "-nodisp", "-loglevel", "quiet", target])
+            for player in ["mpv", "cvlc", "ffplay"]:
+                if shutil.which(player):
+                    try:
+                        args = [player, target]
+                        if player == "mpv":
+                            args.extend(["--no-video", "--volume=100", "--ao=pulse,alsa"])
+                        elif player == "cvlc":
+                            args.extend(["--play-and-exit", "--aout=pulse"])
+                        elif player == "ffplay":
+                            args.extend(["-nodisp", "-autoexit"])
 
-            for cmd in stream_cmds:
-                try:
-                    self._current_proc = subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        preexec_fn=os.setsid
-                    )
-                    return True
-                except Exception:
-                    continue
+                        self._current_proc = subprocess.Popen(
+                            args,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL
+                        )
+                        if sync:
+                            self._current_proc.wait()
+                        return True
+                    except Exception as e:
+                        print(f"[player] Error launching {player}: {e}")
 
-        # 2. Local WAV file playback via aplay
-        if target.lower().endswith(".wav") and shutil.which("aplay"):
+        # 2. Local audio files (WAV or MP3)
+        if target.endswith(".wav") and shutil.which("aplay"):
             try:
                 self._current_proc = subprocess.Popen(
                     ["aplay", "-q", target],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    preexec_fn=os.setsid
+                    stderr=subprocess.DEVNULL
                 )
-                if sync and self._current_proc:
-                    self._current_proc.wait(timeout=15.0)
+                if sync:
+                    self._current_proc.wait()
                 return True
             except Exception as e:
                 print(f"[player] aplay error: {e}")
 
-        # 3. Local MP3 / generic playback via mpg123 with PulseAudio / ALSA
-        # -f 32768 sets full digital headroom, -d 1 allows preamp boost
-        for out_driver in ("pulse", "alsa"):
-            cmd = [
-                "mpg123",
-                "-o", out_driver,
-                "-f", "40000",   # +20% extra software volume gain
-                "-q",
-                target
-            ]
+        # 3. Default fallback: mpg123 for MP3 files
+        if shutil.which("mpg123"):
             try:
                 self._current_proc = subprocess.Popen(
-                    cmd,
+                    ["mpg123", "-q", "-o", "pulse", target],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    preexec_fn=os.setsid
+                    stderr=subprocess.DEVNULL
                 )
+                if sync:
+                    self._current_proc.wait()
                 return True
-            except Exception:
-                continue
+            except Exception as e:
+                print(f"[player] mpg123 error: {e}")
 
-        # Final plain fallback
-        try:
-            self._current_proc = subprocess.Popen(
-                ["mpg123", "-q", target],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                preexec_fn=os.setsid
-            )
-            if sync and self._current_proc:
-                self._current_proc.wait(timeout=15.0)
-            return True
-        except Exception as e:
-            print(f"[player] playback error: {e}")
-            return False
+        return False
+
+    def play_chime(self, chime_name: str, sync: bool = False):
+        chime_file = BASE_DIR / "data" / "sounds" / f"{chime_name}.wav"
+        if chime_file.exists():
+            self.play_url_or_file(str(chime_file), is_speech=True, sync=sync)
 
     def is_playing(self) -> bool:
-        return self._current_proc is not None and self._current_proc.poll() is None
-
-    def wait_playback(self, timeout: float = 15.0):
-        """Block until the current audio finishes playing or timeout expires."""
-        if self._current_proc:
-            try:
-                self._current_proc.wait(timeout=timeout)
-            except Exception:
-                pass
+        if self._current_proc is not None:
+            if self._current_proc.poll() is None:
+                return True
+            self._current_proc = None
+        return False
 
     def stop(self):
-        """Immediately stop all audio playback, killing any orphaned players."""
-        if self._current_proc:
+        if self._current_proc is not None:
             try:
-                os.killpg(os.getpgid(self._current_proc.pid), signal.SIGTERM)
-                self._current_proc.wait(timeout=0.2)
+                self._current_proc.terminate()
+                self._current_proc.wait(timeout=1.0)
             except Exception:
                 try:
-                    os.killpg(os.getpgid(self._current_proc.pid), signal.SIGKILL)
+                    self._current_proc.kill()
                 except Exception:
                     pass
-
-        # Clean fallback to ensure no background audio processes persist
-        for bin_name in ("mpv", "mpg123", "cvlc", "aplay"):
-            try:
-                subprocess.run(["pkill", "-9", bin_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
-
-        self._current_proc = None
+            self._current_proc = None
         self._current_url = None
-        self._is_emergency = False
+        self._is_speech = False
 
-    # ─── 1.1 DYNAMIC AUDIO DUCKING & BARGE-IN ────────────────
     def _get_current_volume(self) -> int:
-        """Read actual current volume level from pactl or amixer."""
-        try:
-            # Try pactl first (PulseAudio / Bluetooth default)
-            out = subprocess.check_output(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], text=True, stderr=subprocess.DEVNULL)
-            for part in out.split():
-                if part.endswith("%"):
-                    return int(part.rstrip("%"))
-        except Exception:
-            pass
-        try:
-            out = subprocess.check_output(["amixer", "sget", "Master"], text=True, stderr=subprocess.DEVNULL)
-            import re
-            m = re.search(r"\[(\d+)%\]", out)
-            if m:
-                return int(m.group(1))
-        except Exception:
-            pass
         return self._pre_duck_volume or 70
 
     def _set_hw_volume(self, percent: int):
-        """Set volume across pactl (PulseAudio) and amixer."""
         percent = max(0, min(100, percent))
         try:
             subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{percent}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -198,69 +160,37 @@ class AudioPlayer:
             pass
 
     def duck_for_voice(self):
-        """Drop volume to 20% so user can speak commands naturally (only during music/media)."""
-        # Never duck speech output or emergency alarm siren
         if self._is_speech or self._is_emergency:
             return
-
         if self.is_playing() and not self._is_ducked:
-            current = self._get_current_volume()
-            if current > 25:
-                self._pre_duck_volume = current
             self._is_ducked = True
             self._set_hw_volume(20)
-            print(f"[player] 🦆 Audio ducked to 20% (saved original: {self._pre_duck_volume}%).")
 
-    def unduck_audio(self):
-        """Restore volume back to original level."""
+    def unduck_after_voice(self):
         if self._is_ducked:
-            target_vol = self._pre_duck_volume or 70
             self._is_ducked = False
-            self._set_hw_volume(target_vol)
-            print(f"[player] 🔊 Audio restored to {target_vol}%.")
+            self._set_hw_volume(self._pre_duck_volume)
 
-    # ─── 1.4 BLUETOOTH SPEAKER KEEP-ALIVE ────────
-    def send_speaker_keepalive(self):
-        """Keepalive is handled by PulseAudio sink suspension flags; no noisy raw zero-byte pulses."""
-        pass
-
-    # ─── 1.5 LOCAL EARCON SOUNDBOARD ─────────────────────────
-    def play_chime(self, chime_type: str, sync: bool = False):
-        """Plays immediate auditory earcons (wake, captured, thinking, answer)."""
-        self._last_audio_activity = time.time()
-        sound_file = BASE_DIR / "data" / "sounds" / f"{chime_type}.wav"
-        if sound_file.exists():
-            try:
-                proc = subprocess.Popen(
-                    ["aplay", "-q", str(sound_file)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-                if sync:
-                    proc.wait(timeout=1.5)
-            except Exception:
-                pass
-
-    # ─── 2.1 HARDWARE VOLUME MIXER ───────────────────────────
     def set_system_volume(self, action: str, level: Optional[int] = None, step: int = 10):
         try:
             if action == "set" and level is not None:
-                self._pre_duck_volume = level
-                subprocess.run(["amixer", "sset", "Master", f"{level}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._pre_duck_volume = max(0, min(100, level))
             elif action == "up":
                 self._pre_duck_volume = min(100, self._pre_duck_volume + step)
-                subprocess.run(["amixer", "sset", "Master", f"{step}%+"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             elif action == "down":
                 self._pre_duck_volume = max(0, self._pre_duck_volume - step)
-                subprocess.run(["amixer", "sset", "Master", f"{step}%-"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             elif action == "mute":
-                subprocess.run(["amixer", "sset", "Master", "mute"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._set_hw_volume(0)
+                return
             elif action == "unmute":
-                subprocess.run(["amixer", "sset", "Master", "unmute"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            print(f"[player] Volume mixer error: {e}")
+                self._set_hw_volume(self._pre_duck_volume)
+                return
 
-        # Play a short tick so the user hears the volume change (like Alexa)
-        # Skipped for mute/unmute — those use the mic mute chime path
+            self._set_hw_volume(self._pre_duck_volume)
+            self._save_volume(self._pre_duck_volume)
+            print(f"🔊 [player] Volume set and saved to {self._pre_duck_volume}%", flush=True)
+        except Exception as e:
+            print(f"[player] Volume error: {e}", flush=True)
+
         if action in ("set", "up", "down"):
             self.play_chime("volume_tick")
