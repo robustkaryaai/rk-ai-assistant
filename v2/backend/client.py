@@ -57,8 +57,6 @@ class RKHomeClient:
             "shoom": False,
             "error": str(last_error)
         }
-                "error": str(e)
-            }
 
     def _parse_backend_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
