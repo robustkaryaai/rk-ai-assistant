@@ -96,12 +96,19 @@ class RKV2Assistant:
             print("🌙 [NIGHT PROTOCOL] Volume lowered to 30% for gentle playback.")
             self.player.set_system_volume("set", 30)
 
+        # Gate sound monitor while TTS is speaking
+        if hasattr(self, "sound_monitor"):
+            self.sound_monitor.tts_active = True
+
         print(f"🗣️ [TTS] {text}")
         audio_file = self.tts.get_speech_file(text)
         if audio_file:
             self.player.play_url_or_file(audio_file, is_speech=True)
             # Block until playback completes so the mic loop doesn't hear or interrupt the assistant's own voice
             self.player.wait_playback(timeout=15.0)
+
+        if hasattr(self, "sound_monitor"):
+            self.sound_monitor.tts_active = False
 
     def listen_and_process_voice(self):
         """
