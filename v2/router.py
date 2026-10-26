@@ -359,7 +359,10 @@ class FastCommandRouter:
             }
 
         # ─── LOCAL INSTANT GREETINGS (<0.5ms) ────────────────
-        if re.search(r"\b(hi|hello|hey|greetings|namaste|radhe radhe|sup|what'?s up|wassup)\b", cleaned):
+        # Only match if the query is SOLELY a greeting (with optional bot name / filler)
+        # Avoid intercepting full queries like "hey rk make me an image"
+        greeting_pattern = r"^(hi|hello|hey|greetings|namaste|radhe\s*radhe|sup|what'?s\s*up|wassup)(\s+(rk|assistant|there|buddy|bro))?[.!?]*$"
+        if re.match(greeting_pattern, cleaned):
             return True, {
                 "reply": "Radhe Radhe! How can I help you today?",
                 "tool": "chat_local",
