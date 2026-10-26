@@ -26,11 +26,19 @@ class RemoteSyncManager:
         self.tts.speak("Pinging your phone now at maximum volume.")
 
     def trigger_sos_alarm(self):
-        """5.4 Emergency SOS Siren & Contact Alert."""
+        """5.4 Emergency SOS Fire Brigade Siren & Contact Alert."""
         print("🚨 [SOS] Emergency panic alarm triggered!")
-        # Sound alarm at high volume
-        self.player.set_system_volume("set", 100)
-        self.tts.speak("Emergency SOS triggered. Alerting contacts.")
+        from pathlib import Path
+        siren_sound = Path(__file__).resolve().parent.parent / "data" / "sounds" / "emergency_siren.wav"
+
+        # Max out volume and blast fire brigade siren
+        if self.player:
+            self.player.set_system_volume("set", 100)
+            if siren_sound.exists():
+                self.player.play_url_or_file(str(siren_sound), sync=True)
+
+        if self.tts:
+            self.tts.speak("Emergency SOS triggered. Alerting contacts.")
         if self.client:
             self.client.send_text("emergency_alarm_trigger")
 

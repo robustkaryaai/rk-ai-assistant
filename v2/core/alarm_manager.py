@@ -67,10 +67,15 @@ class AlarmScheduleManager:
         return True
 
     def ring_period_bell(self, label: str = "Period Bell"):
-        """Instant audio chime for classroom/study period transitions."""
+        """Audio chime + spoken announcement for classroom/study period transitions."""
         print(f"🔔 [PERIOD BELL] Ringing: {label}")
+        bell_sound = Path(__file__).resolve().parent.parent / "data" / "sounds" / "period_bell.wav"
         if self.player:
             self.player.set_system_volume("set", 90)
+            if bell_sound.exists():
+                self.player.play_url_or_file(str(bell_sound), sync=True)
+            else:
+                self.player.play_chime("ready", sync=True)
         if self.tts:
             self.tts.speak(f"Period bell: {label}")
 
