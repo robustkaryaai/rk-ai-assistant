@@ -120,8 +120,8 @@ class RemoteSyncManager:
                 if hasattr(self.assistant, "spotify"):
                     self.assistant.spotify.set_token(token)
                 result = "Spotify token configured"
-            elif action == "mute_mic":
-                mute_state = payload.get("mute", True)
+            elif action in ("mute_mic", "mute", "unmute"):
+                mute_state = False if action == "unmute" else payload.get("mute", True)
                 from hardware.mic import HardwareMicManager
                 HardwareMicManager.set_mute(mute_state)
                 self.assistant.recorder.is_hardware_muted = mute_state
