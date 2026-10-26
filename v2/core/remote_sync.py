@@ -58,10 +58,10 @@ class RemoteSyncManager:
     def poll_remote_commands(self):
         """
         5.2 Polls pending commands sent from the mobile/web dashboard.
-        Called from the background worker thread every ~5 seconds.
+        Optimized to poll every 1-2 seconds with persistent HTTP session.
         """
         now = time.time()
-        if now - self._last_cmd_poll < 15:   # Pi Zero W: poll every 15s to save CPU
+        if now - self._last_cmd_poll < 1.5:   # ⚡ Instant command delivery (1.5s interval)
             return
         self._last_cmd_poll = now
 

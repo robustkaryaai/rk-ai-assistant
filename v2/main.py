@@ -115,11 +115,17 @@ class RKV2Assistant:
         Record voice input from microphone, verify transcribed text,
         and execute command through the single-turn loop.
         """
-        # If mic is hardware-muted, skip the entire listen cycle and wait
+        # If mic is hardware-muted, skip the entire listen cycle and sleep silently
         if self.recorder.is_hardware_muted:
-            print("🔇 [MIC] Muted — sleeping until unmuted.")
-            time.sleep(2)
+            if not getattr(self, "_muted_logged", False):
+                print("🔇 [MIC] AI Muted — voice listening paused.", flush=True)
+                self._muted_logged = True
+            time.sleep(1.0)
             return
+
+        if getattr(self, "_muted_logged", False):
+            print("🎙️ [MIC] AI Unmuted — voice listening resumed.", flush=True)
+            self._muted_logged = False
 
         # ── Ambient listen ───────────────────────────────────────────────────
         if self.player.is_playing():
