@@ -445,9 +445,8 @@ class RKV2Assistant:
                         tts_conf = settings.get("ttsConfig")
                         if tts_conf and hasattr(self.tts, "set_config"):
                             self.tts.set_config(tts_conf)
-                        vol = settings.get("voiceVolume")
-                        if vol is not None and hasattr(self.player, "set_system_volume"):
-                            self.player.set_system_volume("set", int(vol))
+                        # Note: We do NOT force backend's default volume here every 60s
+                        # so that user volume changes via commands / local persistence aren't clobbered!
 
             except Exception as e:
                 print(f"⚠️ [Worker] Error: {e}")
