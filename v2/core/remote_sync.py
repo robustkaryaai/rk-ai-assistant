@@ -33,18 +33,19 @@ class RemoteSyncManager:
         fire_alarm_file = sounds_dir / "fire_alarm.mp3"
         siren_file = sounds_dir / "emergency_siren.wav"
 
-        # Max out volume and blast fire brigade alarm
+        # 1. Announce emergency immediately
+        if self.tts:
+            self.tts.speak("Emergency fire alarm triggered! Please evacuate immediately.")
+
+        # 2. Max out volume and blast continuous fire alarm siren
         if self.player:
             self.player.set_system_volume("set", 100)
             if fire_alarm_file.exists():
-                # Play fire alarm MP3 for 8 seconds before voice alert
+                print("🔊 [SOS] Playing continuous fire alarm siren...")
                 self.player.play_url_or_file(str(fire_alarm_file))
-                time.sleep(8.0)
             elif siren_file.exists():
                 self.player.play_url_or_file(str(siren_file), sync=True)
 
-        if self.tts:
-            self.tts.speak("Emergency fire alarm triggered! Please evacuate immediately.")
         if self.client:
             self.client.send_text("emergency_alarm_trigger")
 
