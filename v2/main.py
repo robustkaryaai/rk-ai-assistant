@@ -276,13 +276,31 @@ class RKV2Assistant:
         if reply:
             self.speak(reply)
 
+        # ─── Execute physical hardware actions from backend response ────────
+        backend_intent = backend_res.get("intent") if backend_res else None
+        backend_params = {}
+        if backend_res and isinstance(backend_res.get("intents"), list) and len(backend_res["intents"]) > 0:
+            backend_params = backend_res["intents"][0].get("parameters", {})
+
+        # Map backend cloud intents directly to local hardware triggers
+        if backend_intent == "period_bell":
+            self.alarm_mgr.ring_period_bell(backend_params.get("label", "Period Bell"))
+        elif backend_intent == "emergency_alarm":
+            self.remote_sync.trigger_sos_alarm()
+        elif backend_intent == "stop_alarm":
+            self.alarm_mgr.stop_alarm()
+        elif backend_intent == "shutdown":
+            self._execute_local_action("system", {"action": "shutdown"})
+        elif backend_intent == "alarm":
+            self._execute_local_action("alarm", {"action": "set", "time": backend_params.get("time")})
+
         local_action = backend_res.get("local_action") if backend_res else None
         if local_action:
             tool = local_action.get("tool")
             args = local_action.get("args", {})
             self._execute_local_action(tool, args)
 
-        self.conversation.add_interaction(resolved_query, reply or "", local_action.get("tool") if local_action else "chat")
+        self.conversation.add_interaction(resolved_query, reply or "", local_action.get("tool") if local_action else (backend_intent or "chat"))
 
     def _execute_local_action(self, tool: str, args: dict):
         """Dispatches actual local actions on Pi hardware."""
