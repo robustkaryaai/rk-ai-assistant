@@ -10,3 +10,7 @@ PyAudio>=0.2.14
 
 # YouTube Audio Stream Resolution
 yt-dlp
+
+# STT Audio Enhancement (Pi Zero W optimised)
+webrtcvad          # WebRTC VAD — strips silence/noise before sending to STT (~0.1ms/frame, near-zero CPU)
+numpy              # RMS-based noise gate + soft boost calculations

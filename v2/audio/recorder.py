@@ -1,4 +1,5 @@
 import os
+import struct
 import subprocess
 import time
 from pathlib import Path
@@ -13,6 +14,22 @@ try:
 except ImportError:
     sr = None
     SPEECH_RECOGNITION_AVAILABLE = False
+
+# WebRTC VAD — lightweight C-extension, very low CPU on Pi Zero
+try:
+    import webrtcvad
+    WEBRTCVAD_AVAILABLE = True
+except ImportError:
+    webrtcvad = None
+    WEBRTCVAD_AVAILABLE = False
+
+# numpy for RMS calculation — usually pre-installed on Pi OS
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    np = None
+    NUMPY_AVAILABLE = False
 
 # Silence ALSA C-library error dumps
 try:
@@ -53,24 +70,138 @@ def setup_microphone_volume():
         pass
 
 
-def _normalize_audio(audio_data, target_level=31000):
-    """Normalize and boost soft microphone input up to 31000 peak (far-field amplification up to 35x)."""
+# ─── Noise Gate + Soft Boost ──────────────────────────────────────────────────
+# Replaces the old flat 35x amplifier.
+# Strategy:
+#   1. Compute RMS of the raw PCM block.
+#   2. If RMS is below NOISE_FLOOR, the frame is just room noise — return silence
+#      so Google STT doesn't try to decode hiss.
+#   3. If RMS is above the floor, apply a gentle multiplier (capped at MAX_BOOST)
+#      so distant speech gets louder without clipping.
+#
+# Why not 35x flat?  A flat 35x turns background hiss into a roar and sends
+# Google STT a wall of noise.  The gate + soft-boost only amplifies when there
+# is real energy in the signal, keeping the SNR clean.
+# ─────────────────────────────────────────────────────────────────────────────
+
+NOISE_FLOOR_RMS  = 150   # RMS counts below this = pure room noise, gate it out
+TARGET_RMS       = 3000  # We aim to lift speech to roughly this RMS level
+MAX_BOOST        = 8.0   # Never amplify more than 8× (prevents noise explosion)
+PEAK_CLIP_LIMIT  = 31000 # Hard ceiling to avoid int16 overflow / distortion
+
+
+def _smart_boost(audio_data):
+    """
+    Noise-gate + RMS-proportional soft boost for far-field speech.
+
+    - Below NOISE_FLOOR_RMS  → return silence (gates pure noise frames)
+    - Above NOISE_FLOOR_RMS  → boost proportionally up to MAX_BOOST
+    - Always hard-clips at ±PEAK_CLIP_LIMIT to prevent distortion
+
+    Falls back gracefully when numpy or sr are unavailable.
+    """
     if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
         return audio_data
+
     try:
-        import audioop
-        raw_data = audio_data.get_raw_data()
-        max_val = audioop.max(raw_data, 2)
-        if max_val == 0:
+        raw = audio_data.get_raw_data()
+        n_samples = len(raw) // 2  # 16-bit = 2 bytes per sample
+
+        if n_samples == 0:
             return audio_data
-        factor = target_level / max_val
-        factor = min(factor, 35.0)  # Far-field speech boost: allow up to 35x amplification
-        if factor > 1.05:
-            boosted_raw = audioop.mul(raw_data, 2, factor)
-            return sr.AudioData(boosted_raw, audio_data.sample_rate, audio_data.sample_width)
+
+        if NUMPY_AVAILABLE:
+            samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+            rms = float(np.sqrt(np.mean(samples ** 2)))
+        else:
+            # Pure-Python RMS fallback (slower but works without numpy)
+            total = sum(struct.unpack_from('<h', raw, i * 2)[0] ** 2 for i in range(n_samples))
+            rms = (total / n_samples) ** 0.5
+
+        # Gate: if it's basically silence / noise, send silence to STT
+        if rms < NOISE_FLOOR_RMS:
+            silence = b'\x00' * len(raw)
+            return sr.AudioData(silence, audio_data.sample_rate, audio_data.sample_width)
+
+        # Soft boost: scale toward TARGET_RMS, cap at MAX_BOOST
+        boost = min(TARGET_RMS / max(rms, 1.0), MAX_BOOST)
+
+        if boost <= 1.05:
+            return audio_data  # Already loud enough, no change needed
+
+        if NUMPY_AVAILABLE:
+            boosted = np.clip(samples * boost, -PEAK_CLIP_LIMIT, PEAK_CLIP_LIMIT)
+            boosted_raw = boosted.astype(np.int16).tobytes()
+        else:
+            import audioop
+            boosted_raw = audioop.mul(raw, 2, int(boost))
+
+        return sr.AudioData(boosted_raw, audio_data.sample_rate, audio_data.sample_width)
+
     except Exception:
-        pass
-    return audio_data
+        return audio_data
+
+
+# ─── WebRTC VAD Audio Filter ──────────────────────────────────────────────────
+# WebRTC VAD operates on fixed-size PCM frames: 10ms, 20ms, or 30ms at 16kHz.
+# We scan the full recording frame-by-frame and keep only the frames that VAD
+# classifies as speech.  This strips silence/noise between and around words
+# before the bytes are sent to Google STT, giving it a much cleaner signal.
+#
+# Aggressiveness 2 = balanced (0=least, 3=most aggressive noise rejection).
+# On Pi Zero this runs in ~0.1ms per frame — effectively free.
+# ─────────────────────────────────────────────────────────────────────────────
+
+VAD_AGGRESSIVENESS   = 2    # 0–3; 2 = good balance for indoor far-field
+VAD_FRAME_MS         = 30   # ms per frame — 30ms chunks at 16kHz = 480 samples
+VAD_SAMPLE_RATE      = 16000
+VAD_FRAME_BYTES      = VAD_FRAME_MS * VAD_SAMPLE_RATE * 2 // 1000  # = 960 bytes
+# Minimum ratio of speech frames to keep — if fewer than this, treat as noise
+VAD_MIN_SPEECH_RATIO = 0.10  # At least 10% of frames must be speech
+
+
+def _vad_filter(audio_data):
+    """
+    Strip non-speech frames from an AudioData block using WebRTC VAD.
+
+    Returns a new AudioData containing only the speech frames, or the original
+    if VAD is not available or there isn't enough speech detected.
+    """
+    if not WEBRTCVAD_AVAILABLE or not SPEECH_RECOGNITION_AVAILABLE or sr is None:
+        return audio_data  # Graceful no-op
+
+    try:
+        raw = audio_data.get_raw_data()
+        vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+
+        speech_frames = []
+        total_frames  = 0
+
+        offset = 0
+        while offset + VAD_FRAME_BYTES <= len(raw):
+            frame = raw[offset: offset + VAD_FRAME_BYTES]
+            try:
+                is_speech = vad.is_speech(frame, VAD_SAMPLE_RATE)
+            except Exception:
+                is_speech = True  # If VAD errors on a frame, keep it
+            if is_speech:
+                speech_frames.append(frame)
+            total_frames += 1
+            offset += VAD_FRAME_BYTES
+
+        if total_frames == 0:
+            return audio_data
+
+        speech_ratio = len(speech_frames) / total_frames
+        if speech_ratio < VAD_MIN_SPEECH_RATIO:
+            # Basically all noise — return the original so STT can still try
+            return audio_data
+
+        filtered_raw = b''.join(speech_frames)
+        return sr.AudioData(filtered_raw, audio_data.sample_rate, audio_data.sample_width)
+
+    except Exception:
+        return audio_data
 
 
 class AudioRecorder:
@@ -143,8 +274,10 @@ class AudioRecorder:
                         # phrase_time_limit allows speaking full long sentences (12s)
                         audio = self._recognizer.listen(source, timeout=6, phrase_time_limit=max(duration, 12))
 
-                # Boost audio (v1 secret for high capture rate on Pi Zero)
-                audio = _normalize_audio(audio)
+                # 1. Strip non-speech frames (WebRTC VAD) — cleans signal before boost
+                audio = _vad_filter(audio)
+                # 2. Noise gate + soft RMS boost — replaces old flat 35x amplifier
+                audio = _smart_boost(audio)
 
                 with open(self.record_path, "wb") as f:
                     f.write(audio.get_wav_data())
@@ -194,7 +327,10 @@ class AudioRecorder:
                 r = sr.Recognizer()
                 with sr.AudioFile(str(self.record_path)) as source:
                     audio = r.record(source)
-                    audio = _normalize_audio(audio)
+                    # 1. VAD filter — strip silence/noise frames first
+                    audio = _vad_filter(audio)
+                    # 2. Noise gate + soft boost — clean amplification
+                    audio = _smart_boost(audio)
                     text = ""
                     for lang in ["en-IN", "en-US"]:
                         try:

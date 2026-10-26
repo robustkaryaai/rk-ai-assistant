@@ -247,3 +247,8 @@ class AudioPlayer:
                 subprocess.run(["amixer", "sset", "Master", "unmute"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
             print(f"[player] Volume mixer error: {e}")
+
+        # Play a short tick so the user hears the volume change (like Alexa)
+        # Skipped for mute/unmute — those use the mic mute chime path
+        if action in ("set", "up", "down"):
+            self.play_chime("volume_tick")

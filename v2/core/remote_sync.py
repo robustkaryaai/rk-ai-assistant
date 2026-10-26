@@ -121,6 +121,18 @@ class RemoteSyncManager:
                 self.player.set_system_volume("set", level)
                 result = f"Volume set to {level}%"
                 print(f"🔊 [REMOTE] Volume set to {level}%", flush=True)
+            elif action == "text_command":
+                # Text command typed from mobile app / web dashboard —
+                # runs through the exact same pipeline as a voice command
+                text = payload.get("text") or payload.get("command") or payload.get("query", "")
+                if text:
+                    print(f"💬 [REMOTE] Text command: '{text}'", flush=True)
+                    # Instant acknowledgement chime — user knows Pi received it
+                    self.player.play_chime("captured", sync=False)
+                    self.assistant.handle_command(text)
+                    result = f"Executed: '{text}'"
+                else:
+                    result = "text_command received but payload had no text"
             elif action == "ring_alarm":
                 self.assistant.alarm_mgr.ring_period_bell("Remote Ring")
             else:
