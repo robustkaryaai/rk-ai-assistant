@@ -56,42 +56,62 @@ def no_alsa_err():
 
 def setup_microphone_volume():
     """Force hardware and software capture gain to maximum (far-field boost)."""
-    controls = ["Capture", "Mic", "Internal Mic", "Digital", "Input", "Boost"]
+    controls = [
+        "Capture", "Mic", "Internal Mic", "Digital", "Input", "Boost",
+        "Mic Boost", "Internal Mic Boost", "Capture Volume", "Mic Capture Volume"
+    ]
     for control in controls:
         try:
             subprocess.run(["amixer", "sset", control, "100%"], capture_output=True)
             subprocess.run(["amixer", "sset", control, "cap"], capture_output=True)
+            # Some USB mic / sound cards use dB or numerical ranges (e.g. 30dB)
+            subprocess.run(["amixer", "sset", control, "unmute"], capture_output=True)
         except Exception:
             pass
     try:
-        # Boost PulseAudio capture source to 150% (digital pre-amp boost for far-field listening)
-        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "150%"], capture_output=True)
+        # Boost PulseAudio capture source to 200% (far-field pre-amp boost for enclosed boxes)
+        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "200%"], capture_output=True)
+        subprocess.run(["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"], capture_output=True)
     except Exception:
         pass
 
 
-# ─── Noise Gate + Soft Boost ──────────────────────────────────────────────────
-# Tuned for enclosed / closed-box microphone setup:
-#   - Closed box muffles audio and drops amplitude significantly.
-#   - Lower NOISE_FLOOR_RMS to 60 so weak, muffled muffled voice isn't gated out.
-#   - Raise TARGET_RMS to 6000 and MAX_BOOST to 18.0 for strong far-field gain.
-#   - Softer band-pass and RMS boost lifts speech to clear conversational levels.
+# ─── Closed-Box Adaptive Equalizer & Peak AGC Normalizer ──────────────────────
+# Closed acoustic boxes produce severe low-frequency resonance/boom (100-250Hz)
+# while heavily attenuating mid and high clarity frequencies (1.5kHz - 4kHz).
+# Here we apply:
+#   1. A high-pass filter (approx 180Hz DC/box rumble cut) via simple IIR / difference
+#   2. Adaptive Peak / RMS dynamic automatic gain control (AGC)
+#   3. Strict peak limiting to avoid clipping.
 # ─────────────────────────────────────────────────────────────────────────────
 
-NOISE_FLOOR_RMS  = 60    # Lowered from 150: won't gate out muffled voice in a closed box
-TARGET_RMS       = 6000  # Target loudness for clear STT transcription
-MAX_BOOST        = 18.0  # Max boost for distant/muffled speech
-PEAK_CLIP_LIMIT  = 31000 # Hard ceiling to avoid int16 overflow / distortion
+NOISE_FLOOR_RMS  = 40    # Ultra-sensitive for deeply muffled voice in box
+TARGET_RMS       = 8000  # High target loudness for Google STT clarity
+MAX_BOOST        = 25.0  # Up to 25x software gain for far-field / enclosed box
+PEAK_CLIP_LIMIT  = 31500 # Hard ceiling to avoid int16 distortion
+
+
+def _apply_acoustic_box_filter(samples: "np.ndarray") -> "np.ndarray":
+    """
+    High-pass filter (~180Hz cut) to remove box acoustic resonance / internal rumble.
+    y[n] = x[n] - x[n-1] + 0.93 * y[n-1]
+    Fast vector calculation in numpy.
+    """
+    if len(samples) < 2:
+        return samples
+    # Simple, high-efficiency first-order IIR DC / rumble block
+    filtered = np.empty_like(samples)
+    filtered[0] = samples[0]
+    alpha = 0.93  # Cuts below ~180Hz at 16kHz sample rate
+    # Run in chunks or iterative vector if small
+    for i in range(1, len(samples)):
+        filtered[i] = samples[i] - samples[i-1] + alpha * filtered[i-1]
+    return filtered
 
 
 def _smart_boost(audio_data):
     """
-    Noise-gate + RMS-proportional soft boost for far-field speech.
-
-    - Below NOISE_FLOOR_RMS  → return silence (gates pure noise frames)
-    - Above NOISE_FLOOR_RMS  → boost proportionally up to MAX_BOOST
-    - Always hard-clips at ±PEAK_CLIP_LIMIT to prevent distortion
-
+    Closed-box acoustic filtering + AGC dynamic boost.
     Falls back gracefully when numpy or sr are unavailable.
     """
     if not SPEECH_RECOGNITION_AVAILABLE or sr is None:
@@ -99,36 +119,36 @@ def _smart_boost(audio_data):
 
     try:
         raw = audio_data.get_raw_data()
-        n_samples = len(raw) // 2  # 16-bit = 2 bytes per sample
+        n_samples = len(raw) // 2
 
         if n_samples == 0:
             return audio_data
 
         if NUMPY_AVAILABLE:
             samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+
+            # 1. Filter out box cavity resonance / low-end rumble
+            samples = _apply_acoustic_box_filter(samples)
+
             rms = float(np.sqrt(np.mean(samples ** 2)))
-        else:
-            # Pure-Python RMS fallback (slower but works without numpy)
-            total = sum(struct.unpack_from('<h', raw, i * 2)[0] ** 2 for i in range(n_samples))
-            rms = (total / n_samples) ** 0.5
 
-        # Gate: if it's basically silence / noise, send silence to STT
-        if rms < NOISE_FLOOR_RMS:
-            silence = b'\x00' * len(raw)
-            return sr.AudioData(silence, audio_data.sample_rate, audio_data.sample_width)
+            # If under floor, mute frame so STT doesn't transcribe noise
+            if rms < NOISE_FLOOR_RMS:
+                return sr.AudioData(b'\x00' * len(raw), audio_data.sample_rate, audio_data.sample_width)
 
-        # Soft boost: scale toward TARGET_RMS, cap at MAX_BOOST
-        boost = min(TARGET_RMS / max(rms, 1.0), MAX_BOOST)
-
-        if boost <= 1.05:
-            return audio_data  # Already loud enough, no change needed
-
-        if NUMPY_AVAILABLE:
+            # 2. Dynamic Automatic Gain Control (scale to TARGET_RMS, up to MAX_BOOST)
+            boost = min(TARGET_RMS / max(rms, 1.0), MAX_BOOST)
             boosted = np.clip(samples * boost, -PEAK_CLIP_LIMIT, PEAK_CLIP_LIMIT)
             boosted_raw = boosted.astype(np.int16).tobytes()
         else:
+            # Fallback without numpy
+            total = sum(struct.unpack_from('<h', raw, i * 2)[0] ** 2 for i in range(n_samples))
+            rms = (total / n_samples) ** 0.5
+            if rms < NOISE_FLOOR_RMS:
+                return sr.AudioData(b'\x00' * len(raw), audio_data.sample_rate, audio_data.sample_width)
             import audioop
-            boosted_raw = audioop.mul(raw, 2, int(boost))
+            boost = min(int(TARGET_RMS / max(rms, 1.0)), int(MAX_BOOST))
+            boosted_raw = audioop.mul(raw, 2, max(1, boost))
 
         return sr.AudioData(boosted_raw, audio_data.sample_rate, audio_data.sample_width)
 
@@ -219,13 +239,15 @@ class AudioRecorder:
         if SPEECH_RECOGNITION_AVAILABLE:
             try:
                 self._recognizer = sr.Recognizer()
-                # 🚀 Closed-Box Far-Field Sensitivity: sensitive 35 base threshold + dynamic tracking
-                self._recognizer.energy_threshold = 35
+                # 🚀 Closed-Box Far-Field Sensitivity:
+                # 25 base energy threshold catches quiet muffled speech inside an enclosure immediately.
+                self._recognizer.energy_threshold = 25
                 self._recognizer.dynamic_energy_threshold = True
-                self._recognizer.dynamic_energy_ratio = 1.2
-                self._recognizer.pause_threshold = 1.2
-                self._recognizer.phrase_threshold = 0.1   # Catch far away speech instantly
-                self._recognizer.non_speaking_duration = 0.8
+                self._recognizer.dynamic_energy_ratio = 1.15
+                self._recognizer.dynamic_energy_adjustment_damping = 0.15
+                self._recognizer.pause_threshold = 1.3
+                self._recognizer.phrase_threshold = 0.05  # Ultra-fast trigger on first syllable
+                self._recognizer.non_speaking_duration = 0.7
                 self._mic = sr.Microphone(sample_rate=16000)
             except Exception as e:
                 print(f"[recorder] Error initializing SpeechRecognition: {e}", flush=True)
@@ -238,8 +260,8 @@ class AudioRecorder:
                 print("🎙️ [STT] Calibrating microphone for room noise (1s)...", flush=True)
                 with self._mic as source:
                     self._recognizer.adjust_for_ambient_noise(source, duration=0.8)
-                # Keep floor ultra-sensitive (35) for muffled box mic
-                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 35)
+                # Keep floor ultra-sensitive (25) for muffled box mic
+                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 25)
                 print(f"🎙️ [STT] Baseline energy threshold: {self._recognizer.energy_threshold:.0f}", flush=True)
             except Exception as e:
                 print(f"[STT] Calibration notice: {e}", flush=True)
