@@ -25,6 +25,7 @@ class AudioPlayer:
         self._next_prebuffered_url: Optional[str] = None
         self._is_ducked: bool = False
         self._is_speech: bool = False
+        self._is_emergency: bool = False  # Critical: never duck or preempt an active emergency alarm
         self._pre_duck_volume: int = 70
         self._last_audio_activity: float = time.time()
 
@@ -161,6 +162,7 @@ class AudioPlayer:
 
         self._current_proc = None
         self._current_url = None
+        self._is_emergency = False
 
     # ─── 1.1 DYNAMIC AUDIO DUCKING & BARGE-IN ────────────────
     def _get_current_volume(self) -> int:
@@ -197,8 +199,8 @@ class AudioPlayer:
 
     def duck_for_voice(self):
         """Drop volume to 20% so user can speak commands naturally (only during music/media)."""
-        # Never duck speech output (assistant talking)
-        if self._is_speech:
+        # Never duck speech output or emergency alarm siren
+        if self._is_speech or self._is_emergency:
             return
 
         if self.is_playing() and not self._is_ducked:

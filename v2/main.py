@@ -458,8 +458,10 @@ class RKV2Assistant:
         self.recorder.calibrate_once()
 
         # 3. Startup greeting (AFTER calibration & background setup)
-        self.play_ready_sound()
-        self.player.wait_playback(timeout=8.0)
+        # Skip if emergency alarm is already ringing
+        if not getattr(self.player, "_is_emergency", False):
+            self.play_ready_sound()
+            self.player.wait_playback(timeout=8.0)
 
         print("\n🎙️ [VOICE MODE] System fully initialized — listening continuously!", flush=True)
         try:

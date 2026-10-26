@@ -33,12 +33,18 @@ class RemoteSyncManager:
         fire_alarm_file = sounds_dir / "fire_alarm.mp3"
         siren_file = sounds_dir / "emergency_siren.wav"
 
+        # Flag emergency in player so volume ducking and startup sounds never preempt it
+        if self.player:
+            self.player._is_emergency = True
+            self.player.set_system_volume("set", 100)
+
         # 1. Announce emergency immediately
         if self.tts:
             self.tts.speak("Emergency fire alarm triggered! Please evacuate immediately.")
 
         # 2. Max out volume and blast continuous fire alarm siren
         if self.player:
+            self.player._is_emergency = True
             self.player.set_system_volume("set", 100)
             if fire_alarm_file.exists():
                 print("🔊 [SOS] Playing continuous fire alarm siren...")
