@@ -125,6 +125,11 @@ class RemoteSyncManager:
                 # Text command typed from mobile app / web dashboard —
                 # runs through the exact same pipeline as a voice command
                 text = payload.get("text") or payload.get("command") or payload.get("query", "")
+                # Acknowledge immediately before running so Appwrite doesn't think command is stuck
+                if cmd_id and self.client:
+                    self.client.ack_command(cmd_id, True, "Acknowledged")
+                cmd_id = None # Avoid double acking below
+
                 if text:
                     print(f"💬 [REMOTE] Text command: '{text}'", flush=True)
                     self.assistant.handle_command(text)
