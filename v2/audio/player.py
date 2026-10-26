@@ -24,6 +24,7 @@ class AudioPlayer:
         self._current_url: Optional[str] = None
         self._next_prebuffered_url: Optional[str] = None
         self._is_ducked: bool = False
+        self._is_speech: bool = False
         self._pre_duck_volume: int = 70
         self._last_audio_activity: float = time.time()
 
@@ -34,6 +35,7 @@ class AudioPlayer:
             return False
 
         self._current_url = target
+        self._is_speech = is_speech
         self._last_audio_activity = time.time()
 
         is_url = target.startswith(("http://", "https://"))
@@ -190,7 +192,11 @@ class AudioPlayer:
             pass
 
     def duck_for_voice(self):
-        """Drop volume to 20% so user can speak commands naturally."""
+        """Drop volume to 20% so user can speak commands naturally (only during music/media)."""
+        # Never duck speech output (assistant talking)
+        if self._is_speech:
+            return
+
         if self.is_playing() and not self._is_ducked:
             current = self._get_current_volume()
             if current > 25:

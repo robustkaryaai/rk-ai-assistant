@@ -30,24 +30,33 @@ class RKHomeClient:
     def send_text(self, text: str) -> Dict[str, Any]:
         """
         Send user voice transcript or text query to RK_AI_HOME.
-        The backend runs Gemini, processes cloud tasks, and returns:
-          {
-            "reply": "Spoken text for the speaker",
-            "local_action": {"tool": "music"|"alarm"|"bell"|None, "args": {...}}
-          }
+        Retries up to 3 times on timeout or transient network failure.
         """
         url = f"{self.base_url}/text/{self.slug}"
         payload = {"text": text}
-        try:
-            resp = self.session.post(url, json=payload, timeout=self.timeout)
-            resp.raise_for_status()
-            data = resp.json()
-            return self._parse_backend_response(data)
-        except Exception as e:
-            print(f"[backend] Connection error: {e}")
-            return {
-                "reply": None,
-                "local_action": None,
+        max_attempts = 3
+        last_error = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resp = self.session.post(url, json=payload, timeout=self.timeout)
+                resp.raise_for_status()
+                data = resp.json()
+                return self._parse_backend_response(data)
+            except Exception as e:
+                last_error = e
+                print(f"[backend] Attempt {attempt}/{max_attempts} failed: {e}")
+                if attempt < max_attempts:
+                    import time
+                    time.sleep(1.5)
+
+        print(f"[backend] All {max_attempts} connection attempts failed: {last_error}")
+        return {
+            "reply": None,
+            "local_action": None,
+            "shoom": False,
+            "error": str(last_error)
+        }
                 "error": str(e)
             }
 

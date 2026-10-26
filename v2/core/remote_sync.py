@@ -127,8 +127,6 @@ class RemoteSyncManager:
                 text = payload.get("text") or payload.get("command") or payload.get("query", "")
                 if text:
                     print(f"💬 [REMOTE] Text command: '{text}'", flush=True)
-                    # Instant acknowledgement chime — user knows Pi received it
-                    self.player.play_chime("captured", sync=False)
                     self.assistant.handle_command(text)
                     result = f"Executed: '{text}'"
                 else:

@@ -100,6 +100,8 @@ class RKV2Assistant:
         audio_file = self.tts.get_speech_file(text)
         if audio_file:
             self.player.play_url_or_file(audio_file, is_speech=True)
+            # Block until playback completes so the mic loop doesn't hear or interrupt the assistant's own voice
+            self.player.wait_playback(timeout=15.0)
 
     def listen_and_process_voice(self):
         """
