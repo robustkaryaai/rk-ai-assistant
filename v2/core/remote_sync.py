@@ -159,6 +159,23 @@ class RemoteSyncManager:
                     result = "text_command received but payload had no text"
             elif action == "ring_alarm":
                 self.assistant.alarm_mgr.ring_period_bell("Remote Ring")
+            elif action == "delete_alarm":
+                alarm_id = payload.get("alarm_id") or payload.get("id")
+                deleted = self.assistant.alarm_mgr.delete_alarm(str(alarm_id))
+                result = f"Alarm {alarm_id} deleted: {deleted}"
+                print(f"🗑️ [REMOTE] delete_alarm: {alarm_id} -> {result}", flush=True)
+            elif action == "delete_schedule":
+                sched_id = payload.get("schedule_id") or payload.get("id")
+                deleted = self.assistant.alarm_mgr.delete_schedule(str(sched_id))
+                result = f"Schedule {sched_id} deleted: {deleted}"
+                print(f"🗑️ [REMOTE] delete_schedule: {sched_id} -> {result}", flush=True)
+            elif action == "set_alarm":
+                time_str = payload.get("time", "")
+                label = payload.get("label", "Alarm")
+                days = payload.get("days", [])
+                alarm = self.assistant.alarm_mgr.set_alarm(time_str=time_str, label=label, days=days)
+                result = f"Alarm set: {alarm}"
+                print(f"⏰ [REMOTE] set_alarm: {alarm}", flush=True)
             else:
                 result = f"Unknown commandType: '{action}'"
                 print(f"⚠️ [REMOTE] Unknown command: '{action}'", flush=True)

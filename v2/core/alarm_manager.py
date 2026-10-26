@@ -60,6 +60,28 @@ class AlarmScheduleManager:
         self.save_alarms(alarms, sync_to_cloud=True)
         return new_alarm
 
+    def delete_alarm(self, alarm_id: str) -> bool:
+        """Deletes an alarm by ID and syncs to cloud."""
+        alarms = self.load_alarms()
+        filtered = [a for a in alarms if str(a.get("id")) != str(alarm_id)]
+        if len(filtered) != len(alarms):
+            self.save_alarms(filtered, sync_to_cloud=True)
+            print(f"🗑️ [ALARM] Deleted alarm: {alarm_id}", flush=True)
+            return True
+        return False
+
+    def delete_schedule(self, schedule_id: str) -> bool:
+        """Deletes a schedule by ID."""
+        try:
+            schedules = json.loads(self.schedules_file.read_text()) if self.schedules_file.exists() else []
+            filtered = [s for s in schedules if str(s.get("id")) != str(schedule_id)]
+            self.schedules_file.write_text(json.dumps(filtered, indent=2))
+            print(f"🗑️ [SCHEDULE] Deleted schedule: {schedule_id}", flush=True)
+            return True
+        except Exception as e:
+            print(f"❌ [SCHEDULE] Delete error: {e}", flush=True)
+            return False
+
     def stop_alarm(self) -> bool:
         if self.player:
             self.player.stop()
