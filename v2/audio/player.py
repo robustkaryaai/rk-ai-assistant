@@ -131,6 +131,14 @@ class AudioPlayer:
             self._current_proc = None
         return False
 
+    def wait_playback(self, timeout: float = 15.0):
+        """Block until current audio finishes playing or timeout expires."""
+        if self._current_proc is not None:
+            try:
+                self._current_proc.wait(timeout=timeout)
+            except Exception:
+                pass
+
     def stop(self):
         if self._current_proc is not None:
             try:
@@ -166,10 +174,18 @@ class AudioPlayer:
             self._is_ducked = True
             self._set_hw_volume(20)
 
-    def unduck_after_voice(self):
+    def unduck_audio(self):
+        """Restore volume back to original level."""
         if self._is_ducked:
             self._is_ducked = False
             self._set_hw_volume(self._pre_duck_volume)
+
+    def unduck_after_voice(self):
+        self.unduck_audio()
+
+    def send_speaker_keepalive(self):
+        """Keepalive is handled by PulseAudio sink suspension flags."""
+        pass
 
     def set_system_volume(self, action: str, level: Optional[int] = None, step: int = 10):
         try:

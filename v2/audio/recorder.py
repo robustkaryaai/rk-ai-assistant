@@ -71,22 +71,16 @@ def setup_microphone_volume():
 
 
 # ─── Noise Gate + Soft Boost ──────────────────────────────────────────────────
-# Replaces the old flat 35x amplifier.
-# Strategy:
-#   1. Compute RMS of the raw PCM block.
-#   2. If RMS is below NOISE_FLOOR, the frame is just room noise — return silence
-#      so Google STT doesn't try to decode hiss.
-#   3. If RMS is above the floor, apply a gentle multiplier (capped at MAX_BOOST)
-#      so distant speech gets louder without clipping.
-#
-# Why not 35x flat?  A flat 35x turns background hiss into a roar and sends
-# Google STT a wall of noise.  The gate + soft-boost only amplifies when there
-# is real energy in the signal, keeping the SNR clean.
+# Tuned for enclosed / closed-box microphone setup:
+#   - Closed box muffles audio and drops amplitude significantly.
+#   - Lower NOISE_FLOOR_RMS to 60 so weak, muffled muffled voice isn't gated out.
+#   - Raise TARGET_RMS to 6000 and MAX_BOOST to 18.0 for strong far-field gain.
+#   - Softer band-pass and RMS boost lifts speech to clear conversational levels.
 # ─────────────────────────────────────────────────────────────────────────────
 
-NOISE_FLOOR_RMS  = 150   # RMS counts below this = pure room noise, gate it out
-TARGET_RMS       = 3000  # We aim to lift speech to roughly this RMS level
-MAX_BOOST        = 8.0   # Never amplify more than 8× (prevents noise explosion)
+NOISE_FLOOR_RMS  = 60    # Lowered from 150: won't gate out muffled voice in a closed box
+TARGET_RMS       = 6000  # Target loudness for clear STT transcription
+MAX_BOOST        = 18.0  # Max boost for distant/muffled speech
 PEAK_CLIP_LIMIT  = 31000 # Hard ceiling to avoid int16 overflow / distortion
 
 
@@ -152,12 +146,12 @@ def _smart_boost(audio_data):
 # On Pi Zero this runs in ~0.1ms per frame — effectively free.
 # ─────────────────────────────────────────────────────────────────────────────
 
-VAD_AGGRESSIVENESS   = 2    # 0–3; 2 = good balance for indoor far-field
+VAD_AGGRESSIVENESS   = 1    # 0–3; 1 = more forgiving for muffled box/far-field voice
 VAD_FRAME_MS         = 30   # ms per frame — 30ms chunks at 16kHz = 480 samples
 VAD_SAMPLE_RATE      = 16000
 VAD_FRAME_BYTES      = VAD_FRAME_MS * VAD_SAMPLE_RATE * 2 // 1000  # = 960 bytes
 # Minimum ratio of speech frames to keep — if fewer than this, treat as noise
-VAD_MIN_SPEECH_RATIO = 0.10  # At least 10% of frames must be speech
+VAD_MIN_SPEECH_RATIO = 0.05  # Keep even shorter utterances (lowered from 0.10)
 
 
 def _vad_filter(audio_data):
@@ -225,11 +219,11 @@ class AudioRecorder:
         if SPEECH_RECOGNITION_AVAILABLE:
             try:
                 self._recognizer = sr.Recognizer()
-                # 🚀 Far-Field Sensitivity: sensitive 50 base threshold + dynamic tracking
-                self._recognizer.energy_threshold = 50
+                # 🚀 Closed-Box Far-Field Sensitivity: sensitive 35 base threshold + dynamic tracking
+                self._recognizer.energy_threshold = 35
                 self._recognizer.dynamic_energy_threshold = True
-                self._recognizer.dynamic_energy_ratio = 1.3
-                self._recognizer.pause_threshold = 1.1
+                self._recognizer.dynamic_energy_ratio = 1.2
+                self._recognizer.pause_threshold = 1.2
                 self._recognizer.phrase_threshold = 0.1   # Catch far away speech instantly
                 self._recognizer.non_speaking_duration = 0.8
                 self._mic = sr.Microphone(sample_rate=16000)
@@ -244,8 +238,8 @@ class AudioRecorder:
                 print("🎙️ [STT] Calibrating microphone for room noise (1s)...", flush=True)
                 with self._mic as source:
                     self._recognizer.adjust_for_ambient_noise(source, duration=0.8)
-                # Keep floor ultra-sensitive (50) for distant speech
-                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 50)
+                # Keep floor ultra-sensitive (35) for muffled box mic
+                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 35)
                 print(f"🎙️ [STT] Baseline energy threshold: {self._recognizer.energy_threshold:.0f}", flush=True)
             except Exception as e:
                 print(f"[STT] Calibration notice: {e}", flush=True)
