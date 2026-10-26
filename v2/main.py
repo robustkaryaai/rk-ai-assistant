@@ -164,12 +164,18 @@ class RKV2Assistant:
         3. Fast Instant Router (<0.5ms local execution)
         4. RK_AI_HOME Backend Dispatch (Cloud intelligence)
         """
+        import re
         query = query.strip()
         if not query:
             return
 
+        # Strip wake-word prefix/suffix if present (e.g. from text commands: "rk what is the time")
+        stripped_query = re.sub(r"\brk\b", "", query, flags=re.IGNORECASE).strip(" ,.-")
+        stripped_query = re.sub(r"\s{2,}", " ", stripped_query).strip()
+        active_query = stripped_query if stripped_query else query
+
         # 4.1 Resolve Contextual Pronouns
-        resolved_query = self.conversation.resolve_contextual_query(query)
+        resolved_query = self.conversation.resolve_contextual_query(active_query)
         print(f"\n⚡ [EXECUTING] '{resolved_query}'")
 
         # ─── ACTIVE MODE: QUIZ ANSWERING ───────────────

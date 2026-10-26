@@ -386,7 +386,7 @@ class FastCommandRouter:
             }
 
         # ─── LOCAL TIME & DATE (Instant from RTC/OS clock) ────
-        if any(p in cleaned for p in ("what time is it", "what's the time", "tell me the time", "current time", "time now")):
+        if any(p in cleaned for p in ("what time is it", "what's the time", "tell me the time", "current time", "time now", "what is the time", "time please")):
             from datetime import datetime
             time_str = datetime.now().strftime("%I:%M %p")
             return True, {
@@ -395,7 +395,7 @@ class FastCommandRouter:
                 "args": {}
             }
 
-        if any(p in cleaned for p in ("what is the date", "what's the date", "today's date", "what day is it")):
+        if any(p in cleaned for p in ("what is the date", "what's the date", "today's date", "what day is it", "date today")):
             from datetime import datetime
             date_str = datetime.now().strftime("%A, %B %d, %Y")
             return True, {
