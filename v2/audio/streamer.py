@@ -128,20 +128,23 @@ class LocalMusicStreamer:
         if not targets:
             targets = [f"ytsearch1:{clean_q}"]
 
-        # Step 2: Extract audio stream URL via yt-dlp across candidates (fast m4a/aac extraction)
+        # Step 2: Extract audio stream URL via yt-dlp across candidates
         if shutil.which("yt-dlp"):
             for target in targets:
                 try:
                     cmd = [
                         "yt-dlp",
-                        "-f", "bestaudio[ext=m4a]/bestaudio",
+                        "-f", "140/251/bestaudio",   # android itags: 140=m4a, 251=webm/opus
                         "-g",
                         "--no-playlist",
                         "--no-warnings",
-                        "--socket-timeout", "6",
+                        "--geo-bypass",
+                        "--extractor-args", "youtube:player_client=android",
+                        "--socket-timeout", "8",
+                        "--extractor-retries", "2",
                         target
                     ]
-                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=10)
+                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=25)
                     for line in res.stdout.strip().splitlines():
                         line = line.strip()
                         if line.startswith("http"):
