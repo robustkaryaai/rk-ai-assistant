@@ -162,15 +162,13 @@ class RKV2Assistant:
             self._muted_logged = False
 
         # ── Ambient listen ───────────────────────────────────────────────────
-        if self.player.is_playing():
-            self.player.duck_for_voice()
+        # Note: Do NOT duck music on ambient listening idle cycles!
+        # Only duck if speech / wake word is actually being processed.
         print("👂 [LISTENING]...", end="\r", flush=True)
         wav_path = self.recorder.record_command(duration=10, silence_duration=1.2)
-        if self.player._is_ducked:
-            self.player.unduck_audio()
 
         if not wav_path:
-            # Silence — loop continues silently
+            # Silence — loop continues silently without interrupting music
             return
 
         print("\n⚡ [AUDIO] Processing speech...", flush=True)
@@ -206,10 +204,11 @@ class RKV2Assistant:
         clean_text = re.sub(r"\b" + re.escape(matched_wake) + r"\b", "", text, flags=re.IGNORECASE).strip(" ,.-")
         clean_text = re.sub(r"\s{2,}", " ", clean_text).strip()
 
-        # ── Real command detected — NOW play earcons ─────────────────────────
+        # ── Real command detected — Duck music & play earcons ─────────────────
         print(f"✅ [WAKE: '{matched_wake}'] '{clean_text}' (from: '{text}')", flush=True)
+        if self.player.is_playing():
+            self.player.duck_for_voice()
         self.player.play_chime("captured", sync=True)
-        self.player.play_chime("thinking")
 
         self.handle_command(clean_text if clean_text else text)
 
@@ -360,6 +359,8 @@ class RKV2Assistant:
             self._execute_local_action(tool, args)
 
         self.conversation.add_interaction(resolved_query, reply or "", local_action.get("tool") if local_action else (backend_intent or "chat"))
+        if self.player._is_ducked:
+            self.player.unduck_audio()
 
     def _execute_local_action(self, tool: str, args: dict):
         """Dispatches actual local actions on Pi hardware."""

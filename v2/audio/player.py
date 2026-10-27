@@ -72,7 +72,17 @@ class AudioPlayer:
                     try:
                         args = [player, target]
                         if player == "mpv":
-                            args.extend(["--no-video", "--volume=100", "--ao=pulse,alsa"])
+                            args.extend([
+                                "--no-video",
+                                "--volume=100",
+                                "--ao=pulse,alsa",
+                                "--demuxer-max-bytes=10M",
+                                "--demuxer-max-back-bytes=5M",
+                                "--cache=yes",
+                                "--cache-secs=30",
+                                "--network-timeout=15",
+                                "--really-quiet"
+                            ])
                         elif player == "cvlc":
                             args.extend(["--play-and-exit", "--aout=pulse"])
                         elif player == "ffplay":
@@ -107,7 +117,7 @@ class AudioPlayer:
         if shutil.which("mpg123"):
             try:
                 self._current_proc = subprocess.Popen(
-                    ["mpg123", "-q", "-o", "pulse", target],
+                    ["mpg123", "-q", "-o", "pulse", "-b", "4096", "--no-resync", target],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )

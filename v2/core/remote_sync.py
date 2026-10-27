@@ -72,7 +72,9 @@ class RemoteSyncManager:
         Optimized to poll every 1-2 seconds with persistent HTTP session.
         """
         now = time.time()
-        if now - self._last_cmd_poll < 1.5:   # ⚡ Instant command delivery (1.5s interval)
+        # If music is playing, back off polling to 4.5s to preserve CPU & network bandwidth on Pi Zero W
+        poll_interval = 4.5 if (self.player and self.player.is_playing()) else 3.0
+        if now - self._last_cmd_poll < poll_interval:
             return
         self._last_cmd_poll = now
 
