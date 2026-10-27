@@ -88,7 +88,7 @@ class LocalMusicStreamer:
                 "X-Device-Slug": slug
             }
             req = urllib.request.Request(backend_url, data=payload, headers=headers)
-            with urllib.request.urlopen(req, context=ctx, timeout=8.0) as resp:
+            with urllib.request.urlopen(req, context=ctx, timeout=14.0) as resp:
                 res_data = json.loads(resp.read().decode())
                 stream_url = res_data.get("stream_url")
                 if stream_url:
