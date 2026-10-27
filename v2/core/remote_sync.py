@@ -146,7 +146,46 @@ class RemoteSyncManager:
             elif action == "play_music":
                 url = payload.get("url")
                 if url:
-                    self.player.play_url_or_file(url)
+                    # If it's a YouTube URL, extract real audio stream first via yt-dlp
+                    is_youtube = "youtube.com" in url or "youtu.be" in url
+                    if is_youtube:
+                        import shutil
+                        stream_url = None
+                        print(f"🎵 [MUSIC] YouTube URL received — extracting stream...", flush=True)
+                        if shutil.which("yt-dlp"):
+                            try:
+                                import subprocess as sp
+                                cmd = [
+                                    "yt-dlp",
+                                    "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
+                                    "-g",
+                                    "--no-playlist",
+                                    "--no-warnings",
+                                    "--geo-bypass",          # bypass geolocking
+                                    "--socket-timeout", "10",
+                                    "--extractor-retries", "3",
+                                    url,
+                                ]
+                                res = sp.run(cmd, stdout=sp.PIPE, stderr=sp.PIPE, text=True, timeout=20)
+                                for line in res.stdout.strip().splitlines():
+                                    line = line.strip()
+                                    if line.startswith("http"):
+                                        stream_url = line
+                                        break
+                                if not stream_url and res.stderr:
+                                    print(f"⚠️ [MUSIC] yt-dlp stderr: {res.stderr[:200]}", flush=True)
+                            except Exception as e:
+                                print(f"⚠️ [MUSIC] yt-dlp extraction failed: {e}", flush=True)
+                        if stream_url:
+                            print(f"✅ [MUSIC] Stream ready, playing now.", flush=True)
+                            self.player.play_url_or_file(stream_url)
+                        else:
+                            print(f"⚠️ [MUSIC] Could not extract stream, trying direct URL.", flush=True)
+                            self.player.play_url_or_file(url)
+                    else:
+                        # Non-YouTube direct URL (CDN, Saavn, etc.) — play directly
+                        self.player.play_url_or_file(url)
+                    result = "Playing music"
             elif action == "stop":
                 self.player.stop()
             elif action == "volume":
