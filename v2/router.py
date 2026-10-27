@@ -357,10 +357,14 @@ class FastCommandRouter:
             }
 
         # ─── SECTION 1.3: DIRECT MUSIC STREAMING ─────────────
-        play_match = re.search(r"\bplay\s+(.+?)(?:\s+on\s+(youtube|spotify))?$", cleaned)
+        play_match = re.search(r"\bplay\s+(.+?)(?:\s+(?:on|from)\s+(youtube|spotify))?$", cleaned)
         if play_match:
-            query = play_match.group(1).strip()
+            raw_query = play_match.group(1).strip()
             service = play_match.group(2) or "youtube"
+            # Strip trailing "from youtube" or "on youtube" or "song" if captured inside query
+            cleaned_query = re.sub(r"\b(?:from|on)\s+(?:youtube|spotify)\b", "", raw_query, flags=re.IGNORECASE).strip()
+            cleaned_query = re.sub(r"\b(?:song|track)\b$", "", cleaned_query, flags=re.IGNORECASE).strip()
+            query = cleaned_query if cleaned_query else raw_query
             if query not in ("music", "song", "something", ""):
                 return True, {
                     "reply": f"Alright, playing {query} on {service}.",
