@@ -306,12 +306,10 @@ class RKV2Assistant:
                 self.conversation.add_interaction(resolved_query, f"Started {routine_name}", tool)
                 return
 
-            # Special concurrent handling for music:
+            # Special handling for music: resolve stream first, speak acknowledgement right before music starts
             if tool == "music":
                 reply = local_res.get("reply", "")
-                import threading
-                if reply:
-                    threading.Thread(target=self.speak, args=(reply,), daemon=True).start()
+                args["spoken_reply"] = reply
                 self._execute_local_action(tool, args)
                 self.conversation.add_interaction(resolved_query, reply, tool)
                 return
@@ -476,7 +474,10 @@ class RKV2Assistant:
 
             if stream_url:
                 print(f"🎵 [Music] Stream ready! Starting playback...")
-                self.player.wait_playback(timeout=10.0)  # Wait for parallel TTS spoken acknowledgment to finish
+                spoken_reply = args.get("spoken_reply")
+                if spoken_reply:
+                    self.speak(spoken_reply)
+                self.player.wait_playback(timeout=8.0)
                 self.player.play_url_or_file(stream_url)
             else:
                 print(f"⚠️ [Music] Could not obtain stream URL for: {q}")
