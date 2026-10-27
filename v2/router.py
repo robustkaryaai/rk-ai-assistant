@@ -95,32 +95,38 @@ class FastCommandRouter:
                 "args": {"query": cleaned}
             }
 
+        sounds_dir = Path(__file__).resolve().parent / "data" / "sounds"
+
         # ─── SECTION 1 & 2: PLAYBACK CONTROLS ───────────────
         if cleaned in ("stop", "pause", "shut up", "quiet", "silence", "halt", "cancel"):
+            pre = sounds_dir / "stopped.mp3"
             return True, {
                 "reply": "Stopped.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "playback_control",
                 "args": {"action": "stop"}
             }
 
         if cleaned in ("resume", "continue", "play"):
+            pre = sounds_dir / "resumed.mp3"
             return True, {
-                "reply": "Resuming.",
+                "reply": "Resumed.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "playback_control",
                 "args": {"action": "resume"}
             }
 
-        # ─── SECTION 2: VOLUME CONTROLS (Instant ALSA amixer) ───
+        # ─── SECTION 2: VOLUME CONTROLS (Chime Tick Only — No Loud Annoying Speech) ───
         if re.search(r"\b(volume up|louder|increase volume|turn it up)\b", cleaned):
             return True, {
-                "reply": "Increasing volume.",
+                "reply": None,  # No speech, only volume tick earcon
                 "tool": "volume",
                 "args": {"action": "up", "step": 10}
             }
 
         if re.search(r"\b(volume down|lower volume|decrease volume|quieter|turn it down)\b", cleaned):
             return True, {
-                "reply": "Lowering volume.",
+                "reply": None,  # No speech, only volume tick earcon
                 "tool": "volume",
                 "args": {"action": "down", "step": 10}
             }
@@ -129,51 +135,63 @@ class FastCommandRouter:
         if vol_match:
             level = max(0, min(100, int(vol_match.group(1))))
             return True, {
-                "reply": f"Volume set to {level} percent.",
+                "reply": None,  # Instant silent level adjustment with tick chime
                 "tool": "volume",
                 "args": {"action": "set", "level": level}
             }
 
         if cleaned in ("mute", "go mute", "mute speaker"):
+            pre = sounds_dir / "speaker_muted.mp3"
             return True, {
                 "reply": "Muted speaker.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "volume",
                 "args": {"action": "mute"}
             }
 
         if cleaned in ("unmute", "turn on sound", "unmute speaker"):
+            pre = sounds_dir / "speaker_unmuted.mp3"
             return True, {
                 "reply": "Unmuted speaker.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "volume",
                 "args": {"action": "unmute"}
             }
 
         # ─── HARDWARE MIC MUTE / UNMUTE ──────────────────────
         if cleaned in ("mute mic", "mute microphone", "mic off", "turn off mic", "disable mic"):
+            pre = sounds_dir / "mic_muted.mp3"
             return True, {
-                "reply": "Microphone muted at hardware level.",
+                "reply": "Microphone muted.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "hardware_mic",
                 "args": {"action": "mute"}
             }
 
         if cleaned in ("unmute mic", "unmute microphone", "mic on", "turn on mic", "enable mic"):
+            pre = sounds_dir / "mic_unmuted.mp3"
             return True, {
                 "reply": "Microphone unmuted.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "hardware_mic",
                 "args": {"action": "unmute"}
             }
 
         # ─── TOGGLE NIGHT PROTOCOL ───────────────────────────
         if cleaned in ("disable night protocol", "turn off night protocol", "night mode off", "disable night mode"):
+            pre = sounds_dir / "night_off.mp3"
             return True, {
                 "reply": "Night protocol disabled.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "night_mode_toggle",
                 "args": {"enabled": False}
             }
 
         if cleaned in ("enable night protocol", "turn on night protocol", "night mode on", "enable night mode"):
+            pre = sounds_dir / "night_on.mp3"
             return True, {
                 "reply": "Night protocol enabled.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "night_mode_toggle",
                 "args": {"enabled": True}
             }
@@ -195,8 +213,10 @@ class FastCommandRouter:
 
         # ─── SECTION 3: ALARMS & PERIOD BELLS ────────────────
         if re.search(r"\b(stop alarm|cancel alarm|turn off alarm|silence alarm)\b", cleaned):
+            pre = sounds_dir / "alarm_stopped.mp3"
             return True, {
                 "reply": "Alarm stopped.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "alarm",
                 "args": {"action": "stop"}
             }
@@ -212,7 +232,7 @@ class FastCommandRouter:
 
         if re.search(r"\b(ring (?:the )?period bell|ring bell|period bell)\b", cleaned):
             return True, {
-                "reply": "Ringing period bell.",
+                "reply": None,
                 "tool": "period_bell",
                 "args": {"label": "Period Bell"}
             }
@@ -222,21 +242,25 @@ class FastCommandRouter:
         if pomo_match:
             mins = int(pomo_match.group(1))
             return True, {
-                "reply": f"Starting {mins} minute Pomodoro study session.",
+                "reply": f"Started {mins} minute Pomodoro study session.",
                 "tool": "pomodoro",
                 "args": {"action": "start", "minutes": mins}
             }
 
         if cleaned in ("start pomodoro", "start study session"):
+            pre = sounds_dir / "pomodoro_started.mp3"
             return True, {
-                "reply": "Starting 25 minute Pomodoro study session.",
+                "reply": "Started 25 minute Pomodoro study session.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "pomodoro",
                 "args": {"action": "start", "minutes": 25}
             }
 
         if cleaned in ("stop pomodoro", "end study session", "cancel pomodoro"):
+            pre = sounds_dir / "pomodoro_ended.mp3"
             return True, {
-                "reply": "Ending Pomodoro session.",
+                "reply": "Ended Pomodoro study session.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "pomodoro",
                 "args": {"action": "stop"}
             }
@@ -345,15 +369,19 @@ class FastCommandRouter:
 
         # ─── HARDWARE POWER ACTIONS ──────────────────────────
         if cleaned in ("restart", "reboot", "reboot pi", "restart pi", "reboot system", "rk reboot"):
+            pre = sounds_dir / "rebooting.mp3"
             return True, {
                 "reply": "Rebooting system now.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "system",
                 "args": {"action": "reboot"}
             }
 
         if cleaned in ("shutdown", "power off", "turn off pi", "rk shutdown"):
+            pre = sounds_dir / "shutting_down.mp3"
             return True, {
                 "reply": "Shutting down system.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "system",
                 "args": {"action": "shutdown"}
             }
@@ -374,16 +402,20 @@ class FastCommandRouter:
 
         # ─── IDENTITY & CREATOR ──────────────────────────────
         if any(p in cleaned for p in ("who are you", "what is your name", "what's your name", "who made you", "who created you")):
+            pre = sounds_dir / "identity.mp3"
             return True, {
                 "reply": "I am RK AI Assistant, created and powered by RexyCore.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "chat_local",
                 "args": {}
             }
 
         # ─── CAPABILITIES / HELP ─────────────────────────────
         if cleaned in ("what can you do", "help", "commands", "features"):
+            pre = sounds_dir / "capabilities.mp3"
             return True, {
                 "reply": "I can play music, tell weather, set alarms and timers, answer questions, run focus routines, and assist you online or offline.",
+                "audio_file": str(pre) if pre.exists() else None,
                 "tool": "chat_local",
                 "args": {}
             }
