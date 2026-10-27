@@ -80,6 +80,7 @@ class LocalMusicStreamer:
         slug_file = BASE_DIR / "slug.txt"
         slug = slug_file.read_text().strip() if slug_file.exists() else "123456789"
         backend_url = f"https://rk-ai-backend.onrender.com/device/{slug}/music/resolve"
+        cloud_target = None
         try:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -95,28 +96,37 @@ class LocalMusicStreamer:
                 stream_url = res_data.get("stream_url") or res_data.get("link")
                 if stream_url and stream_url.startswith("http"):
                     print(f"⚡ [MUSIC-RESOLVE] Cloud server resolved '{res_data.get('title')}' ({res_data.get('source')}) in {res_data.get('elapsed_seconds')}s!", flush=True)
-                    return stream_url
+                    # If cloud returned a direct audio stream (like Saavn CDN or direct media container), play it directly!
+                    if not ("youtube.com" in stream_url or "youtu.be" in stream_url):
+                        return stream_url
+                    cloud_target = stream_url
         except Exception as e:
             print(f"[music-resolve] Cloud fast-resolve notice: {e} — falling back to local Pi", flush=True)
 
         # Step 1: Rapidly grab the candidate video IDs via direct web scrape (<0.8s)
         candidate_vids = cls._fast_extract_videoids(clean_q)
-        targets = [f"https://www.youtube.com/watch?v={vid}" for vid in candidate_vids] if candidate_vids else [f"ytsearch1:{clean_q}"]
+        targets = []
+        if cloud_target:
+            targets.append(cloud_target)
+        if candidate_vids:
+            targets.extend([f"https://www.youtube.com/watch?v={vid}" for vid in candidate_vids if f"https://www.youtube.com/watch?v={vid}" not in targets])
+        if not targets:
+            targets = [f"ytsearch1:{clean_q}"]
 
-        # Step 2: Extract audio stream URL via yt-dlp across candidates
+        # Step 2: Extract audio stream URL via yt-dlp across candidates (fast m4a/aac extraction)
         if shutil.which("yt-dlp"):
             for target in targets:
                 try:
                     cmd = [
                         "yt-dlp",
-                        "-f", "ba",
+                        "-f", "bestaudio[ext=m4a]/bestaudio",
                         "-g",
                         "--no-playlist",
                         "--no-warnings",
-                        "--socket-timeout", "4",
+                        "--socket-timeout", "6",
                         target
                     ]
-                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=8)
+                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=10)
                     for line in res.stdout.strip().splitlines():
                         line = line.strip()
                         if line.startswith("http"):
