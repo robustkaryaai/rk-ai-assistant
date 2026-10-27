@@ -76,8 +76,9 @@ class RemoteSyncManager:
         Optimized to poll every 1-2 seconds with persistent HTTP session.
         """
         now = time.time()
-        # If music is playing, back off polling to 4.5s to preserve CPU & network bandwidth on Pi Zero W
-        poll_interval = 4.5 if (self.player and self.player.is_playing()) else 3.0
+        # If music is resolving or playing, back off polling to 10s to give 100% CPU and network to yt-dlp
+        is_busy = getattr(self.assistant, "_music_resolving", False) or (self.player and self.player.is_playing())
+        poll_interval = 10.0 if is_busy else 3.5
         if now - self._last_cmd_poll < poll_interval:
             return
         self._last_cmd_poll = now
@@ -91,8 +92,8 @@ class RemoteSyncManager:
                 print(f"📥 [REMOTE] {len(commands)} pending command(s) received.", flush=True)
             for cmd in commands:
                 self._execute_remote_command(cmd)
-        except Exception as e:
-            print(f"⚠️ [REMOTE] poll_remote_commands error: {e}", flush=True)
+        except Exception:
+            pass
 
     def _execute_remote_command(self, cmd: Dict[str, Any]):
         cmd_id = cmd.get("$id") or cmd.get("id")

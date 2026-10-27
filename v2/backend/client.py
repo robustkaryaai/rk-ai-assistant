@@ -192,16 +192,16 @@ class RKHomeClient:
         """
         url = f"{self.base_url}/device/{self.slug}/commands/pending"
         try:
-            resp = self.session.get(url, timeout=4)
+            resp = self.session.get(url, timeout=6)
             if resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, list):
                     return data
                 return data.get("commands", [])
-            else:
-                print(f"⚠️ [POLL] Backend returned HTTP {resp.status_code}", flush=True)
-        except Exception as e:
-            print(f"⚠️ [POLL] fetch_pending_commands failed: {e}", flush=True)
+        except requests.exceptions.Timeout:
+            pass  # Normal transient timeout when network is saturated by yt-dlp
+        except Exception:
+            pass
         return []
 
 

@@ -467,9 +467,11 @@ class RKV2Assistant:
             print(f"🎵 [Music] Requesting stream URL for: '{q}'...")
             self.player.start_processing_loop()
             stream_url = None
+            self._music_resolving = True
             try:
                 stream_url = LocalMusicStreamer.get_audio_stream_url(q)
             finally:
+                self._music_resolving = False
                 self.player.stop_processing_loop(play_finished=bool(stream_url))
 
             if stream_url:
