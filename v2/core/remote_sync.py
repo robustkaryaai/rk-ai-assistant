@@ -146,46 +146,51 @@ class RemoteSyncManager:
             elif action == "play_music":
                 url = payload.get("url")
                 if url:
-                    # If it's a YouTube URL, extract real audio stream first via yt-dlp
                     is_youtube = "youtube.com" in url or "youtu.be" in url
                     if is_youtube:
-                        import shutil
-                        stream_url = None
-                        print(f"🎵 [MUSIC] YouTube URL received — extracting stream...", flush=True)
-                        if shutil.which("yt-dlp"):
-                            try:
-                                import subprocess as sp
-                                cmd = [
-                                    "yt-dlp",
-                                    "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
-                                    "-g",
-                                    "--no-playlist",
-                                    "--no-warnings",
-                                    "--geo-bypass",          # bypass geolocking
-                                    "--socket-timeout", "10",
-                                    "--extractor-retries", "3",
-                                    url,
-                                ]
-                                res = sp.run(cmd, stdout=sp.PIPE, stderr=sp.PIPE, text=True, timeout=20)
-                                for line in res.stdout.strip().splitlines():
-                                    line = line.strip()
-                                    if line.startswith("http"):
-                                        stream_url = line
-                                        break
-                                if not stream_url and res.stderr:
-                                    print(f"⚠️ [MUSIC] yt-dlp stderr: {res.stderr[:200]}", flush=True)
-                            except Exception as e:
-                                print(f"⚠️ [MUSIC] yt-dlp extraction failed: {e}", flush=True)
-                        if stream_url:
-                            print(f"✅ [MUSIC] Stream ready, playing now.", flush=True)
-                            self.player.play_url_or_file(stream_url)
-                        else:
-                            print(f"⚠️ [MUSIC] Could not extract stream, trying direct URL.", flush=True)
-                            self.player.play_url_or_file(url)
+                        # Run yt-dlp in background so voice loop is never blocked
+                        import threading, shutil, subprocess as sp
+                        def _resolve_and_play(yt_url):
+                            print(f"🎵 [MUSIC] Resolving YouTube stream in background...", flush=True)
+                            stream_url = None
+                            if shutil.which("yt-dlp"):
+                                try:
+                                    cmd = [
+                                        "yt-dlp",
+                                        "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
+                                        "-g",
+                                        "--no-playlist",
+                                        "--no-warnings",
+                                        "--geo-bypass",
+                                        "--extractor-args", "youtube:player_client=android",
+                                        "--socket-timeout", "8",
+                                        "--extractor-retries", "2",
+                                        yt_url,
+                                    ]
+                                    res = sp.run(cmd, stdout=sp.PIPE, stderr=sp.PIPE, text=True, timeout=30)
+                                    for line in res.stdout.strip().splitlines():
+                                        line = line.strip()
+                                        if line.startswith("http"):
+                                            stream_url = line
+                                            break
+                                    if not stream_url and res.stderr:
+                                        print(f"⚠️ [MUSIC] yt-dlp: {res.stderr.strip()[:150]}", flush=True)
+                                except Exception as e:
+                                    print(f"⚠️ [MUSIC] yt-dlp failed: {e}", flush=True)
+                            if stream_url:
+                                print(f"✅ [MUSIC] Stream ready — playing now.", flush=True)
+                                self.player.play_url_or_file(stream_url)
+                            else:
+                                print(f"⚠️ [MUSIC] Falling back to direct YouTube URL.", flush=True)
+                                self.player.play_url_or_file(yt_url)
+
+                        t = threading.Thread(target=_resolve_and_play, args=(url,), daemon=True)
+                        t.start()
+                        result = "Resolving and playing music in background"
                     else:
-                        # Non-YouTube direct URL (CDN, Saavn, etc.) — play directly
+                        # Non-YouTube CDN URL (Saavn etc.) — play instantly, no extraction needed
                         self.player.play_url_or_file(url)
-                    result = "Playing music"
+                        result = "Playing music"
             elif action == "stop":
                 self.player.stop()
             elif action == "volume":

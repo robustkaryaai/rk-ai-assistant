@@ -98,11 +98,12 @@ if not stream_url:
         "--no-playlist",
         "--no-warnings",
         "--geo-bypass",
-        "--socket-timeout", "10",
-        "--extractor-retries", "3",
+        "--extractor-args", "youtube:player_client=android",  # skips JS cipher — fastest on Pi Zero
+        "--socket-timeout", "8",
+        "--extractor-retries", "2",
         yt_url,
     ]
-    print(f"  Running: {' '.join(cmd[:6])} ... {yt_url[:60]}")
+    print(f"  Running: yt-dlp --extractor-args android ... {yt_url[:60]}")
     t0 = time.time()
     try:
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)
