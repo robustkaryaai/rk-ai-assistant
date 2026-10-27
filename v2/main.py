@@ -219,7 +219,7 @@ class RKV2Assistant:
         print(f"✅ [WAKE: '{matched_wake}'] '{clean_text}' (from: '{text}')", flush=True)
         if self.player.is_playing():
             self.player.duck_for_voice()
-        self.player.play_chime("captured", sync=True)
+        self.player.play_chime("wake", sync=True)
 
         self.handle_command(clean_text if clean_text else text)
 
@@ -308,8 +308,6 @@ class RKV2Assistant:
 
             # Special concurrent handling for music:
             if tool == "music":
-                # Start processing earcon immediately the moment the command is matched!
-                self.player.start_processing_loop()
                 reply = local_res.get("reply", "")
                 import threading
                 if reply:
