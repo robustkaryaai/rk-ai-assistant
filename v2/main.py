@@ -116,11 +116,11 @@ class RKV2Assistant:
             pass
 
     def play_ready_sound(self):
-        """Instant startup greeting from pre-rendered local audio file."""
-        ready_file = BASE_DIR / "data" / "sounds" / "ready.mp3"
-        if ready_file.exists():
-            print(f"⚡ [INSTANT] Playing pre-generated startup greeting...")
-            self.player.play_url_or_file(str(ready_file), is_speech=True)
+        """Instant startup greeting: Speaks 'Radhe Radhe! RK AI Assistant is ready.'"""
+        radhe_file = BASE_DIR / "data" / "sounds" / "greeting_radhe.mp3"
+        if radhe_file.exists():
+            print(f"⚡ [INSTANT] Playing startup greeting (Radhe Radhe)...")
+            self.player.play_url_or_file(str(radhe_file), is_speech=True)
         else:
             self.speak("Radhe Radhe! RK AI Assistant is ready.")
 
