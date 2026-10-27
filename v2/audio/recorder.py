@@ -55,7 +55,17 @@ def no_alsa_err():
 
 
 def setup_microphone_volume():
-    """Force hardware and software capture gain to maximum (far-field boost)."""
+    """Force hardware and software capture gain to configured level (defaults to 200% for enclosed box)."""
+    cfg_file = Path(__file__).resolve().parent.parent / "data" / "mic_config.json"
+    source_vol = 200
+    if cfg_file.exists():
+        try:
+            import json
+            cfg = json.loads(cfg_file.read_text())
+            source_vol = int(cfg.get("source_volume_percent", 200))
+        except Exception:
+            pass
+
     controls = [
         "Capture", "Mic", "Internal Mic", "Digital", "Input", "Boost",
         "Mic Boost", "Internal Mic Boost", "Capture Volume", "Mic Capture Volume"
@@ -64,15 +74,15 @@ def setup_microphone_volume():
         try:
             subprocess.run(["amixer", "sset", control, "100%"], capture_output=True)
             subprocess.run(["amixer", "sset", control, "cap"], capture_output=True)
-            # Some USB mic / sound cards use dB or numerical ranges (e.g. 30dB)
             subprocess.run(["amixer", "sset", control, "unmute"], capture_output=True)
         except Exception:
             pass
     try:
-        # Boost PulseAudio capture source to 200% (far-field pre-amp boost for enclosed boxes)
-        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "200%"], capture_output=True)
+        # Boost PulseAudio capture source
+        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{source_vol}%"], capture_output=True)
         subprocess.run(["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"], capture_output=True)
     except Exception:
+        pass
         pass
 
 
