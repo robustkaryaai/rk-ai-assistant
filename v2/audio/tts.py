@@ -40,6 +40,17 @@ class TTSManager:
     def set_config(self, new_config: Dict[str, Any]):
         if not isinstance(new_config, dict):
             return
+        
+        # Check if config actually changed to prevent duplicate file writes & log spam
+        changed = False
+        for k, v in new_config.items():
+            if self.config.get(k) != v:
+                changed = True
+                break
+
+        if not changed:
+            return
+
         self.config.update(new_config)
         try:
             self.config_file.write_text(json.dumps(self.config, indent=2))
