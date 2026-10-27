@@ -466,6 +466,7 @@ class RKV2Assistant:
             # 3. Stream Resolution: fetch direct audio stream URL from backend
             print(f"🎵 [Music] Requesting stream URL for: '{q}'...")
             self.player.start_processing_loop()
+            stream_url = None
             try:
                 stream_url = LocalMusicStreamer.get_audio_stream_url(q)
             finally:
