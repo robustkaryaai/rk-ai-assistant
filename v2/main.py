@@ -307,8 +307,9 @@ class RKV2Assistant:
                 return
 
             # Special concurrent handling for music:
-            # Speak reply in parallel thread while stream URL resolves concurrently!
             if tool == "music":
+                # Start processing earcon immediately the moment the command is matched!
+                self.player.start_processing_loop()
                 reply = local_res.get("reply", "")
                 import threading
                 if reply:

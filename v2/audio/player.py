@@ -139,14 +139,21 @@ class AudioPlayer:
         chime_file = BASE_DIR / "data" / "sounds" / "processing.wav"
         if not chime_file.exists():
             return
-        self.stop_processing_loop()
+        self.stop_processing_loop(play_finished=False)
         self._processing_active = True
+
+        player_bin = "aplay" if shutil.which("aplay") else ("afplay" if shutil.which("afplay") else "mpv")
 
         def _loop():
             import time
             while getattr(self, "_processing_active", False):
                 try:
-                    p = subprocess.Popen(["aplay", "-q", str(chime_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    cmd = [player_bin, str(chime_file)]
+                    if player_bin == "aplay":
+                        cmd = ["aplay", "-q", str(chime_file)]
+                    elif player_bin == "mpv":
+                        cmd = ["mpv", "--no-video", "--really-quiet", str(chime_file)]
+                    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     self._proc_loop_proc = p
                     p.wait()
                 except Exception:
