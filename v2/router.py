@@ -361,9 +361,8 @@ class FastCommandRouter:
         if play_match:
             raw_query = play_match.group(1).strip()
             service = play_match.group(2) or "youtube"
-            # Strip trailing "from youtube" or "on youtube" or "song" if captured inside query
+            # Clean service tags like "from youtube" or "on spotify" that might be trapped inside the query
             cleaned_query = re.sub(r"\b(?:from|on)\s+(?:youtube|spotify)\b", "", raw_query, flags=re.IGNORECASE).strip()
-            cleaned_query = re.sub(r"\b(?:song|track)\b$", "", cleaned_query, flags=re.IGNORECASE).strip()
             query = cleaned_query if cleaned_query else raw_query
             if query not in ("music", "song", "something", ""):
                 return True, {
