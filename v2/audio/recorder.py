@@ -160,8 +160,8 @@ class AudioRecorder:
             except Exception as e:
                 print(f"[recorder] Calibration notice: {e}", flush=True)
 
-    def record_command(self, duration: int = 10, silence_duration: float = 0.8) -> Optional[Path]:
-        """Record user speech exactly like tune_mic option [t]."""
+    def record_command(self, duration: int = 10, silence_duration: float = 1.3) -> Optional[Path]:
+        """Record user speech with generous pause_threshold so multi-word sentences ('hello rk ...') aren't cut off."""
         if self.is_hardware_muted:
             return None
 
@@ -173,10 +173,13 @@ class AudioRecorder:
 
         if self._recognizer and self._mic:
             try:
-                self._recognizer.pause_threshold = 0.8
+                # 1.3s pause threshold lets the user naturally pause between 'Hello' and 'RK'
+                self._recognizer.pause_threshold = 1.3
+                self._recognizer.phrase_threshold = 0.15
+                self._recognizer.non_speaking_duration = 0.6
                 with no_alsa_err():
                     with self._mic as source:
-                        audio = self._recognizer.listen(source, timeout=3, phrase_time_limit=max(duration, 10))
+                        audio = self._recognizer.listen(source, timeout=3, phrase_time_limit=max(duration, 12))
 
                 # Normalize audio
                 audio = _normalize_audio(audio)
