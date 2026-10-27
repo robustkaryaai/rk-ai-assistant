@@ -103,20 +103,6 @@ class LocalMusicStreamer:
         except Exception as e:
             print(f"[music-resolve] Cloud fast-resolve notice: {e} — falling back to local Pi", flush=True)
 
-        # Step 0.5: Try Host Stream Resolver (Fast Residential Network on same LAN, 0s Pi CPU)
-        for host_ip in ["192.168.1.10", "192.168.1.5"]:
-            try:
-                res_url = f"http://{host_ip}:7070"
-                resolve_target = cloud_target or clean_q
-                req = urllib.request.Request(res_url, data=json.dumps({"query": resolve_target}).encode(), headers={"Content-Type": "application/json"})
-                with urllib.request.urlopen(req, timeout=3.5) as resp:
-                    h_data = json.loads(resp.read().decode())
-                    h_stream = h_data.get("stream_url")
-                    if h_stream and h_stream.startswith("http"):
-                        print(f"⚡ [MUSIC-RESOLVE] Resolved directly via LAN resolver in sub-second!", flush=True)
-                        return h_stream
-            except Exception:
-                pass
 
         # Step 1: Rapidly grab the candidate video IDs via direct web scrape (<0.8s)
         candidate_vids = cls._fast_extract_videoids(clean_q)
