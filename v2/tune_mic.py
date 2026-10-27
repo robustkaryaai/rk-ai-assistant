@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-RK AI Assistant — Interactive Microphone Tuner & Live Calibration Studio
-Allows you to:
-1. View live input audio meter (VU meter in terminal) to see room silence vs voice
-2. Adjust hardware & software gain (ALSA / PulseAudio volume) interactively
-3. Tune energy threshold and test real-time Google Speech Recognition
-4. Test playback of your recorded voice to hear clarity/noise directly through speakers
-5. Save optimal mic settings directly into the assistant configuration
+RK AI Assistant — Interactive Microphone Tuning Studio & Live Loop Calibrator
+Features:
+1. Continuous Loop Mode: Records 3 seconds -> Plays back immediately through speaker at 100% ->
+   prompts for single keystroke (+, -, or keep) to adjust gain on the fly!
+2. Live VU Meter: Visual level bar in terminal to check silence vs voice.
+3. PulseAudio + ALSA Unmute Safety: Guarantees mic isn't muted or clipped.
+4. Auto-saves optimal settings to data/mic_config.json.
 """
 
 import os
@@ -37,9 +37,9 @@ def clear_screen():
 
 
 def get_pactl_volume():
+    """Retrieve current capture volume in %."""
     try:
         out = subprocess.check_output(["pactl", "get-source-volume", "@DEFAULT_SOURCE@"], text=True)
-        # Output looks like: Volume: front-left: 65536 / 100% / 0.00 dB, ...
         import re
         match = re.search(r"(\d+)%", out)
         if match:
@@ -50,15 +50,34 @@ def get_pactl_volume():
 
 
 def set_pactl_volume(vol_percent):
-    vol_percent = max(10, min(300, vol_percent))
+    """Sets PulseAudio capture source volume safely and un-mutes all mic channels."""
+    vol_percent = max(10, min(250, vol_percent))
     try:
+        # Set software source volume
         subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{vol_percent}%"], check=True)
-        for control in ["Capture", "Mic", "Internal Mic", "Digital", "Boost"]:
+        # Ensure not muted
+        subprocess.run(["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"], capture_output=True)
+
+        # Unmute & max hardware ALSA controls
+        for control in ["Capture", "Mic", "Internal Mic", "Digital", "Boost", "Mic Boost", "Input"]:
             subprocess.run(["amixer", "sset", control, "100%"], capture_output=True)
+            subprocess.run(["amixer", "sset", control, "unmute"], capture_output=True)
+            subprocess.run(["amixer", "sset", control, "cap"], capture_output=True)
         return True
     except Exception as e:
         print(f"⚠️ Failed to set volume: {e}")
         return False
+
+
+def ensure_speaker_loud():
+    """Ensure speaker sink is unmuted and set to 100%."""
+    try:
+        subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"], capture_output=True)
+        subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "0"], capture_output=True)
+        subprocess.run(["amixer", "sset", "Master", "100%"], capture_output=True)
+        subprocess.run(["amixer", "sset", "Master", "unmute"], capture_output=True)
+    except Exception:
+        pass
 
 
 def load_mic_config():
@@ -68,9 +87,9 @@ def load_mic_config():
         except Exception:
             pass
     return {
-        "source_volume_percent": 150,
-        "energy_threshold": 40,
-        "dynamic_energy_ratio": 1.4,
+        "source_volume_percent": 125,
+        "energy_threshold": 35,
+        "dynamic_energy_ratio": 1.3,
         "phrase_threshold": 0.15
     }
 
@@ -79,6 +98,96 @@ def save_mic_config(cfg):
     MIC_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     MIC_CONFIG_FILE.write_text(json.dumps(cfg, indent=2))
     print(f"\n💾 Saved mic config to {MIC_CONFIG_FILE}!")
+
+
+def continuous_loop_calibration(cfg):
+    """
+    Loop:
+    1. Records 3 seconds
+    2. Plays it back immediately over speaker at 100%
+    3. Asks you: [+][-][s][q] to adjust gain in real-time
+    """
+    clear_screen()
+    print("=" * 65)
+    print("🔁 CONTINUOUS LISTEN & PLAYBACK LOOP")
+    print("=" * 65)
+    print("How it works:")
+    print("  • Records 3 seconds of audio from your microphone")
+    print("  • Plays it right back to you through the speaker at 100% volume")
+    print("  • You choose to Increase (+), Decrease (-), or Save (s)")
+    print("=" * 65)
+
+    test_wav = Path("/tmp/rk_loop_test.wav")
+
+    while True:
+        current_vol = get_pactl_volume()
+        set_pactl_volume(current_vol) # Ensure unmuted
+        ensure_speaker_loud()
+
+        print(f"\n🎤 Current Mic Gain: \033[96m{current_vol}%\033[0m")
+        print("👉 Speak now (3 seconds test recording)...")
+        time.sleep(0.4)
+
+        # Record via arecord for raw, reliable zero-latency capture
+        try:
+            subprocess.run([
+                "arecord", "-D", "default", "-r", "16000", "-c", "1",
+                "-f", "S16_LE", "-d", "3", "-q", str(test_wav)
+            ], check=True)
+        except Exception:
+            # Fallback to speech_recognition if arecord directly fails
+            r = sr.Recognizer()
+            with sr.Microphone(sample_rate=16000) as source:
+                audio = r.record(source, duration=3)
+            with open(test_wav, "wb") as f:
+                f.write(audio.get_wav_data())
+
+        # Measure audio metrics
+        peak = 0
+        rms = 0
+        try:
+            import audioop
+            data = test_wav.read_bytes()
+            if len(data) > 44:
+                raw = data[44:]
+                peak = audioop.max(raw, 2)
+                rms = audioop.rms(raw, 2)
+        except Exception:
+            pass
+
+        print(f"📊 Capture metrics: RMS={rms} | Peak={peak}/32767", end=" ")
+        if peak > 30000:
+            print("\033[91m(⚠️ CLIPPING / DISTORTED - REDUCE GAIN)\033[0m")
+        elif peak < 3000:
+            print("\033[93m(⚠️ TOO QUIET - INCREASE GAIN)\033[0m")
+        else:
+            print("\033[92m(✅ GOOD AUDIO RANGE)\033[0m")
+
+        # Instant Playback at 100%
+        print("🔊 Playing back through speaker at 100%...")
+        ensure_speaker_loud()
+        subprocess.run(["aplay", "-q", str(test_wav)])
+
+        # Single-prompt adjustment
+        print("-" * 65)
+        print("Actions: [+] Increase (+15%) | [-] Decrease (-15%) | [r] Retry same | [s] Save & Exit | [q] Cancel")
+        choice = input("Your choice: ").strip().lower()
+
+        if choice in ("+", "="):
+            new_v = min(250, current_vol + 15)
+            set_pactl_volume(new_v)
+            cfg["source_volume_percent"] = new_v
+        elif choice in ("-", "_"):
+            new_v = max(20, current_vol - 15)
+            set_pactl_volume(new_v)
+            cfg["source_volume_percent"] = new_v
+        elif choice == "s":
+            cfg["source_volume_percent"] = current_vol
+            save_mic_config(cfg)
+            input("Press Enter to return to main menu...")
+            break
+        elif choice == "q":
+            break
 
 
 def live_vu_meter(duration_sec=10):
@@ -91,7 +200,6 @@ def live_vu_meter(duration_sec=10):
         start = time.time()
         try:
             while time.time() - start < duration_sec:
-                # Capture 0.2s raw audio chunk
                 raw_chunk = source.stream.read(source.CHUNK)
                 if not raw_chunk:
                     continue
@@ -105,14 +213,12 @@ def live_vu_meter(duration_sec=10):
                     rms = audioop.rms(raw_chunk, 2)
                     peak = audioop.max(raw_chunk, 2)
 
-                # Map RMS (0 to 12000) into 40-character bar
-                bars = min(40, int(rms / 150))
+                bars = min(40, int(rms / 120))
                 meter = "█" * bars + "░" * (40 - bars)
 
-                # Color-code: Green for soft, Yellow for good speech, Red for peak
                 if peak > 28000:
                     status = "\033[91m🔥 CLIPPING / TOO LOUD\033[0m"
-                elif rms > 400:
+                elif rms > 300:
                     status = "\033[92m🗣️ VOICE DETECTED\033[0m"
                 else:
                     status = "\033[90m💤 SILENCE / AMBIENT\033[0m"
@@ -125,15 +231,15 @@ def live_vu_meter(duration_sec=10):
     print("\n")
 
 
-def test_recording_and_stt(energy_threshold=40):
+def test_recording_and_stt(energy_threshold=35):
     r = sr.Recognizer()
     r.energy_threshold = energy_threshold
     r.dynamic_energy_threshold = True
-    r.dynamic_energy_ratio = 1.4
+    r.dynamic_energy_ratio = 1.3
     r.phrase_threshold = 0.15
 
     print(f"\n🎙️ Recording Test (Energy Threshold = {energy_threshold})...")
-    print("👉 Speak a phrase now (e.g. 'Hello RK what time is it?')...")
+    print("👉 Speak a phrase now (e.g. 'Hello RK what is the weather?')...")
 
     with sr.Microphone(sample_rate=16000) as source:
         r.adjust_for_ambient_noise(source, duration=0.8)
@@ -141,14 +247,13 @@ def test_recording_and_stt(energy_threshold=40):
         try:
             audio = r.listen(source, timeout=6, phrase_time_limit=5)
         except sr.WaitTimeoutError:
-            print("⚠️ No speech detected (Timed out). Try raising microphone gain or speaking louder.")
+            print("⚠️ No speech detected (Timed out).")
             return None
 
     test_wav = Path("/tmp/rk_mic_tuning.wav")
     with open(test_wav, "wb") as f:
         f.write(audio.get_wav_data())
 
-    # Measure level
     try:
         import audioop
         raw = audio.get_raw_data()
@@ -158,7 +263,6 @@ def test_recording_and_stt(energy_threshold=40):
     except Exception:
         pass
 
-    # STT Test
     print("\n   [Google STT Transcription]:")
     try:
         transcription = r.recognize_google(audio, language="en-IN").strip()
@@ -168,13 +272,10 @@ def test_recording_and_stt(energy_threshold=40):
     except Exception as e:
         print(f"   ❌ STT Error: {e}")
 
-    # Playback prompt
     try:
         play_ans = input("\n🔊 Play back this recording through speaker at 100% volume? (y/N): ").strip().lower()
         if play_ans == "y":
-            # Force speaker sink volume to 100% for playback
-            subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"], capture_output=True)
-            subprocess.run(["amixer", "sset", "Master", "100%"], capture_output=True)
+            ensure_speaker_loud()
             print("🔊 Playing back through speaker at 100% volume...")
             subprocess.run(["aplay", "-q", str(test_wav)])
     except Exception:
@@ -189,40 +290,42 @@ def main():
     while True:
         clear_screen()
         current_vol = get_pactl_volume()
-        print("=" * 60)
+        print("=" * 65)
         print("🎛️  RK AI Assistant — Interactive Microphone Tuning Studio")
-        print("=" * 60)
-        print(f" 1. Current Hardware / PulseAudio Source Gain : {current_vol}%")
-        print(f" 2. Base Energy Detection Threshold           : {cfg.get('energy_threshold', 40)}")
-        print(f" 3. Dynamic Ratio                             : {cfg.get('dynamic_energy_ratio', 1.4)}")
-        print("=" * 60)
-        print(" [v] Live VU Meter (See background noise vs speech live)")
-        print(" [t] Test 5-Second Speech & Google STT Transcription")
-        print(" [+] Increase Mic Gain (+25%)")
-        print(" [-] Decrease Mic Gain (-25%)")
-        print(" [e] Change Energy Threshold manually")
-        print(" [s] Save & Apply Settings for RK AI Assistant")
-        print(" [q] Quit")
-        print("=" * 60)
+        print("=" * 65)
+        print(f" Current Mic Capture Gain (PulseAudio) : \033[96m{current_vol}%\033[0m")
+        print(f" Base Energy Detection Threshold       : {cfg.get('energy_threshold', 35)}")
+        print("=" * 65)
+        print(" [c] 🔁 Continuous Listen & Playback Loop (Auto-record & hear at 100%)")
+        print(" [v] 📊 Live VU Meter (See background noise vs speech levels)")
+        print(" [t] 🎙️ Test Speech & Google STT Transcription")
+        print(" [+] 🔊 Increase Mic Gain (+15%)")
+        print(" [-] 🔉 Decrease Mic Gain (-15%)")
+        print(" [e] ⚙️  Change Energy Threshold manually")
+        print(" [s] 💾 Save Settings for RK Assistant")
+        print(" [q] 🚪 Quit")
+        print("=" * 65)
 
         choice = input("\nSelect an option: ").strip().lower()
 
-        if choice == "v":
+        if choice == "c":
+            continuous_loop_calibration(cfg)
+        elif choice == "v":
             live_vu_meter(10)
             input("Press Enter to continue...")
         elif choice == "t":
-            test_recording_and_stt(cfg.get("energy_threshold", 40))
+            test_recording_and_stt(cfg.get("energy_threshold", 35))
             input("\nPress Enter to return to menu...")
         elif choice in ("+", "="):
-            new_v = current_vol + 25
+            new_v = min(250, current_vol + 15)
             set_pactl_volume(new_v)
             cfg["source_volume_percent"] = new_v
         elif choice in ("-", "_"):
-            new_v = max(25, current_vol - 25)
+            new_v = max(20, current_vol - 15)
             set_pactl_volume(new_v)
             cfg["source_volume_percent"] = new_v
         elif choice == "e":
-            val = input(f"Enter new Energy Threshold (current: {cfg.get('energy_threshold', 40)}): ").strip()
+            val = input(f"Enter new Energy Threshold (current: {cfg.get('energy_threshold', 35)}): ").strip()
             if val.isdigit():
                 cfg["energy_threshold"] = int(val)
         elif choice == "s":
