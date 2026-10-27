@@ -283,12 +283,9 @@ class AudioRecorder:
                     except Exception:
                         pass
 
-                print("🎙️ [STT] Calibrating microphone for room noise (1s)...", flush=True)
-                with self._mic as source:
-                    self._recognizer.adjust_for_ambient_noise(source, duration=0.8)
-                # Keep floor at base energy (e.g. 50-80) for muffled box mic
-                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, base_energy)
-                print(f"🎙️ [STT] Baseline energy threshold: {self._recognizer.energy_threshold:.0f}", flush=True)
+                # Fixed sensitivity threshold for enclosed box mic - do NOT let ambient noise spike it to 1000+!
+                self._recognizer.energy_threshold = base_energy
+                print(f"🎙️ [STT] Sensitivity threshold locked at: {self._recognizer.energy_threshold:.0f} (Box sensitive)", flush=True)
             except Exception as e:
                 print(f"[STT] Calibration notice: {e}", flush=True)
 
