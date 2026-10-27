@@ -83,8 +83,12 @@ class LocalMusicStreamer:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             payload = json.dumps({"query": clean_q}).encode()
-            req = urllib.request.Request(backend_url, data=payload, headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, context=ctx, timeout=4.5) as resp:
+            headers = {
+                "Content-Type": "application/json",
+                "X-Device-Slug": slug
+            }
+            req = urllib.request.Request(backend_url, data=payload, headers=headers)
+            with urllib.request.urlopen(req, context=ctx, timeout=8.0) as resp:
                 res_data = json.loads(resp.read().decode())
                 stream_url = res_data.get("stream_url")
                 if stream_url:
