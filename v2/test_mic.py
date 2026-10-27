@@ -141,11 +141,13 @@ for lang in ["en-US", "en-IN"]:
     except Exception as e:
         print(f"  ❌ [Boosted Audio ({lang})] Error: {e}")
 
-print("\n🔊 Would you like to play back what was recorded through your speaker? (y/n)")
+print("\n🔊 Would you like to play back what was recorded through your speaker at 100% volume? (y/n)")
 try:
     ans = input().strip().lower()
     if ans == "y":
-        print("Playing /tmp/rk_mic_test.wav...")
+        subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"], capture_output=True)
+        subprocess.run(["amixer", "sset", "Master", "100%"], capture_output=True)
+        print("Playing /tmp/rk_mic_test.wav at 100% volume...")
         subprocess.run(["aplay", str(test_wav)])
 except Exception:
     pass

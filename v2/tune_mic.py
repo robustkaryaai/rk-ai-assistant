@@ -170,8 +170,12 @@ def test_recording_and_stt(energy_threshold=40):
 
     # Playback prompt
     try:
-        play_ans = input("\n🔊 Play back this recording through speaker? (y/N): ").strip().lower()
+        play_ans = input("\n🔊 Play back this recording through speaker at 100% volume? (y/N): ").strip().lower()
         if play_ans == "y":
+            # Force speaker sink volume to 100% for playback
+            subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"], capture_output=True)
+            subprocess.run(["amixer", "sset", "Master", "100%"], capture_output=True)
+            print("🔊 Playing back through speaker at 100% volume...")
             subprocess.run(["aplay", "-q", str(test_wav)])
     except Exception:
         pass
