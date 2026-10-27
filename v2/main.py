@@ -59,6 +59,7 @@ class RKV2Assistant:
 
         # 3. Core Engines
         self.data_dir = BASE_DIR / "data"
+        self._wake_words = self._load_wake_words()
         self.recorder = AudioRecorder(self.data_dir)
         self.alarm_mgr = AlarmScheduleManager(self.data_dir, client=self.client, player=self.player, tts=self)
         self.pomodoro = PomodoroTimer(self.alarm_mgr, tts=self)
@@ -74,6 +75,39 @@ class RKV2Assistant:
             print("🧠 [OfflineLLM] Qwen2.5-0.5B Q4_K_M ready — offline fallback active")
         else:
             print("⚠️  [OfflineLLM] Not available — run: python3 v2/llm/download_model.py")
+
+    def _load_wake_words(self) -> set:
+        """Load configured wake word aliases from disk or fallback to comprehensive phonetic matches."""
+        defaults = {
+            "rk", "r k", "r.k", "r.k.", "aar kay", "ar kay", "aarkay", "arkay",
+            "are kay", "are k", "our k", "arcay", "arca", "archae",
+            "aunty", "anti", "arti", "aarti", "archi", "archie", "aarati", "aarthi",
+            "artie", "okay rk", "hey rk", "ok rk", "hi rk", "arre k", "arey k"
+        }
+        cfg_file = self.data_dir / "wake_words.json"
+        if cfg_file.exists():
+            try:
+                import json
+                words = json.loads(cfg_file.read_text())
+                if isinstance(words, list):
+                    for w in words:
+                        defaults.add(str(w).lower().strip())
+            except Exception:
+                pass
+        return defaults
+
+    def update_wake_words(self, words_list: list):
+        if not isinstance(words_list, list):
+            return
+        import json
+        for w in words_list:
+            if isinstance(w, str) and w.strip():
+                self._wake_words.add(w.lower().strip())
+        cfg_file = self.data_dir / "wake_words.json"
+        try:
+            cfg_file.write_text(json.dumps(list(self._wake_words)))
+        except Exception:
+            pass
 
     def play_ready_sound(self):
         """Instant startup greeting from pre-rendered local audio file."""
@@ -151,19 +185,29 @@ class RKV2Assistant:
             print("⚠️ [STT] Audio was unclear or noise.", flush=True)
             return
 
-        # ── Wake-word gate: only act if "rk" appears anywhere in the sentence ──
+        # ── Wake-word gate: check for 'RK' or any configured phonetic alias ──
         import re
-        words = re.findall(r"\b\w+\b", text.lower())
-        if "rk" not in words:
-            print(f"🔕 [WAKE] Ignored (no wake-word 'RK'): '{text}'", flush=True)
+        lower_text = text.lower().strip()
+        matched_wake = None
+
+        # Check multi-word and single-word aliases (sort by length desc to match longest first)
+        sorted_aliases = sorted(self._wake_words, key=len, reverse=True)
+        for alias in sorted_aliases:
+            pattern = r"\b" + re.escape(alias) + r"\b"
+            if re.search(pattern, lower_text):
+                matched_wake = alias
+                break
+
+        if not matched_wake:
+            print(f"🔕 [WAKE] Ignored (no wake-word in: '{text}')", flush=True)
             return
 
-        # Strip the wake-word "rk" from command before sending to handler
-        clean_text = re.sub(r"\brk\b", "", text, flags=re.IGNORECASE).strip(" ,.-")
+        # Strip the detected wake-word from command before sending to handler
+        clean_text = re.sub(r"\b" + re.escape(matched_wake) + r"\b", "", text, flags=re.IGNORECASE).strip(" ,.-")
         clean_text = re.sub(r"\s{2,}", " ", clean_text).strip()
 
         # ── Real command detected — NOW play earcons ─────────────────────────
-        print(f"✅ [COMMAND] '{clean_text}' (from: '{text}')", flush=True)
+        print(f"✅ [WAKE: '{matched_wake}'] '{clean_text}' (from: '{text}')", flush=True)
         self.player.play_chime("captured", sync=True)
         self.player.play_chime("thinking")
 
@@ -182,8 +226,10 @@ class RKV2Assistant:
         if not query:
             return
 
-        # Strip wake-word prefix/suffix if present (e.g. from text commands: "rk what is the time")
-        stripped_query = re.sub(r"\brk\b", "", query, flags=re.IGNORECASE).strip(" ,.-")
+        # Strip wake-word prefix/suffix if present
+        stripped_query = query
+        for alias in sorted(self._wake_words, key=len, reverse=True):
+            stripped_query = re.sub(r"\b" + re.escape(alias) + r"\b", "", stripped_query, flags=re.IGNORECASE).strip(" ,.-")
         stripped_query = re.sub(r"\s{2,}", " ", stripped_query).strip()
         active_query = stripped_query if stripped_query else query
 
@@ -445,6 +491,17 @@ class RKV2Assistant:
                         tts_conf = settings.get("ttsConfig")
                         if tts_conf and hasattr(self.tts, "set_config"):
                             self.tts.set_config(tts_conf)
+                        # Sync remote wake words if configured in Appwrite/dashboard
+                        backend_wake_words = settings.get("wakeWords")
+                        if backend_wake_words:
+                            try:
+                                import json
+                                parsed_ww = json.loads(backend_wake_words) if isinstance(backend_wake_words, str) else backend_wake_words
+                                words_list = parsed_ww.get("words") if isinstance(parsed_ww, dict) else (parsed_ww if isinstance(parsed_ww, list) else None)
+                                if words_list:
+                                    self.update_wake_words(words_list)
+                            except Exception:
+                                pass
                         # Note: We do NOT force backend's default volume here every 60s
                         # so that user volume changes via commands / local persistence aren't clobbered!
 
