@@ -306,6 +306,17 @@ class RKV2Assistant:
                 self.conversation.add_interaction(resolved_query, f"Started {routine_name}", tool)
                 return
 
+            # Special concurrent handling for music:
+            # Speak reply in parallel thread while stream URL resolves concurrently!
+            if tool == "music":
+                reply = local_res.get("reply", "")
+                import threading
+                if reply:
+                    threading.Thread(target=self.speak, args=(reply,), daemon=True).start()
+                self._execute_local_action(tool, args)
+                self.conversation.add_interaction(resolved_query, reply, tool)
+                return
+
             # Check if router provided a pre-generated zero-latency audio file
             pre_audio = local_res.get("audio_file")
             if pre_audio and os.path.exists(pre_audio):
@@ -435,8 +446,9 @@ class RKV2Assistant:
             song_url = args.get("song_url")
             q = args.get("query", "")
             
-            # 1. Spotify Check (If connected, stream via Spotify)
-            if self.spotify.is_connected:
+            # 1. Spotify Check (If connected or requested on spotify, route through Spotify)
+            service = args.get("service", "")
+            if self.spotify.is_connected or service == "spotify":
                 print(f"🎵 [Music] Routing '{q}' through Spotify...")
                 ok = self.spotify.play_track_or_query(q, streamer=LocalMusicStreamer, player=self.player)
                 if ok:
@@ -445,23 +457,26 @@ class RKV2Assistant:
             # 2. If we already have a stream URL, play it
             if song_url:
                 print(f"🎵 [Music] Streaming direct: {song_url}")
+                self.player.wait_playback(timeout=10.0)  # Ensure spoken ack finishes cleanly before music starts
                 self.player.play_url_or_file(song_url)
                 return
 
-            # 3. LOCAL RESOLUTION FIRST (Instant, doesn't need backend!)
-            print(f"🎵 [Music] Resolving locally via yt-dlp: '{q}'...")
+            # 3. Stream Resolution via LocalMusicStreamer (which queries Render backend first at gigabit speeds!)
+            print(f"🎵 [Music] Resolving audio stream for: '{q}'...")
             local_stream = LocalMusicStreamer.get_audio_stream_url(q)
             if local_stream:
-                print(f"🎵 [Music] Streaming local audio...")
+                print(f"🎵 [Music] Stream ready! Starting playback...")
+                self.player.wait_playback(timeout=10.0)  # Wait for parallel TTS spoken acknowledgment to finish
                 self.player.play_url_or_file(local_stream)
                 return
 
-            # 4. Fallback to backend if yt-dlp local resolution fails
+            # 4. Fallback to backend send_text if resolution fails
             print(f"🎵 [Music] Fallback to backend for: {q}")
             res = self.client.send_text(f"play {q}")
             local_action = res.get("local_action") or {}
             b_url = local_action.get("args", {}).get("song_url") if isinstance(local_action, dict) else None
             if b_url:
+                self.player.wait_playback(timeout=10.0)
                 self.player.play_url_or_file(b_url)
 
         elif tool == "system":
