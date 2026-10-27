@@ -363,8 +363,11 @@ class FastCommandRouter:
         # Avoid intercepting full queries like "hey rk make me an image"
         greeting_pattern = r"^(hi|hello|hey|greetings|namaste|radhe\s*radhe|sup|what'?s\s*up|wassup)(\s+(rk|assistant|there|buddy|bro))?[.!?]*$"
         if re.match(greeting_pattern, cleaned):
+            from pathlib import Path
+            pre_file = Path(__file__).resolve().parent / "data" / "sounds" / "greeting_radhe.mp3"
             return True, {
                 "reply": "Radhe Radhe! How can I help you today?",
+                "audio_file": str(pre_file) if pre_file.exists() else None,
                 "tool": "chat_local",
                 "args": {}
             }
@@ -386,7 +389,9 @@ class FastCommandRouter:
             }
 
         # ─── LOCAL TIME & DATE (Instant from RTC/OS clock) ────
-        if any(p in cleaned for p in ("what time is it", "what's the time", "tell me the time", "current time", "time now", "what is the time", "time please")):
+        # Match "what time is it", "what's the time", "what the time", "hello what the time", etc.
+        time_pattern = r"\b(what('?s|\s+is)?\s+(the\s+)?time|tell\s+me\s+(the\s+)?time|current\s+time|time\s+now|time\s+please)\b"
+        if re.search(time_pattern, cleaned):
             from datetime import datetime
             time_str = datetime.now().strftime("%I:%M %p")
             return True, {
@@ -395,7 +400,8 @@ class FastCommandRouter:
                 "args": {}
             }
 
-        if any(p in cleaned for p in ("what is the date", "what's the date", "today's date", "what day is it", "date today")):
+        date_pattern = r"\b(what('?s|\s+is)?\s+(the\s+)?date|today('?s)?\s+date|what\s+day\s+is\s+it|date\s+today)\b"
+        if re.search(date_pattern, cleaned):
             from datetime import datetime
             date_str = datetime.now().strftime("%A, %B %d, %Y")
             return True, {
