@@ -157,7 +157,7 @@ class RemoteSyncManager:
                                 try:
                                     cmd = [
                                         "yt-dlp",
-                                        "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
+                                        "-f", "140/251/bestaudio",   # 140=m4a, 251=webm/opus — android itags
                                         "-g",
                                         "--no-playlist",
                                         "--no-warnings",
