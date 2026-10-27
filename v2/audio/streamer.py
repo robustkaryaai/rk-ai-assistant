@@ -35,8 +35,8 @@ class LocalMusicStreamer:
         print(f"🎵 [MUSIC MODE] Download mode {status}")
 
     @staticmethod
-    def _fast_extract_videoid(query: str) -> Optional[str]:
-        """Scrapes YouTube search page directly in <0.8s to extract top video ID."""
+    def _fast_extract_videoids(query: str) -> list:
+        """Scrapes YouTube search page directly in <0.8s to extract top video IDs in order."""
         try:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -51,11 +51,13 @@ class LocalMusicStreamer:
             with urllib.request.urlopen(req, context=ctx, timeout=3.5) as resp:
                 html = resp.read().decode("utf-8", errors="ignore")
                 vids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
-                if vids:
-                    return vids[0]
+                # Keep unique preserving rank order
+                seen = set()
+                unique_vids = [v for v in vids if not (v in seen or seen.add(v))]
+                return unique_vids[:5]
         except Exception as e:
             print(f"[music-search] Fast HTML search notice: {e}", flush=True)
-        return None
+        return []
 
     @classmethod
     def get_audio_stream_url(cls, query: str, prefer_download: Optional[bool] = None) -> Optional[str]:
@@ -90,40 +92,40 @@ class LocalMusicStreamer:
             req = urllib.request.Request(backend_url, data=payload, headers=headers)
             with urllib.request.urlopen(req, context=ctx, timeout=18.0) as resp:
                 res_data = json.loads(resp.read().decode())
-                stream_url = res_data.get("stream_url")
-                if stream_url and stream_url.startswith("http") and not stream_url.startswith("https://youtube.com"):
-                    print(f"⚡ [MUSIC-RESOLVE] Cloud server resolved '{res_data.get('title')}' in {res_data.get('elapsed_seconds')}s!", flush=True)
+                stream_url = res_data.get("stream_url") or res_data.get("link")
+                if stream_url and stream_url.startswith("http"):
+                    print(f"⚡ [MUSIC-RESOLVE] Cloud server resolved '{res_data.get('title')}' ({res_data.get('source')}) in {res_data.get('elapsed_seconds')}s!", flush=True)
                     return stream_url
         except Exception as e:
             print(f"[music-resolve] Cloud fast-resolve notice: {e} — falling back to local Pi", flush=True)
 
-        # Step 1: Rapidly grab the video ID via direct web scrape (<0.8s)
-        vid_id = cls._fast_extract_videoid(clean_q)
-        target = f"https://www.youtube.com/watch?v={vid_id}" if vid_id else f"ytsearch1:{clean_q}"
+        # Step 1: Rapidly grab the candidate video IDs via direct web scrape (<0.8s)
+        candidate_vids = cls._fast_extract_videoids(clean_q)
+        targets = [f"https://www.youtube.com/watch?v={vid}" for vid in candidate_vids] if candidate_vids else [f"ytsearch1:{clean_q}"]
 
-        # Step 2: Extract audio stream URL via yt-dlp
+        # Step 2: Extract audio stream URL via yt-dlp across candidates
         if shutil.which("yt-dlp"):
-            try:
-                # Fast CLI command with optimized socket timeout
-                cmd = [
-                    "yt-dlp",
-                    "-f", "ba",
-                    "-g",
-                    "--no-playlist",
-                    "--no-warnings",
-                    "--socket-timeout", "4",
-                    target
-                ]
-                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=12)
-                for line in res.stdout.strip().splitlines():
-                    line = line.strip()
-                    if line.startswith("http"):
-                        print(f"✅ [MUSIC-RESOLVE] Stream URL ready! ({line[:60]}...)", flush=True)
-                        return line
-            except Exception as e:
-                print(f"[music-resolve] CLI yt-dlp notice: {e}", flush=True)
+            for target in targets:
+                try:
+                    cmd = [
+                        "yt-dlp",
+                        "-f", "ba",
+                        "-g",
+                        "--no-playlist",
+                        "--no-warnings",
+                        "--socket-timeout", "4",
+                        target
+                    ]
+                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=8)
+                    for line in res.stdout.strip().splitlines():
+                        line = line.strip()
+                        if line.startswith("http"):
+                            print(f"✅ [MUSIC-RESOLVE] Stream URL ready! ({line[:60]}...)", flush=True)
+                            return line
+                except Exception as e:
+                    print(f"[music-resolve] CLI yt-dlp notice for {target}: {e}", flush=True)
 
-        # Step 3: In-process yt_dlp fallback
+        # Step 3: In-process yt_dlp fallback across candidates
         try:
             from yt_dlp import YoutubeDL
             ydl_opts = {
@@ -134,14 +136,18 @@ class LocalMusicStreamer:
                 "socket_timeout": 5,
             }
             with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(target, download=False)
-                if info:
-                    entries = info.get("entries")
-                    first = entries[0] if entries else info
-                    stream_url = first.get("url")
-                    if stream_url:
-                        print("✅ [MUSIC-RESOLVE] Stream URL resolved!", flush=True)
-                        return stream_url
+                for target in targets:
+                    try:
+                        info = ydl.extract_info(target, download=False)
+                        if info:
+                            entries = info.get("entries")
+                            first = entries[0] if entries else info
+                            stream_url = first.get("url")
+                            if stream_url:
+                                print("✅ [MUSIC-RESOLVE] Stream URL resolved via in-process yt_dlp!", flush=True)
+                                return stream_url
+                    except Exception as e:
+                        print(f"[music-resolve] yt_dlp candidate fallback notice: {e}", flush=True)
         except Exception as e:
             print(f"[music-resolve] yt_dlp fallback notice: {e}", flush=True)
 
