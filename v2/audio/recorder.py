@@ -1,5 +1,7 @@
 import os
+import queue
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -96,10 +98,10 @@ def _normalize_audio(audio_data, target_level=25000):
 
 class AudioRecorder:
     """
-    Exact tune_mic + v1 Speech Recognition Engine:
-    - Same recognizer settings as tune_mic option [t]
-    - Direct Google STT with language='en-IN'
-    - Dynamic energy adjustment (dynamic_energy_ratio=1.3, phrase_threshold=0.15)
+    Exact v1 SmartSTTEngine Background Streaming Implementation for v2:
+    - Runs continuous listen_in_background() so the mic stream is ALWAYS open and warm.
+    - Zero phrase truncation or single-word cutoff.
+    - Captures full natural multi-word phrases and puts transcribed text in a thread-safe queue.
     """
 
     def __init__(self, data_dir: Path):
@@ -112,147 +114,134 @@ class AudioRecorder:
 
         self._recognizer: Optional[sr.Recognizer] = None
         self._mic: Optional[sr.Microphone] = None
-        self._last_audio_obj: Optional[sr.AudioData] = None
+        self._stop_listening = None
+        self.command_queue: queue.Queue[str] = queue.Queue()
+        self._last_text = ""
 
         if SPEECH_RECOGNITION_AVAILABLE:
             try:
                 self._recognizer = sr.Recognizer()
                 cfg_file = self.data_dir / "mic_config.json"
-                base_energy = 35
+                base_energy = 50
                 if cfg_file.exists():
                     try:
                         import json
                         cfg = json.loads(cfg_file.read_text())
-                        base_energy = int(cfg.get("energy_threshold", 35))
+                        base_energy = int(cfg.get("energy_threshold", 50))
                     except Exception:
                         pass
 
-                # Exact tune_mic parameters
+                # Exact v1 SmartSTT Engine Parameters
                 self._recognizer.energy_threshold = base_energy
                 self._recognizer.dynamic_energy_threshold = True
                 self._recognizer.dynamic_energy_ratio = 1.3
-                self._recognizer.phrase_threshold = 0.15
-                self._recognizer.pause_threshold = 0.8
-                self._recognizer.non_speaking_duration = 0.4
+                self._recognizer.pause_threshold = 1.2
+                self._recognizer.non_speaking_duration = 0.6
+                self._recognizer.phrase_threshold = 0.2
                 self._mic = sr.Microphone(sample_rate=16000)
             except Exception as e:
                 print(f"[recorder] Error initializing SpeechRecognition: {e}", flush=True)
 
     def calibrate_once(self):
-        """tune_mic calibration."""
+        """Calibrate ambient noise and start v1 background streaming listener."""
         setup_microphone_volume()
         if self._recognizer and self._mic:
             try:
                 with no_alsa_err():
                     with self._mic as source:
-                        self._recognizer.adjust_for_ambient_noise(source, duration=0.8)
+                        self._recognizer.adjust_for_ambient_noise(source, duration=0.6)
                 cfg_file = self.data_dir / "mic_config.json"
-                floor_val = 35
+                floor_val = 50
                 if cfg_file.exists():
                     try:
                         import json
                         cfg = json.loads(cfg_file.read_text())
-                        floor_val = int(cfg.get("energy_threshold", 35))
+                        floor_val = int(cfg.get("energy_threshold", 50))
                     except Exception:
                         pass
                 self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, floor_val)
-                print(f"🎙️ [STT] Calibrated Energy Threshold: {self._recognizer.energy_threshold:.0f} (dynamic=True)", flush=True)
+                print(f"🎙️ [STT] v1 SmartSTT Background Listener Active (Energy: {self._recognizer.energy_threshold:.0f})", flush=True)
             except Exception as e:
                 print(f"[recorder] Calibration notice: {e}", flush=True)
 
-    def record_command(self, duration: int = 10, silence_duration: float = 1.3) -> Optional[Path]:
-        """Record user speech with generous pause_threshold so multi-word sentences ('hello rk ...') aren't cut off."""
-        if self.is_hardware_muted:
-            return None
+        self._start_background_listener()
 
-        if self.record_path.exists():
+    def _start_background_listener(self):
+        if not SPEECH_RECOGNITION_AVAILABLE or self._recognizer is None or self._mic is None:
+            return
+        if self._stop_listening is not None:
             try:
-                self.record_path.unlink()
+                self._stop_listening(wait_for_stop=False)
+            except Exception:
+                pass
+            self._stop_listening = None
+
+        try:
+            with no_alsa_err():
+                self._stop_listening = self._recognizer.listen_in_background(
+                    self._mic,
+                    self._on_phrase_captured,
+                    phrase_time_limit=15
+                )
+        except Exception as e:
+            print(f"[recorder] Error starting background listener: {e}", flush=True)
+
+    def _on_phrase_captured(self, recognizer, audio):
+        """Callback invoked by speech_recognition background thread whenever a phrase completes."""
+        if self.is_hardware_muted:
+            return
+
+        # 1. Exact v1 normalization boost
+        boosted = _normalize_audio(audio)
+
+        # Save to disk for sound_monitor background events
+        try:
+            with open(self.record_path, "wb") as f:
+                f.write(boosted.get_wav_data())
+        except Exception:
+            pass
+
+        # 2. Transcribe via Google STT (language='en-IN' with fallback to en-US)
+        text = ""
+        for lang in ["en-IN", "en-US"]:
+            try:
+                text = recognizer.recognize_google(boosted, language=lang).strip()
+                if text:
+                    break
+            except sr.UnknownValueError:
+                continue
             except Exception:
                 pass
 
-        if self._recognizer and self._mic:
-            try:
-                # 1.3s pause threshold lets the user naturally pause between 'Hello' and 'RK'
-                self._recognizer.pause_threshold = 1.3
-                self._recognizer.phrase_threshold = 0.15
-                self._recognizer.non_speaking_duration = 0.6
-                with no_alsa_err():
-                    with self._mic as source:
-                        audio = self._recognizer.listen(source, timeout=3, phrase_time_limit=max(duration, 12))
+        if text:
+            print(f"🔤 [STT] Heard: '{text}'", flush=True)
+            self.command_queue.put(text)
 
-                # Normalize audio
-                audio = _normalize_audio(audio)
-                self._last_audio_obj = audio
+    def record_command(self, duration: int = 10, silence_duration: float = 1.2) -> Optional[Path]:
+        """
+        Polls the background phrase queue.
+        Returns Path to WAV if a phrase was transcribed, None if still waiting.
+        """
+        if self.is_hardware_muted:
+            return None
 
-                with open(self.record_path, "wb") as f:
-                    f.write(audio.get_wav_data())
+        # Re-ensure background listener is running
+        if self._stop_listening is None:
+            self._start_background_listener()
 
-                if self.record_path.exists() and self.record_path.stat().st_size > 1000:
-                    return self.record_path
-
-            except sr.WaitTimeoutError:
-                return None
-            except Exception as e:
-                pass
+        try:
+            # Non-blocking check with small sleep
+            text = self.command_queue.get(timeout=0.4)
+            self._last_text = text
+            if self.record_path.exists():
+                return self.record_path
+        except queue.Empty:
+            pass
 
         return None
 
     def transcribe(self, client=None) -> str:
-        """
-        Exact tune_mic transcription:
-        recognize_google(audio, language="en-IN")
-        """
-        audio_to_transcribe = None
-
-        if self._last_audio_obj:
-            audio_to_transcribe = self._last_audio_obj
-        elif self.record_path.exists():
-            if SPEECH_RECOGNITION_AVAILABLE:
-                try:
-                    r = sr.Recognizer()
-                    with sr.AudioFile(str(self.record_path)) as source:
-                        audio_to_transcribe = r.record(source)
-                except Exception:
-                    pass
-
-        if not audio_to_transcribe and not self.record_path.exists():
-            return ""
-
-        # Primary: Exact tune_mic recognize_google with language="en-IN"
-        if SPEECH_RECOGNITION_AVAILABLE and audio_to_transcribe:
-            r = self._recognizer or sr.Recognizer()
-            try:
-                text = r.recognize_google(audio_to_transcribe, language="en-IN").strip()
-                if text:
-                    print(f"🔤 [STT] Heard: '{text}'", flush=True)
-                    return text
-            except sr.UnknownValueError:
-                pass
-            except sr.RequestError as e:
-                print(f"[STT] Google API error: {e}", flush=True)
-            except Exception as e:
-                pass
-
-            # Fallback to default en-US
-            try:
-                text = r.recognize_google(audio_to_transcribe).strip()
-                if text:
-                    print(f"🔤 [STT] Heard (en-US): '{text}'", flush=True)
-                    return text
-            except Exception:
-                pass
-
-        # Secondary fallback: Backend Cloud Whisper
-        if client and self.record_path.exists():
-            try:
-                audio_bytes = self.record_path.read_bytes()
-                res = client.send_audio(audio_bytes)
-                text = res.get("text", "").strip()
-                if text:
-                    print(f"☁️ [STT] Cloud: '{text}'", flush=True)
-                    return text
-            except Exception as e:
-                print(f"[STT] Cloud STT error: {e}", flush=True)
-
-        return ""
+        """Returns the transcribed text from the background listener."""
+        text = self._last_text
+        self._last_text = ""
+        return text
