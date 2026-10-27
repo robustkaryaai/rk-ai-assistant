@@ -1,5 +1,6 @@
 import re
 import math
+from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 
 def _solve_math_expression(text: str) -> Optional[str]:
@@ -391,8 +392,7 @@ class FastCommandRouter:
         # Avoid intercepting full queries like "hey rk make me an image"
         greeting_pattern = r"^(hi|hello|hey|greetings|namaste|radhe\s*radhe|sup|what'?s\s*up|wassup)(\s+(rk|assistant|there|buddy|bro))?[.!?]*$"
         if re.match(greeting_pattern, cleaned):
-            from pathlib import Path
-            pre_file = Path(__file__).resolve().parent / "data" / "sounds" / "greeting_radhe.mp3"
+            pre_file = sounds_dir / "greeting_radhe.mp3"
             return True, {
                 "reply": "Radhe Radhe! How can I help you today?",
                 "audio_file": str(pre_file) if pre_file.exists() else None,
