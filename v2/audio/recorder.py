@@ -46,7 +46,17 @@ def no_alsa_err():
 
 
 def setup_microphone_volume():
-    """Force hardware capture gain to 100% using amixer."""
+    """Force hardware capture gain and PulseAudio source to 200% for enclosed box."""
+    cfg_file = Path(__file__).resolve().parent.parent / "data" / "mic_config.json"
+    source_vol = 200
+    if cfg_file.exists():
+        try:
+            import json
+            cfg = json.loads(cfg_file.read_text())
+            source_vol = int(cfg.get("source_volume_percent", 200))
+        except Exception:
+            pass
+
     controls = ["Capture", "Mic", "Internal Mic", "Digital", "Input", "Boost", "Mic Boost"]
     for control in controls:
         try:
@@ -55,12 +65,17 @@ def setup_microphone_volume():
             subprocess.run(["amixer", "sset", control, "unmute"], capture_output=True)
         except Exception:
             pass
+    try:
+        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{source_vol}%"], capture_output=True)
+        subprocess.run(["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"], capture_output=True)
+    except Exception:
+        pass
 
 
 def _normalize_audio(audio_data, target_level=25000):
     """
     Exact v1 audio normalization:
-    Scales peak audio up to 25000 (with up to 15x boost) so Google STT gets clear, loud signal.
+    Scales peak audio up to 25000 (with up to 15x boost) so Google STT gets clear signal.
     """
     if not SPEECH_RECOGNITION_AVAILABLE or sr is None or audioop is None:
         return audio_data
@@ -81,11 +96,10 @@ def _normalize_audio(audio_data, target_level=25000):
 
 class AudioRecorder:
     """
-    Proven v1 SmartSTT Engine Port for v2:
-    - Persistent open sr.Microphone() stream context
-    - Natural pause_threshold (1.0s) & phrase_threshold (0.2s)
-    - Dynamic energy adjustment (dynamic_energy_threshold = True, ratio 1.5)
-    - Exact v1 _normalize_audio booster for crystal-clear Google STT
+    Exact tune_mic + v1 Speech Recognition Engine:
+    - Same recognizer settings as tune_mic option [t]
+    - Direct Google STT with language='en-IN'
+    - Dynamic energy adjustment (dynamic_energy_ratio=1.3, phrase_threshold=0.15)
     """
 
     def __init__(self, data_dir: Path):
@@ -103,36 +117,51 @@ class AudioRecorder:
         if SPEECH_RECOGNITION_AVAILABLE:
             try:
                 self._recognizer = sr.Recognizer()
-                # v1 Exact Battle-Tested Sensitivity
-                self._recognizer.energy_threshold = 200
+                cfg_file = self.data_dir / "mic_config.json"
+                base_energy = 35
+                if cfg_file.exists():
+                    try:
+                        import json
+                        cfg = json.loads(cfg_file.read_text())
+                        base_energy = int(cfg.get("energy_threshold", 35))
+                    except Exception:
+                        pass
+
+                # Exact tune_mic parameters
+                self._recognizer.energy_threshold = base_energy
                 self._recognizer.dynamic_energy_threshold = True
-                self._recognizer.dynamic_energy_ratio = 1.5
-                self._recognizer.pause_threshold = 1.0
-                self._recognizer.phrase_threshold = 0.2
-                self._recognizer.non_speaking_duration = 0.5
+                self._recognizer.dynamic_energy_ratio = 1.3
+                self._recognizer.phrase_threshold = 0.15
+                self._recognizer.pause_threshold = 0.8
+                self._recognizer.non_speaking_duration = 0.4
                 self._mic = sr.Microphone(sample_rate=16000)
             except Exception as e:
                 print(f"[recorder] Error initializing SpeechRecognition: {e}", flush=True)
 
     def calibrate_once(self):
-        """Brief v1 0.5s ambient noise calibration with minimum floor of 100."""
+        """tune_mic calibration."""
         setup_microphone_volume()
         if self._recognizer and self._mic:
             try:
                 with no_alsa_err():
                     with self._mic as source:
-                        self._recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                # Keep floor sensible (100)
-                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 100)
-                print(f"🎙️ [STT] v1 Calibrated Energy Threshold: {self._recognizer.energy_threshold:.0f} (dynamic=True)", flush=True)
+                        self._recognizer.adjust_for_ambient_noise(source, duration=0.8)
+                cfg_file = self.data_dir / "mic_config.json"
+                floor_val = 35
+                if cfg_file.exists():
+                    try:
+                        import json
+                        cfg = json.loads(cfg_file.read_text())
+                        floor_val = int(cfg.get("energy_threshold", 35))
+                    except Exception:
+                        pass
+                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, floor_val)
+                print(f"🎙️ [STT] Calibrated Energy Threshold: {self._recognizer.energy_threshold:.0f} (dynamic=True)", flush=True)
             except Exception as e:
                 print(f"[recorder] Calibration notice: {e}", flush=True)
 
-    def record_command(self, duration: int = 10, silence_duration: float = 1.0) -> Optional[Path]:
-        """
-        Record user speech using v1 proven sr.Microphone + listen() loop.
-        Saves WAV and holds audio object in memory for zero-distortion STT.
-        """
+    def record_command(self, duration: int = 10, silence_duration: float = 0.8) -> Optional[Path]:
+        """Record user speech exactly like tune_mic option [t]."""
         if self.is_hardware_muted:
             return None
 
@@ -144,20 +173,19 @@ class AudioRecorder:
 
         if self._recognizer and self._mic:
             try:
-                self._recognizer.pause_threshold = 1.0
+                self._recognizer.pause_threshold = 0.8
                 with no_alsa_err():
                     with self._mic as source:
-                        # timeout=3 for clean idle cycling
-                        audio = self._recognizer.listen(source, timeout=3, phrase_time_limit=max(duration, 12))
+                        audio = self._recognizer.listen(source, timeout=3, phrase_time_limit=max(duration, 10))
 
-                # Exact v1 normalization boost
+                # Normalize audio
                 audio = _normalize_audio(audio)
                 self._last_audio_obj = audio
 
                 with open(self.record_path, "wb") as f:
                     f.write(audio.get_wav_data())
 
-                if self.record_path.exists() and self.record_path.stat().st_size > 1500:
+                if self.record_path.exists() and self.record_path.stat().st_size > 1000:
                     return self.record_path
 
             except sr.WaitTimeoutError:
@@ -169,8 +197,8 @@ class AudioRecorder:
 
     def transcribe(self, client=None) -> str:
         """
-        Exact v1 transcription:
-        Direct Google Speech Recognition with v1 audio normalization.
+        Exact tune_mic transcription:
+        recognize_google(audio, language="en-IN")
         """
         audio_to_transcribe = None
 
@@ -188,12 +216,11 @@ class AudioRecorder:
         if not audio_to_transcribe and not self.record_path.exists():
             return ""
 
-        # 1. Primary: Direct Google STT
+        # Primary: Exact tune_mic recognize_google with language="en-IN"
         if SPEECH_RECOGNITION_AVAILABLE and audio_to_transcribe:
             r = self._recognizer or sr.Recognizer()
-            # Try with Google STT (first unnormalized, then normalized retry like v1)
             try:
-                text = r.recognize_google(audio_to_transcribe)
+                text = r.recognize_google(audio_to_transcribe, language="en-IN").strip()
                 if text:
                     print(f"🔤 [STT] Heard: '{text}'", flush=True)
                     return text
@@ -202,19 +229,18 @@ class AudioRecorder:
             except sr.RequestError as e:
                 print(f"[STT] Google API error: {e}", flush=True)
             except Exception as e:
-                print(f"[STT] Recognition error: {e}", flush=True)
+                pass
 
-            # Retry with boosted normalization
+            # Fallback to default en-US
             try:
-                norm_audio = _normalize_audio(audio_to_transcribe)
-                text = r.recognize_google(norm_audio)
+                text = r.recognize_google(audio_to_transcribe).strip()
                 if text:
-                    print(f"🔤 [STT] (Normalized) Heard: '{text}'", flush=True)
+                    print(f"🔤 [STT] Heard (en-US): '{text}'", flush=True)
                     return text
             except Exception:
                 pass
 
-        # 2. Secondary fallback: Backend Cloud Whisper
+        # Secondary fallback: Backend Cloud Whisper
         if client and self.record_path.exists():
             try:
                 audio_bytes = self.record_path.read_bytes()
