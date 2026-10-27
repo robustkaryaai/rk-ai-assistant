@@ -111,18 +111,27 @@ class LocalMusicStreamer:
             print(f"  ⚠️ Backend resolve failed: {e}", flush=True)
             yt_url = clean_q
 
-        # Step 1.5: Fast Mac LAN Resolver (1.5s resolution offloaded to Mac on same Wi-Fi!)
+        # Step 1.5: Fast Mac LAN Resolver (1.5s resolution offloaded to Mac on same Wi-Fi or phone hotspot!)
         if not stream_url and yt_url:
-            for mac_ip in ["192.168.1.10", "192.168.1.5"]:
+            # Check mDNS name first (Devs-MacBook-Air.local works on ANY Wi-Fi / hotspot with ZERO IP config!)
+            candidate_hosts = [
+                "Devs-MacBook-Air.local",
+                "192.168.1.10",
+                "172.20.10.2",   # iPhone hotspot standard subnet
+                "172.20.10.3",
+                "192.168.43.1",  # Android hotspot gateway
+                "192.168.43.10",
+            ]
+            for host in candidate_hosts:
                 try:
-                    mac_url = f"http://{mac_ip}:7070"
+                    mac_url = f"http://{host}:7070"
                     payload = json.dumps({"query": yt_url}).encode()
                     req = urllib.request.Request(mac_url, data=payload, headers={"Content-Type": "application/json"})
-                    with urllib.request.urlopen(req, timeout=3.5) as resp:
+                    with urllib.request.urlopen(req, timeout=1.8) as resp:
                         m_data = json.loads(resp.read().decode())
                         if m_data.get("ok") and m_data.get("stream_url"):
                             stream_url = m_data["stream_url"]
-                            print(f"⚡ [MAC-RESOLVE] Resolved in {m_data.get('elapsed')}s via Mac LAN server!", flush=True)
+                            print(f"⚡ [MAC-RESOLVE] Resolved in {m_data.get('elapsed')}s via Mac ({host})!", flush=True)
                             return stream_url
                 except Exception:
                     pass

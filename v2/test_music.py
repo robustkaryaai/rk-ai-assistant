@@ -88,17 +88,25 @@ except Exception as e:
 
 # ── Fast Mac LAN Resolver (1.5s resolution) ───────────────────
 if not stream_url and yt_url:
-    print("\n[Step 1.5] Checking Fast Mac LAN Resolver (192.168.1.10:7070)...")
-    for mac_ip in ["192.168.1.10", "192.168.1.5"]:
+    print("\n[Step 1.5] Checking Fast Mac LAN Resolver...")
+    candidate_hosts = [
+        "Devs-MacBook-Air.local",
+        "192.168.1.10",
+        "172.20.10.2",
+        "172.20.10.3",
+        "192.168.43.1",
+        "192.168.43.10",
+    ]
+    for host in candidate_hosts:
         try:
-            mac_url = f"http://{mac_ip}:7070"
+            mac_url = f"http://{host}:7070"
             payload = json.dumps({"query": yt_url}).encode()
             req = urllib.request.Request(mac_url, data=payload, headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
+            with urllib.request.urlopen(req, timeout=1.8) as resp:
                 m_data = json.loads(resp.read().decode())
                 if m_data.get("ok") and m_data.get("stream_url"):
                     stream_url = m_data["stream_url"]
-                    print(f"  ⚡ Resolved in {m_data.get('elapsed')}s via Mac LAN server!")
+                    print(f"  ⚡ Resolved in {m_data.get('elapsed')}s via Mac ({host})!")
                     break
         except Exception:
             pass
