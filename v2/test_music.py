@@ -86,9 +86,26 @@ except Exception as e:
     print(f"  ⚠️  Backend resolve failed: {e}")
     yt_url = query  # fall back to query string for yt-dlp ytsearch
 
-# ── yt-dlp extraction (if still needed) ───────────────────────
+# ── Fast Mac LAN Resolver (1.5s resolution) ───────────────────
+if not stream_url and yt_url:
+    print("\n[Step 1.5] Checking Fast Mac LAN Resolver (192.168.1.10:7070)...")
+    for mac_ip in ["192.168.1.10", "192.168.1.5"]:
+        try:
+            mac_url = f"http://{mac_ip}:7070"
+            payload = json.dumps({"query": yt_url}).encode()
+            req = urllib.request.Request(mac_url, data=payload, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                m_data = json.loads(resp.read().decode())
+                if m_data.get("ok") and m_data.get("stream_url"):
+                    stream_url = m_data["stream_url"]
+                    print(f"  ⚡ Resolved in {m_data.get('elapsed')}s via Mac LAN server!")
+                    break
+        except Exception:
+            pass
+
+# ── yt-dlp extraction (fallback on Pi if Mac not reachable) ───
 if not stream_url:
-    print("\n[Step 2/3] Extracting audio stream via yt-dlp...")
+    print("\n[Step 2/3] Extracting audio stream via Pi local yt-dlp...")
     if not shutil.which("yt-dlp"):
         print("  ❌ yt-dlp not found! Install: pip3 install yt-dlp --break-system-packages")
         sys.exit(1)

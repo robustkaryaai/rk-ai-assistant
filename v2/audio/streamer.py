@@ -111,7 +111,23 @@ class LocalMusicStreamer:
             print(f"  ⚠️ Backend resolve failed: {e}", flush=True)
             yt_url = clean_q
 
-        # Step 2: Extract audio stream via yt-dlp (exact copy from test_music.py)
+        # Step 1.5: Fast Mac LAN Resolver (1.5s resolution offloaded to Mac on same Wi-Fi!)
+        if not stream_url and yt_url:
+            for mac_ip in ["192.168.1.10", "192.168.1.5"]:
+                try:
+                    mac_url = f"http://{mac_ip}:7070"
+                    payload = json.dumps({"query": yt_url}).encode()
+                    req = urllib.request.Request(mac_url, data=payload, headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=3.5) as resp:
+                        m_data = json.loads(resp.read().decode())
+                        if m_data.get("ok") and m_data.get("stream_url"):
+                            stream_url = m_data["stream_url"]
+                            print(f"⚡ [MAC-RESOLVE] Resolved in {m_data.get('elapsed')}s via Mac LAN server!", flush=True)
+                            return stream_url
+                except Exception:
+                    pass
+
+        # Step 2: Extract audio stream via yt-dlp (Pi Zero fallback if Mac is asleep)
         if not stream_url:
             print("\n[Step 2/3] Extracting audio stream via yt-dlp...", flush=True)
             if not shutil.which("yt-dlp"):
