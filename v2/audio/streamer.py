@@ -74,6 +74,25 @@ class LocalMusicStreamer:
 
         print(f"🔍 [MUSIC-RESOLVE] Fast-resolving: '{clean_q}'...", flush=True)
 
+        # Step 0: Try Cloud Backend Resolution First (Gigabit speed, offloads heavy CPU from Pi Zero)
+        slug_file = BASE_DIR / "slug.txt"
+        slug = slug_file.read_text().strip() if slug_file.exists() else "123456789"
+        backend_url = f"https://rk-ai-backend.onrender.com/device/{slug}/music/resolve"
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            payload = json.dumps({"query": clean_q}).encode()
+            req = urllib.request.Request(backend_url, data=payload, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, context=ctx, timeout=4.5) as resp:
+                res_data = json.loads(resp.read().decode())
+                stream_url = res_data.get("stream_url")
+                if stream_url:
+                    print(f"⚡ [MUSIC-RESOLVE] Cloud server resolved '{res_data.get('title')}' in {res_data.get('elapsed_seconds')}s!", flush=True)
+                    return stream_url
+        except Exception as e:
+            print(f"[music-resolve] Cloud fast-resolve notice: {e} — falling back to local Pi", flush=True)
+
         # Step 1: Rapidly grab the video ID via direct web scrape (<0.8s)
         vid_id = cls._fast_extract_videoid(clean_q)
         target = f"https://www.youtube.com/watch?v={vid_id}" if vid_id else f"ytsearch1:{clean_q}"
