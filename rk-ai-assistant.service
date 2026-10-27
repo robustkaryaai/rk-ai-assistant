@@ -24,6 +24,8 @@ RestartSec=5s
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
+EnvironmentFile=-/etc/environment
+EnvironmentFile=-/home/raspberrypi/Documents/rk-ai-assistant/v2/.env
 
 StandardOutput=journal
 StandardError=journal
