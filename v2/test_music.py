@@ -111,7 +111,7 @@ if not stream_url:
     print(f"  Running: {' '.join(cmd[:6])} ... {yt_url[:60]}")
     t0 = time.time()
     try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=45)
         elapsed = time.time() - t0
         print(f"  yt-dlp finished in {elapsed:.1f}s (exit code {res.returncode})")
         if res.stderr.strip():
@@ -125,7 +125,7 @@ if not stream_url:
         if not stream_url:
             print("  ❌ yt-dlp returned no stream URL.")
     except subprocess.TimeoutExpired:
-        print("  ❌ yt-dlp timed out (25s).")
+        print("  ❌ yt-dlp timed out (45s).")
     except Exception as e:
         print(f"  ❌ yt-dlp error: {e}")
 else:

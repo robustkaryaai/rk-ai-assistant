@@ -169,7 +169,7 @@ class RemoteSyncManager:
                                         "--extractor-retries", "3",
                                         yt_url,
                                     ]
-                                    res = sp.run(cmd, stdout=sp.PIPE, stderr=sp.PIPE, text=True, timeout=30)
+                                    res = sp.run(cmd, stdout=sp.PIPE, stderr=sp.PIPE, text=True, timeout=45)
                                     for line in res.stdout.strip().splitlines():
                                         line = line.strip()
                                         if line.startswith("http"):

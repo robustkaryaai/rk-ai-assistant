@@ -129,7 +129,7 @@ class LocalMusicStreamer:
                         "--extractor-retries", "3",
                         target
                     ]
-                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=30)
+                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=45)
                     for line in res.stdout.strip().splitlines():
                         line = line.strip()
                         if line.startswith("http"):
