@@ -65,98 +65,91 @@ class LocalMusicStreamer:
             return None
 
         clean_q = re.sub(r"\b(on youtube|on spotify|from youtube|from spotify)\b", "", query, flags=re.I).strip()
-        do_download = cls.DOWNLOAD_MODE if prefer_download is None else prefer_download
 
-        # Check local cache first
-        safe_filename = "".join(c for c in clean_q if c.isalnum() or c in (" ", "_", "-")).rstrip()
-        cached_file = MUSIC_DOWNLOAD_DIR / f"{safe_filename}.mp3"
-        if cached_file.exists() and cached_file.stat().st_size > 10000:
-            print(f"🎵 [MUSIC-RESOLVE] Found cached downloaded file: {cached_file}", flush=True)
-            return str(cached_file)
+        # Step 1: Ask backend to resolve stream URL
+        stream_url = None
+        yt_url = None
 
-        print(f"🔍 [MUSIC-RESOLVE] Fast-resolving: '{clean_q}'...", flush=True)
+        print(f"\n[Step 1/3] Asking backend to resolve stream URL for: '{clean_q}'...", flush=True)
+        try:
+            from config import BACKEND_BASE_URL, DEVICE_SLUG
+        except Exception:
+            BACKEND_BASE_URL = "https://rk-ai-backend.onrender.com"
+            DEVICE_SLUG = "123456789"
 
-        # Step 0: Try Cloud Backend Resolution First (Gigabit speed, offloads heavy CPU from Pi Zero)
-        slug_file = BASE_DIR / "slug.txt"
-        slug = slug_file.read_text().strip() if slug_file.exists() else "123456789"
-        backend_url = f"https://rk-ai-backend.onrender.com/device/{slug}/music/resolve"
-        cloud_target = None
         try:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
+            backend_resolve = f"{BACKEND_BASE_URL}/device/{DEVICE_SLUG}/music/resolve"
             payload = json.dumps({"query": clean_q}).encode()
-            headers = {
-                "Content-Type": "application/json",
-                "X-Device-Slug": slug
-            }
-            req = urllib.request.Request(backend_url, data=payload, headers=headers)
-            with urllib.request.urlopen(req, context=ctx, timeout=18.0) as resp:
-                res_data = json.loads(resp.read().decode())
-                stream_url = res_data.get("stream_url") or res_data.get("link")
-                if stream_url and stream_url.startswith("http"):
-                    print(f"⚡ [MUSIC-RESOLVE] Cloud server resolved '{res_data.get('title')}' ({res_data.get('source')}) in {res_data.get('elapsed_seconds')}s!", flush=True)
-                    # If cloud returned a direct audio stream (like Saavn CDN or direct media container), play it directly!
-                    if not ("youtube.com" in stream_url or "youtu.be" in stream_url):
-                        return stream_url
-                    cloud_target = stream_url
+            req = urllib.request.Request(
+                backend_resolve,
+                data=payload,
+                headers={"Content-Type": "application/json", "X-Device-Slug": DEVICE_SLUG}
+            )
+            t0 = time.time()
+            with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
+                data = json.loads(resp.read().decode())
+            elapsed = time.time() - t0
+            print(f"  ✅ Backend responded in {elapsed:.1f}s", flush=True)
+
+            candidate = data.get("stream_url") or data.get("link") or data.get("url")
+            title = data.get("title", "")
+            if candidate:
+                print(f"  🎵 Backend resolved: '{title}' → {candidate[:80]}...", flush=True)
+                if not ("youtube.com" in candidate or "youtu.be" in candidate):
+                    stream_url = candidate
+                    print(f"  ✅ Direct CDN stream — no extraction needed.", flush=True)
+                    return stream_url
+                else:
+                    yt_url = candidate
+            else:
+                yt_url = clean_q
         except Exception as e:
-            print(f"[music-resolve] Cloud fast-resolve notice: {e} — falling back to local Pi", flush=True)
+            print(f"  ⚠️ Backend resolve failed: {e}", flush=True)
+            yt_url = clean_q
 
+        # Step 2: Extract audio stream via yt-dlp (exact copy from test_music.py)
+        if not stream_url:
+            print("\n[Step 2/3] Extracting audio stream via yt-dlp...", flush=True)
+            if not shutil.which("yt-dlp"):
+                print("  ❌ yt-dlp not found!", flush=True)
+                return None
 
-        # Determine the target URL to extract
-        target = cloud_target or (f"https://www.youtube.com/watch?v={candidate_vids[0]}" if candidate_vids else f"ytsearch1:{clean_q}")
+            if not yt_url.startswith("http"):
+                yt_url = f"ytsearch1:{yt_url}"
 
-        # Step 2: Extract audio stream URL via yt-dlp (exact same as test_music.py)
-        if shutil.which("yt-dlp"):
+            cmd = [
+                "yt-dlp",
+                "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
+                "-g",
+                "--no-playlist",
+                "--no-warnings",
+                "--geo-bypass",
+                "--socket-timeout", "10",
+                "--extractor-retries", "3",
+                yt_url,
+            ]
+            print(f"  Running: {' '.join(cmd[:6])} ... {yt_url[:60]}", flush=True)
+            t0 = time.time()
             try:
-                cmd = [
-                    "yt-dlp",
-                    "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
-                    "-g",
-                    "--no-playlist",
-                    "--no-warnings",
-                    "--geo-bypass",
-                    "--socket-timeout", "10",
-                    "--extractor-retries", "3",
-                    target
-                ]
-                print(f"🎵 [MUSIC-RESOLVE] Extracting audio stream via yt-dlp for {target}...", flush=True)
-                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=50)
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+                elapsed = time.time() - t0
+                print(f"  yt-dlp finished in {elapsed:.1f}s (exit code {res.returncode})", flush=True)
+                if res.stderr.strip():
+                    print(f"  yt-dlp stderr: {res.stderr.strip()[:300]}", flush=True)
                 for line in res.stdout.strip().splitlines():
                     line = line.strip()
                     if line.startswith("http"):
-                        print(f"✅ [MUSIC-RESOLVE] Stream URL ready! ({line[:60]}...)", flush=True)
-                        return line
-                if res.stderr:
-                    print(f"⚠️ [MUSIC-RESOLVE] yt-dlp notice: {res.stderr.strip()[:150]}", flush=True)
+                        stream_url = line
+                        print(f"  ✅ Audio stream extracted: {stream_url[:80]}...", flush=True)
+                        return stream_url
+                if not stream_url:
+                    print("  ❌ yt-dlp returned no stream URL.", flush=True)
+            except subprocess.TimeoutExpired:
+                print("  ❌ yt-dlp timed out (60s).", flush=True)
             except Exception as e:
-                print(f"[music-resolve] CLI yt-dlp notice for {target}: {e}", flush=True)
+                print(f"  ❌ yt-dlp error: {e}", flush=True)
 
-        # Step 3: In-process yt_dlp fallback across candidates
-        try:
-            from yt_dlp import YoutubeDL
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "noplaylist": True,
-                "quiet": True,
-                "no_warnings": True,
-                "socket_timeout": 5,
-            }
-            with YoutubeDL(ydl_opts) as ydl:
-                for target in targets:
-                    try:
-                        info = ydl.extract_info(target, download=False)
-                        if info:
-                            entries = info.get("entries")
-                            first = entries[0] if entries else info
-                            stream_url = first.get("url")
-                            if stream_url:
-                                print("✅ [MUSIC-RESOLVE] Stream URL resolved via in-process yt_dlp!", flush=True)
-                                return stream_url
-                    except Exception as e:
-                        print(f"[music-resolve] yt_dlp candidate fallback notice: {e}", flush=True)
-        except Exception as e:
-            print(f"[music-resolve] yt_dlp fallback notice: {e}", flush=True)
-
-        return None
+        return stream_url

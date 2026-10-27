@@ -159,50 +159,12 @@ class AudioPlayer:
             self.play_url_or_file(str(chime_file), is_speech=True, sync=sync)
 
     def start_processing_loop(self):
-        """Continuously loop the 2.2s processing earcon in the background while working."""
-        chime_file = BASE_DIR / "data" / "sounds" / "processing.wav"
-        if not chime_file.exists():
-            return
-        self.stop_processing_loop(play_finished=False)
-        self._processing_active = True
+        """No-op on Pi Zero to save 100% CPU for yt-dlp resolution."""
+        pass
 
-        player_bin = "aplay" if shutil.which("aplay") else ("afplay" if shutil.which("afplay") else "mpv")
-
-        def _loop():
-            import time
-            while getattr(self, "_processing_active", False):
-                try:
-                    if player_bin == "aplay":
-                        cmd = ["aplay", "-q", str(chime_file)]
-                    elif player_bin == "afplay":
-                        cmd = ["afplay", str(chime_file)]
-                    else:
-                        # Don't spin heavy mpv instances on single-core Pi Zero
-                        time.sleep(1.0)
-                        continue
-                    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    self._proc_loop_proc = p
-                    p.wait()
-                    time.sleep(0.5)
-                except Exception:
-                    break
-
-        import threading
-        self._proc_loop_thread = threading.Thread(target=_loop, daemon=True)
-        self._proc_loop_thread.start()
-
-    def stop_processing_loop(self, play_finished: bool = True):
-        """Stop processing earcon loop and immediately play finished confirmation earcon."""
-        self._processing_active = False
-        proc = getattr(self, "_proc_loop_proc", None)
-        if proc:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
-            self._proc_loop_proc = None
-        if play_finished:
-            self.play_chime("finished", sync=False)
+    def stop_processing_loop(self, play_finished: bool = False):
+        """No-op on Pi Zero to save 100% CPU for yt-dlp resolution."""
+        pass
 
     def is_playing(self) -> bool:
         if self._current_proc is not None:
