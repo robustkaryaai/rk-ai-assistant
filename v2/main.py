@@ -314,6 +314,8 @@ class RKV2Assistant:
                 self.conversation.add_interaction(resolved_query, reply, tool)
                 return
 
+            reply = local_res.get("reply", "")
+
             # Check if router provided a pre-generated zero-latency audio file
             pre_audio = local_res.get("audio_file")
             if pre_audio and os.path.exists(pre_audio):
@@ -321,7 +323,6 @@ class RKV2Assistant:
                 self.player.play_url_or_file(pre_audio, is_speech=True)
                 self.player.wait_playback(timeout=10.0)
             else:
-                reply = local_res.get("reply", "")
                 if reply:
                     self.speak(reply)
 
