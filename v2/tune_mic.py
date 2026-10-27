@@ -282,6 +282,14 @@ def test_recording_and_stt(energy_threshold=35):
     except Exception as e:
         print(f"   ❌ STT Error: {e}")
 
+    # Offer Gemini 3.5 Transcribe
+    try:
+        gemini_ans = input("\n🤖 Transcribe this recording with Gemini 3.5 Transcribe? (y/N): ").strip().lower()
+        if gemini_ans == "y":
+            test_gemini_35_transcribe(test_wav)
+    except Exception:
+        pass
+
     try:
         play_ans = input("\n🔊 Play back this recording through speaker at 100% volume? (y/N): ").strip().lower()
         if play_ans == "y":
@@ -293,6 +301,156 @@ def test_recording_and_stt(energy_threshold=35):
 
     return test_wav
 
+
+
+# ─── Google Gemini 3.5 Transcribe Integration ────────────────────────────────
+def get_gemini_api_key():
+    """Retrieve Gemini API key from environment or .env."""
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if key:
+        return key
+    for env_path in [BASE_DIR / ".env", BASE_DIR.parent / ".env"]:
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                if line.startswith("GEMINI_API_KEY="):
+                    k = line.split("=", 1)[1].strip(" '\"")
+                    if k:
+                        return k
+    return ""
+
+
+def test_gemini_35_transcribe(audio_wav_path: Path):
+    """
+    Transcribes audio using Google Gemini 3.5 Transcribe:
+    - Model: 'gemini-3.5-transcribe'
+    - Fallback: 'gemini-2.5-flash'
+    """
+    api_key = get_gemini_api_key()
+    if not api_key:
+        api_key = input("🔑 Enter GEMINI_API_KEY: ").strip()
+        if not api_key:
+            print("⚠️ No Gemini API Key provided.")
+            return
+
+    print("🤖 [Gemini 3.5 Transcribe] Uploading audio to Gemini API...")
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        audio_file = client.files.upload(file=str(audio_wav_path))
+
+        print("🧠 [Gemini 3.5 Transcribe] Model: 'gemini-3.5-transcribe' processing...")
+        response = client.models.generate_content(
+            model="gemini-3.5-transcribe",
+            contents=[audio_file],
+        )
+        transcription = (response.text or "").strip()
+        print(f"✨ [Gemini 3.5 Transcribe Result]: '{transcription}'")
+        return transcription
+    except ImportError:
+        print("❌ google-genai SDK not installed. Run: pip install google-genai")
+    except Exception as e:
+        print(f"⚠️ Gemini 3.5 Transcribe notice: {e}")
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            audio_file = client.files.upload(file=str(audio_wav_path))
+            print("🔄 Retrying with gemini-2.5-flash audio transcription...")
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[audio_file, "Transcribe this speech recording word-for-word. Output only the transcribed text."]
+            )
+            transcription = (response.text or "").strip()
+            print(f"✨ [Gemini Result]: '{transcription}'")
+            return transcription
+        except Exception as e2:
+            print(f"❌ Gemini Error: {e2}")
+    return None
+
+
+def live_gemini_35_stream_transcribe():
+    """
+    ⚡ Real-Time Streaming Live Transcription using gemini-3.5-transcribe-live
+    Streams microphone PCM frames directly over WebSocket connection.
+    """
+    api_key = get_gemini_api_key()
+    if not api_key:
+        api_key = input("🔑 Enter GEMINI_API_KEY: ").strip()
+        if not api_key:
+            print("⚠️ No Gemini API Key provided.")
+            return
+
+    try:
+        import asyncio
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        print("❌ google-genai SDK not installed. Run: pip install google-genai")
+        return
+
+    print("=" * 65)
+    print("⚡ GEMINI 3.5 TRANSCRIBE LIVE — REAL-TIME MICROPHONE STREAMING")
+    print("   Model: 'gemini-3.5-transcribe-live'")
+    print("   Press Ctrl+C to stop streaming.")
+    print("=" * 65)
+
+    client = genai.Client(api_key=api_key)
+    config = types.LiveConnectConfig(
+        response_modalities=["TEXT"],
+        input_audio_transcription=types.AudioTranscriptionConfig(
+            language_codes=["en-IN", "en-US"],
+        ),
+    )
+
+    CHUNK_BYTES = 1024 * 2
+    arecord_cmd = [
+        "arecord", "-D", "pulse", "-f", "S16_LE", "-r", "16000", "-c", "1", "-q", "-t", "raw"
+    ]
+    try:
+        proc = subprocess.Popen(arecord_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except Exception:
+        arecord_cmd[2] = "default"
+        proc = subprocess.Popen(arecord_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    async def _stream_loop():
+        async with client.aio.live.connect(model="gemini-3.5-transcribe-live", config=config) as session:
+            print("🟢 Connected to Gemini Live! Speak now...\n")
+
+            async def send_mic():
+                while proc.poll() is None:
+                    chunk = await asyncio.to_thread(proc.stdout.read, CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    await session.send_realtime_input(
+                        audio=types.Blob(
+                            data=chunk,
+                            mime_type="audio/pcm;rate=16000"
+                        )
+                    )
+                    await asyncio.sleep(0.01)
+
+            async def recv_transcription():
+                async for response in session.receive():
+                    server_content = getattr(response, "server_content", None)
+                    if server_content is not None:
+                        model_turn = getattr(server_content, "model_turn", None)
+                        if model_turn is not None:
+                            for part in model_turn.parts:
+                                if hasattr(part, "text") and part.text:
+                                    print(part.text, end="", flush=True)
+
+            s_task = asyncio.create_task(send_mic())
+            r_task = asyncio.create_task(recv_transcription())
+            await asyncio.gather(s_task, r_task)
+
+    try:
+        asyncio.run(_stream_loop())
+    except KeyboardInterrupt:
+        print("\n⏹️ Stopped Gemini Live Stream.")
+    except Exception as e:
+        print(f"\n⚠️ Gemini Live Stream: {e}")
+    finally:
+        if proc:
+            proc.terminate()
 
 def main():
     cfg = load_mic_config()
@@ -309,6 +467,8 @@ def main():
         print(" [c] 🔁 Continuous Listen & Playback Loop (Auto-record & hear at 100%)")
         print(" [v] 📊 Live VU Meter (See background noise vs speech levels)")
         print(" [t] 🎙️ Test Speech & Google STT Transcription")
+        print(" [g] 🤖 Test Gemini 3.5 Transcribe (File Model)")
+        print(" [l] ⚡ Gemini 3.5 Transcribe Live (Real-Time Mic Stream)")
         print(" [+] 🔊 Increase Mic Gain (+15%)")
         print(" [-] 🔉 Decrease Mic Gain (-15%)")
         print(" [e] ⚙️  Change Energy Threshold manually")
@@ -325,6 +485,14 @@ def main():
             input("Press Enter to continue...")
         elif choice == "t":
             test_recording_and_stt(cfg.get("energy_threshold", 35))
+            input("\nPress Enter to return to menu...")
+        elif choice == "g":
+            wav = test_recording_and_stt(cfg.get("energy_threshold", 35))
+            if wav:
+                test_gemini_35_transcribe(wav)
+            input("\nPress Enter to return to menu...")
+        elif choice == "l":
+            live_gemini_35_stream_transcribe()
             input("\nPress Enter to return to menu...")
         elif choice in ("+", "="):
             new_v = min(250, current_vol + 15)
