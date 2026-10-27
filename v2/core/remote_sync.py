@@ -152,7 +152,8 @@ class RemoteSyncManager:
             elif action == "volume":
                 # Backend sends {"volume": 40}, not {"level": 40}
                 level = int(payload.get("volume") or payload.get("level") or 70)
-                self.player.set_system_volume("set", level)
+                # Set volume silently without interrupting playing music
+                self.player.set_system_volume("set", level, play_chime=False)
                 result = f"Volume set to {level}%"
                 print(f"🔊 [REMOTE] Volume set to {level}%", flush=True)
             elif action == "text_command":

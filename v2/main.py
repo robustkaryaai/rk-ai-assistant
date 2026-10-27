@@ -133,8 +133,8 @@ class RKV2Assistant:
         self.player.play_chime("answer", sync=True)
 
         if self.conversation.is_whisper_mode_active():
-            print("🌙 [NIGHT PROTOCOL] Volume lowered to 30% for gentle playback.")
-            self.player.set_system_volume("set", 30)
+            print("🌙 [NIGHT PROTOCOL] Volume lowered to 50% for gentle playback.")
+            self.player.set_system_volume("set", 50, play_chime=False)
 
         # Gate sound monitor while TTS is speaking
         if hasattr(self, "sound_monitor"):

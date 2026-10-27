@@ -197,7 +197,7 @@ class AudioPlayer:
         """Keepalive is handled by PulseAudio sink suspension flags."""
         pass
 
-    def set_system_volume(self, action: str, level: Optional[int] = None, step: int = 10):
+    def set_system_volume(self, action: str, level: Optional[int] = None, step: int = 10, play_chime: bool = True):
         try:
             if action == "set" and level is not None:
                 self._pre_duck_volume = max(0, min(100, level))
@@ -218,5 +218,7 @@ class AudioPlayer:
         except Exception as e:
             print(f"[player] Volume error: {e}", flush=True)
 
-        if action in ("set", "up", "down"):
-            self.play_chime("volume_tick")
+        # Only play volume tick earcon if we aren't currently streaming music or if explicitly requested
+        if play_chime and action in ("set", "up", "down"):
+            if not self.is_playing():
+                self.play_chime("volume_tick")
