@@ -258,14 +258,12 @@ class AudioRecorder:
                     except Exception:
                         pass
 
-                # 🚀 Closed-Box Far-Field Sensitivity:
+                # 🚀 Instant Speech Trigger & Low Latency:
                 self._recognizer.energy_threshold = base_energy
-                self._recognizer.dynamic_energy_threshold = True
-                self._recognizer.dynamic_energy_ratio = 1.2
-                self._recognizer.dynamic_energy_adjustment_damping = 0.15
-                self._recognizer.pause_threshold = 1.3
-                self._recognizer.phrase_threshold = 0.05  # Ultra-fast trigger on first syllable
-                self._recognizer.non_speaking_duration = 0.7
+                self._recognizer.dynamic_energy_threshold = False  # Fixed threshold so it doesn't float upward and miss words!
+                self._recognizer.pause_threshold = 0.5            # Cut from 1.8s to 0.5s: Interprets the MOMENT you finish speaking!
+                self._recognizer.phrase_threshold = 0.05          # Instant start on first syllable
+                self._recognizer.non_speaking_duration = 0.3      # Only 300ms trailing silence required
                 self._mic = sr.Microphone(sample_rate=16000)
             except Exception as e:
                 print(f"[recorder] Error initializing SpeechRecognition: {e}", flush=True)
@@ -310,17 +308,17 @@ class AudioRecorder:
 
         if self._recognizer and self._mic:
             try:
-                # Keep pause threshold generous (1.8s) so natural mid-sentence pauses aren't cut short
-                self._recognizer.pause_threshold = max(silence_duration, 1.8)
-                self._recognizer.non_speaking_duration = 1.0
+                # Ultra-responsive: stops and sends audio 0.5s after you finish talking!
+                self._recognizer.pause_threshold = 0.5
+                self._recognizer.non_speaking_duration = 0.3
                 with no_alsa_err():
                     with self._mic as source:
-                        # phrase_time_limit allows speaking full long sentences (12s)
-                        audio = self._recognizer.listen(source, timeout=6, phrase_time_limit=max(duration, 12))
+                        # timeout=3 so idle checks loop smoothly without freezing
+                        audio = self._recognizer.listen(source, timeout=3, phrase_time_limit=max(duration, 12))
 
-                # 1. Strip non-speech frames (WebRTC VAD) — cleans signal before boost
+                # 1. Strip non-speech frames (WebRTC VAD)
                 audio = _vad_filter(audio)
-                # 2. Noise gate + soft RMS boost — replaces old flat 35x amplifier
+                # 2. Noise gate + soft RMS boost
                 audio = _smart_boost(audio)
 
                 with open(self.record_path, "wb") as f:
@@ -365,7 +363,7 @@ class AudioRecorder:
         if not self.record_path.exists():
             return ""
 
-        # 1. Primary: Direct Google STT with dual language fallback (en-IN -> en-US)
+        # 1. Primary: Direct Google STT with single high-accuracy request
         if SPEECH_RECOGNITION_AVAILABLE:
             try:
                 r = sr.Recognizer()
@@ -375,14 +373,9 @@ class AudioRecorder:
                     audio = _vad_filter(audio)
                     # 2. Noise gate + soft boost — clean amplification
                     audio = _smart_boost(audio)
-                    text = ""
-                    for lang in ["en-IN", "en-US"]:
-                        try:
-                            text = r.recognize_google(audio, language=lang).strip()
-                            if text:
-                                break
-                        except sr.UnknownValueError:
-                            continue
+
+                    # Direct single Google STT call (fastest response)
+                    text = r.recognize_google(audio, language="en-IN").strip()
                     if text:
                         print(f"🔤 [STT] Recognized: '{text}'", flush=True)
                         return text
