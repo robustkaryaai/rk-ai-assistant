@@ -79,10 +79,16 @@ class RKV2Assistant:
     def _load_wake_words(self) -> set:
         """Load configured wake word aliases from disk or fallback to comprehensive phonetic matches."""
         defaults = {
-            "rk", "r k", "r.k", "r.k.", "aar kay", "ar kay", "aarkay", "arkay",
-            "are kay", "are k", "our k", "arcay", "arca", "archae",
-            "aunty", "anti", "arti", "aarti", "archi", "archie", "aarati", "aarthi",
-            "artie", "okay rk", "hey rk", "ok rk", "hi rk", "arre k", "arey k"
+            # Direct RK forms
+            "rk", "r k", "r.k", "r.k.", "ark", "arc", "ar k", "aar k",
+            # Phonetic expansions
+            "aar kay", "ar kay", "aarkay", "arkay", "are kay", "are k", "our k", "arcay", "arca", "archae",
+            "arika", "aarika", "arka", "aar key", "are key", "arr key", "ar kee", "aar kee", "our key",
+            # Common Indian accent STT matches (aunty, aarti, arti, arshi, etc.)
+            "aunty", "anti", "arti", "aarti", "archi", "archie", "aarati", "aarthi", "artie", "aarki", "aarky", "aari",
+            "archana", "arya", "aryan", "rishi", "rushi", "ruby", "rocky", "rocket",
+            # Prefixed triggers
+            "okay rk", "hey rk", "ok rk", "hi rk", "arre k", "arey k", "hello rk", "yo rk", "listen rk"
         }
         cfg_file = self.data_dir / "wake_words.json"
         if cfg_file.exists():
@@ -191,8 +197,13 @@ class RKV2Assistant:
         # Check multi-word and single-word aliases (sort by length desc to match longest first)
         sorted_aliases = sorted(self._wake_words, key=len, reverse=True)
         for alias in sorted_aliases:
+            # Word boundary match
             pattern = r"\b" + re.escape(alias) + r"\b"
             if re.search(pattern, lower_text):
+                matched_wake = alias
+                break
+            # Prefix match (e.g. 'rkplay', 'rktell')
+            if lower_text.startswith(alias):
                 matched_wake = alias
                 break
 
