@@ -164,12 +164,8 @@ class RKHomeClient:
         url = f"{self.base_url}/device/{self.slug}/ping"
         try:
             resp = self.session.post(url, timeout=5)
-            ok = resp.status_code == 200
-            if ok:
-                print(f"💓 [Heartbeat] ping OK")
-            return ok
-        except Exception as e:
-            print(f"💔 [Heartbeat] ping failed: {e}")
+            return resp.status_code == 200
+        except Exception:
             return False
 
     def poll_maintenance(self) -> Dict[str, Any]:
