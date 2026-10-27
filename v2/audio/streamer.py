@@ -134,17 +134,16 @@ class LocalMusicStreamer:
                 try:
                     cmd = [
                         "yt-dlp",
-                        "-f", "140/251/bestaudio",   # android itags: 140=m4a, 251=webm/opus
+                        "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
                         "-g",
                         "--no-playlist",
                         "--no-warnings",
                         "--geo-bypass",
-                        "--extractor-args", "youtube:player_client=android",
-                        "--socket-timeout", "8",
-                        "--extractor-retries", "2",
+                        "--socket-timeout", "10",
+                        "--extractor-retries", "3",
                         target
                     ]
-                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=25)
+                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=30)
                     for line in res.stdout.strip().splitlines():
                         line = line.strip()
                         if line.startswith("http"):

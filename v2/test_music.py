@@ -99,17 +99,16 @@ if not stream_url:
 
     cmd = [
         "yt-dlp",
-        "-f", "140/251/bestaudio",   # 140=m4a, 251=webm/opus — android client itags
+        "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
         "-g",
         "--no-playlist",
         "--no-warnings",
         "--geo-bypass",
-        "--extractor-args", "youtube:player_client=android",
-        "--socket-timeout", "8",
-        "--extractor-retries", "2",
+        "--socket-timeout", "10",
+        "--extractor-retries", "3",
         yt_url,
     ]
-    print(f"  Running: yt-dlp --extractor-args android ... {yt_url[:60]}")
+    print(f"  Running: {' '.join(cmd[:6])} ... {yt_url[:60]}")
     t0 = time.time()
     try:
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)

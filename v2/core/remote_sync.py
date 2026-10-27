@@ -160,14 +160,13 @@ class RemoteSyncManager:
                                 try:
                                     cmd = [
                                         "yt-dlp",
-                                        "-f", "140/251/bestaudio",   # 140=m4a, 251=webm/opus — android itags
+                                        "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
                                         "-g",
                                         "--no-playlist",
                                         "--no-warnings",
                                         "--geo-bypass",
-                                        "--extractor-args", "youtube:player_client=android",
-                                        "--socket-timeout", "8",
-                                        "--extractor-retries", "2",
+                                        "--socket-timeout", "10",
+                                        "--extractor-retries", "3",
                                         yt_url,
                                     ]
                                     res = sp.run(cmd, stdout=sp.PIPE, stderr=sp.PIPE, text=True, timeout=30)
