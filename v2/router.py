@@ -98,7 +98,7 @@ class FastCommandRouter:
         # ─── SECTION 1 & 2: PLAYBACK CONTROLS ───────────────
         if cleaned in ("stop", "pause", "shut up", "quiet", "silence", "halt", "cancel"):
             return True, {
-                "reply": "Stopping.",
+                "reply": "Stopped.",
                 "tool": "playback_control",
                 "args": {"action": "stop"}
             }

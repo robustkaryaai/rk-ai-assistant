@@ -26,10 +26,11 @@ class RemoteSyncManager:
         self.tts.speak("Pinging your phone now at maximum volume.")
 
     def trigger_sos_alarm(self):
-        """5.4 Emergency SOS Fire Brigade Siren & Contact Alert."""
+        """5.4 Emergency SOS Fire Brigade Siren & Evacuation Alert with Real-time Ducking."""
         print("🚨 [SOS] Emergency fire / panic alarm triggered!")
         from pathlib import Path
         sounds_dir = Path(__file__).resolve().parent.parent / "data" / "sounds"
+        sos_evacuate_file = sounds_dir / "sos_evacuate.mp3"
         fire_alarm_file = sounds_dir / "fire_alarm.mp3"
         siren_file = sounds_dir / "emergency_siren.wav"
 
@@ -38,19 +39,32 @@ class RemoteSyncManager:
             self.player._is_emergency = True
             self.player.set_system_volume("set", 100)
 
-        # 1. Announce emergency immediately
-        if self.tts:
-            self.tts.speak("Emergency fire alarm triggered! Please evacuate immediately.")
+        # 1. Preferred: High-fidelity seamless ducked evacuation mix (Siren -> Ducks to 20% -> TTS plays loud -> Siren resumes full blast)
+        if sos_evacuate_file.exists() and self.player:
+            print("🔊 [SOS] Playing ducked emergency siren & evacuation broadcast...", flush=True)
+            self.player.play_url_or_file(str(sos_evacuate_file))
+            return
 
-        # 2. Max out volume and blast continuous fire alarm siren
-        if self.player:
-            self.player._is_emergency = True
+        # 2. Dynamic Fallback: Play siren briefly, duck volume, announce evacuation, resume full volume
+        if self.player and (fire_alarm_file.exists() or siren_file.exists()):
+            target = str(fire_alarm_file) if fire_alarm_file.exists() else str(siren_file)
+            print("🔊 [SOS] Playing intro siren...", flush=True)
+            self.player.play_url_or_file(target)
+            time.sleep(2.5)  # Let siren scream for 2.5s
+
+            # Duck volume for voice announcement
+            print("🔊 [SOS] Ducking siren for emergency voice broadcast...", flush=True)
+            self.player.set_system_volume("set", 30)
+            if self.tts:
+                self.tts.speak("Emergency fire alarm triggered! Please evacuate immediately.")
+            time.sleep(4.0)
+
+            # Bring volume back to 100% continuous alarm
+            print("🔊 [SOS] Restoring siren to 100%...", flush=True)
             self.player.set_system_volume("set", 100)
-            if fire_alarm_file.exists():
-                print("🔊 [SOS] Playing continuous fire alarm siren...")
-                self.player.play_url_or_file(str(fire_alarm_file))
-            elif siren_file.exists():
-                self.player.play_url_or_file(str(siren_file), sync=True)
+            self.player.play_url_or_file(target)
+        elif self.tts:
+            self.tts.speak("Emergency fire alarm triggered! Please evacuate immediately.")
 
     def poll_remote_commands(self):
         """
