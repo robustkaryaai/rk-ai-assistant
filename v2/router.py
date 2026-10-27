@@ -323,8 +323,8 @@ class FastCommandRouter:
                 "args": {}
             }
 
-        # ─── SECTION 5.4: EMERGENCY SOS SIREN ────────────────
-        if re.search(r"\b(emergency|sos|help me|panic alarm)\b", cleaned):
+        # ─── SECTION 5.4: EMERGENCY SOS & FIRE ALARM SIREN ───
+        if re.search(r"\b(fire alarm|emergency|sos|help me|panic alarm|evacuate)\b", cleaned):
             return True, {
                 "reply": None,
                 "tool": "emergency_sos",

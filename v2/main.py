@@ -291,7 +291,7 @@ class RKV2Assistant:
         # Map backend cloud intents directly to local hardware triggers
         if backend_intent == "period_bell":
             self.alarm_mgr.ring_period_bell(backend_params.get("label", "Period Bell"))
-        elif backend_intent == "emergency_alarm":
+        elif backend_intent in ("emergency_alarm", "fire_alarm"):
             self.remote_sync.trigger_sos_alarm()
         elif backend_intent == "stop_alarm":
             self.alarm_mgr.stop_alarm()

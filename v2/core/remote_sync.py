@@ -52,9 +52,6 @@ class RemoteSyncManager:
             elif siren_file.exists():
                 self.player.play_url_or_file(str(siren_file), sync=True)
 
-        if self.client:
-            self.client.send_text("emergency_alarm_trigger")
-
     def poll_remote_commands(self):
         """
         5.2 Polls pending commands sent from the mobile/web dashboard.
