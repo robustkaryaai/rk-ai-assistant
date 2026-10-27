@@ -461,23 +461,15 @@ class RKV2Assistant:
                 self.player.play_url_or_file(song_url)
                 return
 
-            # 3. Stream Resolution via LocalMusicStreamer (which queries Render backend first at gigabit speeds!)
-            print(f"🎵 [Music] Resolving audio stream for: '{q}'...")
-            local_stream = LocalMusicStreamer.get_audio_stream_url(q)
-            if local_stream:
+            # 3. Stream Resolution: fetch direct audio stream URL from backend
+            print(f"🎵 [Music] Requesting stream URL for: '{q}'...")
+            stream_url = LocalMusicStreamer.get_audio_stream_url(q)
+            if stream_url:
                 print(f"🎵 [Music] Stream ready! Starting playback...")
                 self.player.wait_playback(timeout=10.0)  # Wait for parallel TTS spoken acknowledgment to finish
-                self.player.play_url_or_file(local_stream)
-                return
-
-            # 4. Fallback to backend send_text if resolution fails
-            print(f"🎵 [Music] Fallback to backend for: {q}")
-            res = self.client.send_text(f"play {q}")
-            local_action = res.get("local_action") or {}
-            b_url = local_action.get("args", {}).get("song_url") if isinstance(local_action, dict) else None
-            if b_url:
-                self.player.wait_playback(timeout=10.0)
-                self.player.play_url_or_file(b_url)
+                self.player.play_url_or_file(stream_url)
+            else:
+                print(f"⚠️ [Music] Could not obtain stream URL for: {q}")
 
         elif tool == "system":
             act = args.get("action")
