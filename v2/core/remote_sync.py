@@ -1,5 +1,9 @@
 import time
+import shutil
+import threading
+import subprocess as sp
 from typing import Dict, Any, List
+
 
 class RemoteSyncManager:
     """
@@ -149,7 +153,6 @@ class RemoteSyncManager:
                     is_youtube = "youtube.com" in url or "youtu.be" in url
                     if is_youtube:
                         # Run yt-dlp in background so voice loop is never blocked
-                        import threading, shutil, subprocess as sp
                         def _resolve_and_play(yt_url):
                             print(f"🎵 [MUSIC] Resolving YouTube stream in background...", flush=True)
                             stream_url = None

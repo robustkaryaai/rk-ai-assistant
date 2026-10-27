@@ -5,10 +5,16 @@ Asks for a song query, resolves via backend/yt-dlp, plays on Pi speaker.
 Usage: python3 v2/test_music.py
 """
 import sys
+import ssl
+import json
 import time
 import shutil
 import subprocess
+import threading
+import urllib.request
+import urllib.parse
 from pathlib import Path
+
 
 # Add v2 to path so imports work
 BASE_DIR = Path(__file__).resolve().parent
@@ -39,7 +45,7 @@ if not query:
 print(f"\n🔍 Resolving: '{query}' ...")
 
 # ── Try backend resolution first ──────────────────────────────
-import ssl, json, urllib.request
+
 
 stream_url = None
 
