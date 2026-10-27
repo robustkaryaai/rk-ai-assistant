@@ -51,7 +51,7 @@ def get_pactl_volume():
 
 def set_pactl_volume(vol_percent):
     """Sets PulseAudio capture source volume safely and un-mutes all mic channels."""
-    vol_percent = max(10, min(250, vol_percent))
+    vol_percent = max(10, min(500, vol_percent))
     try:
         # Set software source volume
         subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{vol_percent}%"], check=True)
@@ -121,26 +121,31 @@ def continuous_loop_calibration(cfg):
 
     while True:
         current_vol = get_pactl_volume()
-        set_pactl_volume(current_vol) # Ensure unmuted
         ensure_speaker_loud()
 
         print(f"\n🎤 Current Mic Gain: \033[96m{current_vol}%\033[0m")
         print("👉 Speak now (3 seconds test recording)...")
         time.sleep(0.4)
 
-        # Record via arecord for raw, reliable zero-latency capture
+        # Record via arecord mapped through pulse to get full boosted volume
         try:
             subprocess.run([
-                "arecord", "-D", "default", "-r", "16000", "-c", "1",
+                "arecord", "-D", "pulse", "-r", "16000", "-c", "1",
                 "-f", "S16_LE", "-d", "3", "-q", str(test_wav)
             ], check=True)
         except Exception:
-            # Fallback to speech_recognition if arecord directly fails
-            r = sr.Recognizer()
-            with sr.Microphone(sample_rate=16000) as source:
-                audio = r.record(source, duration=3)
-            with open(test_wav, "wb") as f:
-                f.write(audio.get_wav_data())
+            try:
+                subprocess.run([
+                    "arecord", "-D", "default", "-r", "16000", "-c", "1",
+                    "-f", "S16_LE", "-d", "3", "-q", str(test_wav)
+                ], check=True)
+            except Exception:
+                # Fallback to speech_recognition if arecord directly fails
+                r = sr.Recognizer()
+                with sr.Microphone(sample_rate=16000) as source:
+                    audio = r.record(source, duration=3)
+                with open(test_wav, "wb") as f:
+                    f.write(audio.get_wav_data())
 
         # Measure audio metrics
         peak = 0
@@ -170,17 +175,22 @@ def continuous_loop_calibration(cfg):
 
         # Single-prompt adjustment
         print("-" * 65)
-        print("Actions: [+] Increase (+15%) | [-] Decrease (-15%) | [r] Retry same | [s] Save & Exit | [q] Cancel")
+        print("Actions: [+] +25% | [-] -25% | [number] e.g. 250 | [r] Retry | [s] Save & Exit | [q] Cancel")
         choice = input("Your choice: ").strip().lower()
 
         if choice in ("+", "="):
-            new_v = min(250, current_vol + 15)
+            new_v = min(500, current_vol + 25)
             set_pactl_volume(new_v)
             cfg["source_volume_percent"] = new_v
         elif choice in ("-", "_"):
-            new_v = max(20, current_vol - 15)
+            new_v = max(20, current_vol - 25)
             set_pactl_volume(new_v)
             cfg["source_volume_percent"] = new_v
+        elif choice.isdigit():
+            new_v = max(10, min(500, int(choice)))
+            set_pactl_volume(new_v)
+            cfg["source_volume_percent"] = new_v
+            print(f"Gain set directly to {new_v}%")
         elif choice == "s":
             cfg["source_volume_percent"] = current_vol
             save_mic_config(cfg)
