@@ -83,7 +83,6 @@ def setup_microphone_volume():
         subprocess.run(["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"], capture_output=True)
     except Exception:
         pass
-        pass
 
 
 # ─── Closed-Box Adaptive Equalizer & Peak AGC Normalizer ──────────────────────
@@ -249,11 +248,20 @@ class AudioRecorder:
         if SPEECH_RECOGNITION_AVAILABLE:
             try:
                 self._recognizer = sr.Recognizer()
+                cfg_file = self.data_dir / "mic_config.json"
+                base_energy = 50
+                if cfg_file.exists():
+                    try:
+                        import json
+                        cfg = json.loads(cfg_file.read_text())
+                        base_energy = int(cfg.get("energy_threshold", 50))
+                    except Exception:
+                        pass
+
                 # 🚀 Closed-Box Far-Field Sensitivity:
-                # 25 base energy threshold catches quiet muffled speech inside an enclosure immediately.
-                self._recognizer.energy_threshold = 25
+                self._recognizer.energy_threshold = base_energy
                 self._recognizer.dynamic_energy_threshold = True
-                self._recognizer.dynamic_energy_ratio = 1.15
+                self._recognizer.dynamic_energy_ratio = 1.2
                 self._recognizer.dynamic_energy_adjustment_damping = 0.15
                 self._recognizer.pause_threshold = 1.3
                 self._recognizer.phrase_threshold = 0.05  # Ultra-fast trigger on first syllable
@@ -263,15 +271,25 @@ class AudioRecorder:
                 print(f"[recorder] Error initializing SpeechRecognition: {e}", flush=True)
 
     def calibrate_once(self):
-        """Calibrate ambient noise with 100% hardware gain set."""
+        """Calibrate ambient noise with configured hardware gain set."""
         setup_microphone_volume()
         if self._recognizer and self._mic:
             try:
+                cfg_file = self.data_dir / "mic_config.json"
+                base_energy = 50
+                if cfg_file.exists():
+                    try:
+                        import json
+                        cfg = json.loads(cfg_file.read_text())
+                        base_energy = int(cfg.get("energy_threshold", 50))
+                    except Exception:
+                        pass
+
                 print("🎙️ [STT] Calibrating microphone for room noise (1s)...", flush=True)
                 with self._mic as source:
                     self._recognizer.adjust_for_ambient_noise(source, duration=0.8)
-                # Keep floor ultra-sensitive (25) for muffled box mic
-                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, 25)
+                # Keep floor at base energy (e.g. 50-80) for muffled box mic
+                self._recognizer.energy_threshold = max(self._recognizer.energy_threshold, base_energy)
                 print(f"🎙️ [STT] Baseline energy threshold: {self._recognizer.energy_threshold:.0f}", flush=True)
             except Exception as e:
                 print(f"[STT] Calibration notice: {e}", flush=True)

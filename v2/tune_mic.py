@@ -87,9 +87,9 @@ def load_mic_config():
         except Exception:
             pass
     return {
-        "source_volume_percent": 125,
-        "energy_threshold": 35,
-        "dynamic_energy_ratio": 1.3,
+        "source_volume_percent": 200,
+        "energy_threshold": 60,
+        "dynamic_energy_ratio": 1.25,
         "phrase_threshold": 0.15
     }
 
