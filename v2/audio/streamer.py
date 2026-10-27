@@ -104,39 +104,34 @@ class LocalMusicStreamer:
             print(f"[music-resolve] Cloud fast-resolve notice: {e} — falling back to local Pi", flush=True)
 
 
-        # Step 1: Rapidly grab the candidate video IDs via direct web scrape (<0.8s)
-        candidate_vids = cls._fast_extract_videoids(clean_q)
-        targets = []
-        if cloud_target:
-            targets.append(cloud_target)
-        if candidate_vids:
-            targets.extend([f"https://www.youtube.com/watch?v={vid}" for vid in candidate_vids if f"https://www.youtube.com/watch?v={vid}" not in targets])
-        if not targets:
-            targets = [f"ytsearch1:{clean_q}"]
+        # Determine the target URL to extract
+        target = cloud_target or (f"https://www.youtube.com/watch?v={candidate_vids[0]}" if candidate_vids else f"ytsearch1:{clean_q}")
 
-        # Step 2: Extract audio stream URL via yt-dlp across candidates
+        # Step 2: Extract audio stream URL via yt-dlp (exact same as test_music.py)
         if shutil.which("yt-dlp"):
-            for target in targets:
-                try:
-                    cmd = [
-                        "yt-dlp",
-                        "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
-                        "-g",
-                        "--no-playlist",
-                        "--no-warnings",
-                        "--geo-bypass",
-                        "--socket-timeout", "10",
-                        "--extractor-retries", "3",
-                        target
-                    ]
-                    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=45)
-                    for line in res.stdout.strip().splitlines():
-                        line = line.strip()
-                        if line.startswith("http"):
-                            print(f"✅ [MUSIC-RESOLVE] Stream URL ready! ({line[:60]}...)", flush=True)
-                            return line
-                except Exception as e:
-                    print(f"[music-resolve] CLI yt-dlp notice for {target}: {e}", flush=True)
+            try:
+                cmd = [
+                    "yt-dlp",
+                    "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
+                    "-g",
+                    "--no-playlist",
+                    "--no-warnings",
+                    "--geo-bypass",
+                    "--socket-timeout", "10",
+                    "--extractor-retries", "3",
+                    target
+                ]
+                print(f"🎵 [MUSIC-RESOLVE] Extracting audio stream via yt-dlp for {target}...", flush=True)
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=50)
+                for line in res.stdout.strip().splitlines():
+                    line = line.strip()
+                    if line.startswith("http"):
+                        print(f"✅ [MUSIC-RESOLVE] Stream URL ready! ({line[:60]}...)", flush=True)
+                        return line
+                if res.stderr:
+                    print(f"⚠️ [MUSIC-RESOLVE] yt-dlp notice: {res.stderr.strip()[:150]}", flush=True)
+            except Exception as e:
+                print(f"[music-resolve] CLI yt-dlp notice for {target}: {e}", flush=True)
 
         # Step 3: In-process yt_dlp fallback across candidates
         try:

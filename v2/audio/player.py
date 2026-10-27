@@ -172,14 +172,18 @@ class AudioPlayer:
             import time
             while getattr(self, "_processing_active", False):
                 try:
-                    cmd = [player_bin, str(chime_file)]
                     if player_bin == "aplay":
                         cmd = ["aplay", "-q", str(chime_file)]
-                    elif player_bin == "mpv":
-                        cmd = ["mpv", "--no-video", "--really-quiet", str(chime_file)]
+                    elif player_bin == "afplay":
+                        cmd = ["afplay", str(chime_file)]
+                    else:
+                        # Don't spin heavy mpv instances on single-core Pi Zero
+                        time.sleep(1.0)
+                        continue
                     p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     self._proc_loop_proc = p
                     p.wait()
+                    time.sleep(0.5)
                 except Exception:
                     break
 
