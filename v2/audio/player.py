@@ -134,6 +134,41 @@ class AudioPlayer:
         if chime_file.exists():
             self.play_url_or_file(str(chime_file), is_speech=True, sync=sync)
 
+    def start_processing_loop(self):
+        """Continuously loop the 2.2s processing earcon in the background while working."""
+        chime_file = BASE_DIR / "data" / "sounds" / "processing.wav"
+        if not chime_file.exists():
+            return
+        self.stop_processing_loop()
+        self._processing_active = True
+
+        def _loop():
+            import time
+            while getattr(self, "_processing_active", False):
+                try:
+                    p = subprocess.Popen(["aplay", "-q", str(chime_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._proc_loop_proc = p
+                    p.wait()
+                except Exception:
+                    break
+
+        import threading
+        self._proc_loop_thread = threading.Thread(target=_loop, daemon=True)
+        self._proc_loop_thread.start()
+
+    def stop_processing_loop(self, play_finished: bool = True):
+        """Stop processing earcon loop and immediately play finished confirmation earcon."""
+        self._processing_active = False
+        proc = getattr(self, "_proc_loop_proc", None)
+        if proc:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            self._proc_loop_proc = None
+        if play_finished:
+            self.play_chime("finished", sync=False)
+
     def is_playing(self) -> bool:
         if self._current_proc is not None:
             if self._current_proc.poll() is None:

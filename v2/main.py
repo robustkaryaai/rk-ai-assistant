@@ -334,8 +334,11 @@ class RKV2Assistant:
 
         # ─── STEP 2: RK_AI_HOME BACKEND CALL ───────────
         print(f"☁️ [Backend] Forwarding to RK_AI_HOME...")
-        self.player.play_chime("thinking")
-        backend_res = self.client.send_text(resolved_query)
+        self.player.start_processing_loop()
+        try:
+            backend_res = self.client.send_text(resolved_query)
+        finally:
+            self.player.stop_processing_loop(play_finished=True)
 
         reply = backend_res.get("reply") if backend_res else None
 
@@ -463,7 +466,12 @@ class RKV2Assistant:
 
             # 3. Stream Resolution: fetch direct audio stream URL from backend
             print(f"🎵 [Music] Requesting stream URL for: '{q}'...")
-            stream_url = LocalMusicStreamer.get_audio_stream_url(q)
+            self.player.start_processing_loop()
+            try:
+                stream_url = LocalMusicStreamer.get_audio_stream_url(q)
+            finally:
+                self.player.stop_processing_loop(play_finished=bool(stream_url))
+
             if stream_url:
                 print(f"🎵 [Music] Stream ready! Starting playback...")
                 self.player.wait_playback(timeout=10.0)  # Wait for parallel TTS spoken acknowledgment to finish
