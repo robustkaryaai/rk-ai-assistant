@@ -65,31 +65,37 @@ class AudioPlayer:
 
         is_url = target.startswith(("http://", "https://"))
 
-        # 1. Web stream playback (WebM, Opus, MP4, MP3 via mpv / cvlc / ffplay)
+        # 1. Web stream playback (ffplay is highest priority for Pi Zero: zero stutter, light CPU, hardware buffer)
         if is_url:
-            for player in ["mpv", "cvlc", "ffplay"]:
+            for player in ["ffplay", "mpv", "cvlc"]:
                 if shutil.which(player):
                     try:
-                        args = [player, target]
-                        if player == "mpv":
-                            args.extend([
+                        if player == "ffplay":
+                            args = [
+                                "ffplay",
+                                "-nodisp",
+                                "-autoexit",
+                                "-loglevel", "quiet",
+                                "-rtbufsize", "10M",
+                                target
+                            ]
+                        elif player == "mpv":
+                            args = [
+                                "mpv",
                                 "--no-video",
                                 "--volume=100",
+                                "--ytdl=no",
                                 "--ao=pulse,alsa",
                                 "--audio-samplerate=44100",
                                 "--audio-format=s16",
                                 "--audio-buffer=1.0",
-                                "--demuxer-max-bytes=4M",
-                                "--demuxer-readahead-secs=8",
                                 "--cache=yes",
                                 "--cache-secs=30",
-                                "--network-timeout=15",
-                                "--really-quiet"
-                            ])
+                                "--really-quiet",
+                                target
+                            ]
                         elif player == "cvlc":
-                            args.extend(["--play-and-exit", "--aout=pulse"])
-                        elif player == "ffplay":
-                            args.extend(["-nodisp", "-autoexit"])
+                            args = ["cvlc", "--play-and-exit", "--no-video", "--quiet", target]
 
                         self._current_proc = subprocess.Popen(
                             args,
@@ -102,7 +108,7 @@ class AudioPlayer:
                     except Exception as e:
                         print(f"[player] Error launching {player}: {e}")
 
-        # 2. Local audio files (WAV or MP3)
+        # 2. Local audio files (WAV via aplay, MP3 via mpg123)
         if target.endswith(".wav") and shutil.which("aplay"):
             try:
                 self._current_proc = subprocess.Popen(
@@ -113,6 +119,21 @@ class AudioPlayer:
                 if sync:
                     self._current_proc.wait()
                 return True
+            except Exception as e:
+                print(f"[player] aplay error: {e}")
+
+        if target.endswith(".mp3") and shutil.which("mpg123"):
+            try:
+                self._current_proc = subprocess.Popen(
+                    ["mpg123", "-o", "pulse", "-b", "32768", "--no-resync", "-q", target],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                if sync:
+                    self._current_proc.wait()
+                return True
+            except Exception as e:
+                print(f"[player] mpg123 error: {e}")
             except Exception as e:
                 print(f"[player] aplay error: {e}")
 
