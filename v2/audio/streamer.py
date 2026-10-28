@@ -125,18 +125,19 @@ class LocalMusicStreamer:
                 "192.168.43.1",  # Android hotspot gateway
                 "192.168.43.10",
             ]
+            print(f"⚡ [MAC-RESOLVE] Checking fast Mac resolver for {yt_url[:50]}...", flush=True)
             for host in candidate_hosts:
                 try:
                     mac_url = f"http://{host}:7070"
                     payload = json.dumps({"query": yt_url}).encode()
                     req = urllib.request.Request(mac_url, data=payload, headers={"Content-Type": "application/json"})
-                    with urllib.request.urlopen(req, timeout=1.8) as resp:
+                    with urllib.request.urlopen(req, timeout=6.0) as resp:
                         m_data = json.loads(resp.read().decode())
                         if m_data.get("ok") and m_data.get("stream_url"):
                             stream_url = m_data["stream_url"]
                             print(f"⚡ [MAC-RESOLVE] Resolved in {m_data.get('elapsed')}s via Mac ({host})!", flush=True)
                             return stream_url
-                except Exception:
+                except Exception as me:
                     pass
 
         # Step 2: Extract audio stream via yt-dlp (Pi Zero fallback if Mac is asleep)
