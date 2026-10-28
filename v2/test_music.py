@@ -91,8 +91,9 @@ if not stream_url and yt_url:
     print("\n[Step 1.5] Checking Fast Mac LAN Resolver...")
     candidate_hosts = [
         "Devs-MacBook-Air.local",
-        "192.168.1.3",
+        "10.184.180.25",   # Current Mac IP on devphone hotspot
         "10.184.180.218",  # Phone hotspot IP
+        "192.168.1.3",
         "192.168.1.10",
         "172.20.10.2",
         "172.20.10.3",
